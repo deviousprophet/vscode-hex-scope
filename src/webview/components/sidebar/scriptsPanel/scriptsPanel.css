@@ -120,10 +120,15 @@
 /* Status dot — fully migrated to .sb-status-dot (ok/err/idle tokens). Removed
    local .script-dot/.dot-* rules; geometry is identical (8px circle). */
 
+/* Name is the primary open affordance (the pencil button stays as the secondary
+   one); the button reset keeps the single-line ellipsis row. */
 .script-name {
     font-family: var(--font-editor); font-size: 12px; color: var(--fg);
-    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    background: none; border: none; padding: 0; text-align: left; cursor: pointer;
 }
+.script-name:hover { text-decoration: underline; }
+.script-name:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: 1px; }
 /* Ext badge — ponytail: kept local (mono filetype pill, role differs from the
    .sb-badge count style) */
 .script-ext {
@@ -142,6 +147,28 @@
     font-size: 9px; color: #e6a23c; font-family: var(--font-ui);
     background: rgba(230,162,60,.12); padding: 1px 5px; border-radius: 3px;
     text-transform: uppercase; letter-spacing: .03em; white-space: nowrap;
+}
+
+/* Used-by count chip — provider/both cards; the details row carries the links. */
+.script-usage-chip {
+    font-size: 9px; color: #89d185; font-family: var(--font-ui);
+    background: rgba(137,209,133,.12); padding: 1px 5px; border-radius: 3px;
+    white-space: nowrap;
+}
+.script-usage-chip[hidden] { display: none; }
+
+/* Used-by link (details row) — one clickable chip per destination. */
+.script-usage-link {
+    display: inline-flex; align-items: baseline; gap: 4px; margin: 0 4px 2px 0;
+    background: none; border: 1px solid var(--border); border-radius: 3px;
+    color: var(--fg); font-family: var(--font-ui); font-size: 10px;
+    padding: 1px 6px; line-height: 1.4; cursor: pointer; text-align: left;
+}
+.script-usage-link:hover { background: rgba(255,255,255,.06); }
+.script-usage-link:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: 1px; }
+.script-usage-kind {
+    color: var(--addr-fg); font-size: 9px;
+    text-transform: uppercase; letter-spacing: .03em;
 }
 
 /* Open-script action: independent of Run state (untrusted / TS compiler / other run). */

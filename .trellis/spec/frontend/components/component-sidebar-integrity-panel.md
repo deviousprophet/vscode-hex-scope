@@ -43,6 +43,13 @@ interface IntegrityCallbacks {
     getGeneration?: () => number;                             // stale-response guard (S.documentGeneration)
 }
 
+/** One configured script check exposed to the host for used-by derivation. */
+interface IntegrityScriptUsageRef {
+    checkId: number;       // runtime id (panel-assigned); selectCheck takes it back
+    scriptPath: string;    // authored workspace-relative path (kept even when unscanned)
+    label: string;         // card title: custom name, else the script file name
+}
+
 class IntegrityPanel {
     constructor(cb: IntegrityCallbacks);
     mount(root: HTMLElement): void;
@@ -50,6 +57,8 @@ class IntegrityPanel {
     setChecks(value: unknown): void;
     setAvailableScripts(scripts, trusted): void;
     acceptScriptResult(msg: IntegrityScriptResultMessage): void;
+    scriptUsages(): IntegrityScriptUsageRef[];   // host used-by derivation: script checks + runtime ids
+    selectCheck(id: number): void;               // host used-by link: highlight + reveal (scrolls into view)
     notifyBytesChanged(): void;
     notifyEditsDiscarded(): void;
     notifyEndianChanged(): void;
@@ -62,6 +71,7 @@ class IntegrityPanel {
 ## Rules
 
 - Component holds only UI/transient state (check cards + forms, `highlightedCheckId`, debounce timers, auto-fix suppression, `initialized` flag). Persistent/domain state lives in the host.
+- Host used-by integration is one-way and additive: `scriptUsages()` reports the configured script checks (runtime id + authored path + card title) for the host's `deriveScriptUsages()`, and `selectCheck(id)` sets `highlightedCheckId`, re-renders (selected card class), reports the highlight, and scrolls the card into view; an unknown id is a no-op. The panel never derives or stores usages.
 - Reads no `S`, writes no `S`; data pushed via setters; actions report via callbacks. `readByte`/`getSelection`/`getEndian` are injected pull accessors (host passes `getByte`, `S.selStart/S.selEnd`, `S.endian`) so memory/selection/byte-order stay host-owned — the component must NOT import `memory/memoryData`.
 - Check mutations report `onPersistChecks` (local `persistChecks()` built on `integrityCheckSetFromStates`); auto-fix/Fix-all edits report `onStoredValueEdits`; highlight exits via `onHighlightChange` (never poke `S.integrityHighlight` or `rerender.memory()`).
 - `setTabActive(true)` replaces the old `activateIntegrity()` lazy-init gate: first activation renders + kicks off `scheduleIntegrityCalculation` for each check; the `initialized` flag is never reset (matches pre-refactor).
@@ -73,6 +83,7 @@ class IntegrityPanel {
 - Default: empty check list renders "No integrity checks configured.".
 - Kinds: the kind control (algorithm select) gains a `Script` option. Selecting it reveals `[data-script-field]` with a picker of `@script integrity` scripts (relative paths) plus a free-text path input; a selected check persists `kind:'script'` and a workspace-relative `scriptPath`. An empty picker shows a disabled placeholder plus **Create integrity script** (`data-create-script="integrity"` → `onCreateScript`) and **Open scripts folder** (`data-open-scripts-folder` → `onOpenScriptsFolder`); both disappear once a matching script exists.
 - Script cards: `Script · <name>` chip (full path in the tooltip), status-line states `Verified`/`Failed` (verify), `Match`/`Mismatch` (value), `Stale`, refresh (`data-script-refresh`) and open-script (`data-script-open`) actions. The calculated pane header is `Value` (byte result) or `Verify` (PASS/FAIL); the stored pane is `Stored` with no endian tag.
+- Host used-by links: `scriptUsages()` lists every configured script check in stored order (name-less checks fall back to the script basename) and `selectCheck(id)` highlights one exactly like a card-header toggle — the selected card gets `integrity-card-selected`, the range/stored highlight is reported through the existing `onHighlightChange`, and `.scrollIntoView({ block: 'nearest' })` reveals the card (guarded for jsdom). The host's usage refresh is driven by `setChecks`/`onPersistChecks`, so check add/edit/delete updates the Scripts panel without the panel knowing anything about scripts.
 - Script scheduling: run on tab activation / document open / save / refresh (`startScriptRun` → `onScriptCheckRequest`, per-check request id + generation). A byte change bumps the token and marks the settled result stale; auto-fix suppression is reused unchanged. Stale or calculating script checks never contribute to Fix all, and a `valid === true` script result contributes no fix.
 - Add form opens with selection defaults from `getSelection()`; no selection → full-file range from `getDataRange()` (host derives min segment start → max segment end from `S.parseResult.segments`); neither → blank. Optional "Check name" input (`data-draft-control="name"`, maxlength 40, trimmed, duplicates allowed); empty name persists as no field. Card title = `check.name || algorithmLabel(check.algorithm)` (script: `name || script base name`). `IntegrityCheckConfig.name?` carried by `normalizeIntegrityCheck` (trim, >40 dropped) so names survive reload; `schemaVersion` unchanged.
 - Live refill (label-form parity): `notifySelectionChanged()` on hex-view selection change (host calls it from `onHexViewSelectionChange` next to `syncLabelForm`) refills the open add/edit form — end-focused → end only, else start+end; null selection leaves values as-is; never on keystrokes. `formLastFocused` reset on open/save/cancel.
@@ -98,7 +109,7 @@ class IntegrityPanel {
 
 ## Tests Required
 
-`src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts`: mount (shell + empty states + idempotent render), add-form selection defaults, check add/edit/delete → `onPersistChecks`, inline validation, hash stored-field visibility, result render + copy → `onCopyText`, stored match/mismatch, hash auto-fix staging + discard suppression, `notifyEndianChanged` re-decode, highlight toggle → `onHighlightChange` + clear on delete, `setTabActive` lazy-init, script card statuses, stale/refresh, script picker + path validation, empty picker (disabled placeholder + create/open-folder actions and their disappearance), script auto-fix/Fix all, stale generation re-request. Existing `integrityCheckModel.test.ts` + `webview.test.ts` `Integrity Checks sidebar` suite pass unchanged (parity gate, writer expectations carry `kind:'builtin'`).
+`src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts`: mount (shell + empty states + idempotent render), add-form selection defaults, check add/edit/delete → `onPersistChecks`, inline validation, hash stored-field visibility, result render + copy → `onCopyText`, stored match/mismatch, hash auto-fix staging + discard suppression, `notifyEndianChanged` re-decode, highlight toggle → `onHighlightChange` + clear on delete, `setTabActive` lazy-init, script card statuses, stale/refresh, script picker + path validation, empty picker (disabled placeholder + create/open-folder actions and their disappearance), script auto-fix/Fix all, stale generation re-request, used-by links (`scriptUsages()` refs for script checks only incl. trimmed paths + title fallback, `selectCheck` highlight/render/highlight report/scrollIntoView, unknown-id no-op). Existing `integrityCheckModel.test.ts` + `webview.test.ts` `Integrity Checks sidebar` suite pass unchanged (parity gate, writer expectations carry `kind:'builtin'`).
 
 ## Anti-patterns
 

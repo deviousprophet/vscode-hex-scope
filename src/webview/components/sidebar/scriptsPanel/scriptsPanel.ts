@@ -1,11 +1,13 @@
 /** Scripts Panel — self-contained sidebar panel for the script runner.
 Owns the full `#s-scripts` shell: framework section header (title/count/refresh
 action), the New split button, the filter bar (search + kind chips), script cards
-(name/ext/role chips/capability badges/status dot/run-cancel state machine, the
-expandable details row, the TypeScript action row), the inline per-command
-permission prompt, the revocable permission list (script + session + workspace
-grants), and embedded result areas (output streaming with batching,
-collapse/expand, error-type headers, writes notice, and the write summary line).
+(name button/ext/role chips/capability badges/used-by chip/status dot/run-cancel
+state machine, the expandable details row with used-by links, the TypeScript
+action row), the card context menu (Open/Copy path/Reveal/Details/Permissions),
+the inline per-command permission prompt, the revocable permission list
+(script + session + workspace grants), and embedded result areas (output
+streaming with batching, collapse/expand, error-type headers, writes notice,
+and the write summary line).
 Data is pushed via setters; actions report via callbacks. This module never
 imports the S global, never posts provider messages, and never touches the
 render registry. */
@@ -20,11 +22,14 @@ import type {
     ScriptGrantView,
     ScriptPermissionScope,
 } from '../../../../webviewProtocol';
+import { menuController } from '../../menuController/menuController';
 import { SidebarSections } from '../sidebar';
 import { PermissionPrompt, type ScriptPermissionRequest } from './permissionPrompt';
+import type { ScriptUsageKind, ScriptUsageRef } from './scriptUsages';
 import './scriptsPanel.css';
 
 export type { ScriptInfo } from '../../../../core/scripting/types';
+export type { ScriptUsageRef } from './scriptUsages';
 
 export interface ScriptsCallbacks {
     /** Host posts requestScriptList (first activation + refresh rescan). */
@@ -58,6 +63,8 @@ export interface ScriptsCallbacks {
     onCreateJsVersion?: (scriptPath: string) => void;
     /** Open the bundled scripting guide (host posts openScriptingGuide). */
     onOpenScriptingGuide?: () => void;
+    /** Used-by link: host reveals the destination (Integrity check / Overlay instance). */
+    onSelectUsage?: (usage: ScriptUsageRef) => void;
     /** Selection snapshot for the run payload (was currentSelectionRange). */
     getSelection?: () => { start: number; end: number } | null;
     /** Document generation for the run payload (was S.documentGeneration). */
@@ -78,6 +85,8 @@ type LastRunState = 'success' | 'error' | 'timeout' | 'cancel' | 'contract';
 type LastRunRecord = { at: string; state: LastRunState };
 /** One completed run of a script, kept collapsed in the result area (run history). */
 type RunRecord = { num: number; at: string; ok: boolean; errCls: string; bodyHtml: string };
+/** One used-by entry plus its index in the panel's `usages` array (stable click payload). */
+type UsageEntry = { usage: ScriptUsageRef; index: number };
 /** Lifecycle of approved script writes: staged → saving → saved/failed. */
 export type ScriptWriteStatus = 'saving' | 'saved' | 'failed';
 /** One script run's write lifecycle, shown as a compact line in the result block. */
@@ -164,6 +173,8 @@ export class ScriptsPanel {
     private readonly lastRun = new Map<string, LastRunRecord>();
     /** Current write lifecycle line; one script runs at a time, correlated by path. */
     private writeSummary: ScriptWriteSummary | null = null;
+    /** Host-derived used-by links (bound-profile usages; transient, never persisted). */
+    private usages: ScriptUsageRef[] = [];
 
     constructor(cb: ScriptsCallbacks = {}) {
         this.cb = cb;
@@ -411,6 +422,64 @@ export class ScriptsPanel {
     setPermissionGrants(grants: ScriptGrantView[]): void {
         this.permissionGrants = Array.isArray(grants) ? grants : [];
         this.renderPermissions();
+    }
+
+    /** Host-derived used-by links (bound-profile usages; transient, never persisted). */
+    setUsages(usages: ScriptUsageRef[]): void {
+        this.usages = Array.isArray(usages) ? usages : [];
+        this.syncUsages();
+    }
+
+    /** One card's used-by entries with their index in `usages` (stable click payload). */
+    private usageEntriesFor(scriptPath: string): UsageEntry[] {
+        const entries: UsageEntry[] = [];
+        this.usages.forEach((usage, index) => {
+            if (usage.scriptPath === scriptPath) { entries.push({ usage, index }); }
+        });
+        return entries;
+    }
+
+    /** Refresh every rendered card's used-by chip + details cell in place (results survive). */
+    private syncUsages(): void {
+        const list = this.sections?.body('main')?.querySelector<HTMLElement>('.script-list');
+        if (!list) { return; }
+        list.querySelectorAll<HTMLElement>('.script-card').forEach(card => {
+            const path = card.dataset.path;
+            if (!path) { return; }
+            const entries = this.usageEntriesFor(path);
+            this.syncUsageChip(card, entries);
+            this.syncDetailsUsages(card, entries);
+        });
+    }
+
+    private syncUsageChip(card: HTMLElement, entries: UsageEntry[]): void {
+        const chip = card.querySelector<HTMLElement>('[data-usage-chip]');
+        if (!chip) { return; }
+        chip.hidden = entries.length === 0;
+        chip.textContent = entries.length > 0 ? `Used by ${entries.length}` : '';
+        if (entries.length > 0) { chip.title = usageListTitle(entries); }
+        else { chip.removeAttribute('title'); }
+    }
+
+    private syncDetailsUsages(card: HTMLElement, entries: UsageEntry[]): void {
+        const cell = card.querySelector<HTMLElement>('[data-details-usages]');
+        if (!cell) { return; }
+        const usagesHtml = usagesValueHtml(entries);
+        if (cell.innerHTML === usagesHtml) { return; } // unchanged: keep focus/wiring intact
+        cell.innerHTML = usagesHtml;
+        this.wireUsageButtons(cell);
+    }
+
+    private wireUsageButtons(container: HTMLElement): void {
+        container.querySelectorAll<HTMLElement>('[data-usage-idx]').forEach(btn => {
+            btn.addEventListener('click', () => this.reportUsage(btn));
+        });
+    }
+
+    /** Used-by link click: report the derived usage so the host can reveal the destination. */
+    private reportUsage(btn: HTMLElement): void {
+        const usage = this.usages[Number(btn.dataset.usageIdx)];
+        if (usage) { this.cb.onSelectUsage?.(usage); }
     }
 
     private rememberScriptPaths(scripts: ScriptInfo[]): void {
@@ -673,13 +742,15 @@ export class ScriptsPanel {
     private scriptCardHtml(s: ScriptInfo): string {
         const kind = scriptKind(s);
         const runnable = isRunnableKind(kind);
+        const entries = this.usageEntriesFor(s.filePath);
         return `
         <div class="script-card sb-card" data-path="${esc(s.filePath)}" data-kind="${kind}">
             <div class="script-card-info">
                 ${cardLeadHtml(kind, s.filePath, this.scriptStatus, this.lastRun)}
-                <span class="script-name" title="${esc(s.filePath)}">${esc(s.name)}</span>
+                ${nameButtonHtml(s)}
                 ${roleBadgesHtml(s.roles)}
                 ${capBadgesHtml(s.capabilities)}
+                ${usageChipHtml(entries)}
                 ${unknownHintHtml(kind)}
                 ${extBadgeHtml(s.name)}
                 ${openButtonHtml(s)}
@@ -687,7 +758,7 @@ export class ScriptsPanel {
                 ${this.detailsToggleHtml(s.filePath)}
             </div>
             ${this.tsHelpHtml(s)}
-            ${this.detailsHtml(s)}
+            ${this.detailsHtml(s, entries)}
             ${runnable ? `<div class="script-result-area" data-path="${esc(s.filePath)}"></div>` : ''}
         </div>`;
     }
@@ -716,8 +787,8 @@ export class ScriptsPanel {
                     aria-label="Toggle script details">&#9662;</button>`;
     }
 
-    /** Expandable card row: roles, capabilities, entries, fingerprint, last run, grants, actions. */
-    private detailsHtml(s: ScriptInfo): string {
+    /** Expandable card row: roles, capabilities, used-by links, entries, fingerprint, last run, grants, actions. */
+    private detailsHtml(s: ScriptInfo, entries: UsageEntry[]): string {
         const grants = activeGrantCount(this.permissionGrants, s.filePath);
         const expanded = this.expandedDetails.has(s.filePath);
         return `
@@ -725,6 +796,7 @@ export class ScriptsPanel {
             <div class="script-details-grid">
                 <span class="script-details-label">Roles</span><span class="script-details-value">${esc(roleListText(s.roles))}</span>
                 <span class="script-details-label">Capabilities</span><span class="script-details-value">${esc(capListText(s.capabilities))}</span>
+                <span class="script-details-label">Used by</span><span class="script-details-value" data-details-usages>${usagesValueHtml(entries)}</span>
                 <span class="script-details-label">Entries</span><span class="script-details-value">${esc(entryListText(s))}</span>
                 <span class="script-details-label">Fingerprint</span><span class="script-details-value" title="${esc(s.fingerprint)}">${esc(fingerprintShort(s.fingerprint))}</span>
                 <span class="script-details-label">Last run</span><span class="script-details-value" data-details-last-run>${esc(lastRunText(this.lastRun.get(s.filePath)))}</span>
@@ -771,6 +843,9 @@ export class ScriptsPanel {
         container.querySelectorAll<HTMLButtonElement>('[data-group-toggle]').forEach(btn => {
             btn.addEventListener('click', () => this.toggleGroup(btn));
         });
+        container.querySelectorAll<HTMLButtonElement>('[data-open-name]').forEach(btn => {
+            btn.addEventListener('click', () => this.reportPath(btn, path => this.cb.onOpenScript?.(path)));
+        });
         container.querySelectorAll<HTMLButtonElement>('.script-open-btn').forEach(btn => {
             btn.addEventListener('click', ev => {
                 ev.stopPropagation();
@@ -781,6 +856,11 @@ export class ScriptsPanel {
         container.querySelectorAll<HTMLButtonElement>('.script-run-btn:not(.disabled-ts):not(.disabled-trust)').forEach(btn => {
             btn.addEventListener('click', () => this.onRunBtnClick(btn));
         });
+        container.querySelectorAll<HTMLElement>('.script-card').forEach(card => {
+            card.addEventListener('contextmenu', ev => this.onCardContextMenu(card, ev));
+            card.addEventListener('keydown', ev => this.onCardKeydown(card, ev));
+        });
+        this.wireUsageButtons(container);
         container.querySelectorAll<HTMLButtonElement>('[data-details-toggle]').forEach(btn => {
             btn.addEventListener('click', () => this.toggleDetails(btn));
         });
@@ -819,16 +899,93 @@ export class ScriptsPanel {
         const path = this.cardPath(btn);
         const details = btn.closest<HTMLElement>('.script-card')?.querySelector<HTMLElement>('.script-details');
         if (!path || !details) { return; }
-        const open = details.hidden !== false;
-        details.hidden = !open;
-        btn.setAttribute('aria-expanded', String(open));
-        btn.title = `${open ? 'Hide' : 'Show'} script details`;
+        this.setDetailsOpen(path, details.hidden !== false);
+    }
+
+    /** Open/close one card's details row in place and remember the expanded state. */
+    private setDetailsOpen(path: string, open: boolean): void {
+        const card = document.querySelector<HTMLElement>(`.script-card[data-path="${cssEscape(path)}"]`);
+        const details = card?.querySelector<HTMLElement>('.script-details');
+        const toggle = card?.querySelector<HTMLElement>('[data-details-toggle]');
+        if (details) { details.hidden = !open; }
+        if (toggle) {
+            toggle.setAttribute('aria-expanded', String(open));
+            toggle.title = `${open ? 'Hide' : 'Show'} script details`;
+        }
         this.rememberDetailsOpen(path, open);
     }
 
     private rememberDetailsOpen(path: string, open: boolean): void {
         if (open) { this.expandedDetails.add(path); return; }
         this.expandedDetails.delete(path);
+    }
+
+    // ── Card context menu (shared MenuController; report-only commands) ──
+
+    /** Right-click entry point: open the card menu at the pointer. */
+    private onCardContextMenu(card: HTMLElement, ev: Event): void {
+        ev.preventDefault();
+        const mouse = ev as MouseEvent;
+        this.openCardMenu(card, mouse.clientX, mouse.clientY);
+    }
+
+    /** Shift+F10 / ContextMenu opens the same menu at the card's corner (grid convention). */
+    private onCardKeydown(card: HTMLElement, ev: Event): void {
+        const key = ev as KeyboardEvent;
+        if (!isCardMenuKey(key)) { return; }
+        ev.preventDefault();
+        const [x, y] = cardMenuAnchor(card);
+        this.openCardMenu(card, x, y);
+    }
+
+    /** Card context menu: Open, Copy path, Reveal in Explorer, Show details, Manage permissions. */
+    private openCardMenu(card: HTMLElement, x: number, y: number): void {
+        const path = card.dataset.path;
+        if (!path) { return; }
+        menuController.show(x, y, {
+            innerHTML: this.cardMenuHtml(path),
+            emit: cmd => this.runCardMenuCommand(path, cmd),
+        });
+    }
+
+    private cardMenuHtml(path: string): string {
+        const manage = this.manageMenuRowHtml(path);
+        return [
+            menuRowHtml('script-open', 'Open'),
+            menuRowHtml('script-copy', 'Copy path'),
+            menuRowHtml('script-reveal', 'Reveal in Explorer'),
+            menuSeparatorHtml(),
+            menuRowHtml('script-details', 'Show details'),
+            menuSeparatorHtml(),
+            manage,
+        ].join('');
+    }
+
+    /** Manage permissions is a disabled row until the card has an active grant. */
+    private manageMenuRowHtml(path: string): string {
+        if (activeGrantCount(this.permissionGrants, path) > 0) {
+            return menuRowHtml('script-permissions', 'Manage permissions');
+        }
+        return disabledMenuRowHtml('Manage permissions', 'No active grants');
+    }
+
+    private runCardMenuCommand(path: string, cmd: string): void {
+        if (this.reportCardMenuCommand(path, cmd)) { return; }
+        this.runCardMenuLocalCommand(path, cmd);
+    }
+
+    /** Host-reported commands (Open/Copy/Reveal); false when the command is panel-local. */
+    private reportCardMenuCommand(path: string, cmd: string): boolean {
+        const report = CARD_MENU_REPORTS.get(cmd);
+        if (!report) { return false; }
+        report(this.cb, path);
+        return true;
+    }
+
+    /** Panel-local commands: Show details (expand the row) and Manage permissions. */
+    private runCardMenuLocalCommand(path: string, cmd: string): void {
+        if (cmd === 'script-details') { this.setDetailsOpen(path, true); return; }
+        if (cmd === 'script-permissions') { this.revealPermissions(); }
     }
 
     /** Expand the Permissions section and bring it into view (details action). */
@@ -1365,6 +1522,78 @@ function cardLeadHtml(
 function openButtonHtml(s: ScriptInfo): string {
     return `<button class="script-open-btn sb-btn sb-btn-secondary" data-path="${esc(s.filePath)}"
                     title="Open ${esc(s.name)}" aria-label="Open ${esc(s.name)}">&#9998;</button>`;
+}
+
+/** The script name is the primary open affordance (the pencil stays as a secondary one). */
+function nameButtonHtml(s: ScriptInfo): string {
+    return `<button type="button" class="script-name" data-open-name title="${esc(s.filePath)}"
+                    aria-label="Open ${esc(s.name)}">${esc(s.name)}</button>`;
+}
+
+/** Card-level used-by count chip; the details row carries the clickable labels. */
+function usageChipHtml(entries: UsageEntry[]): string {
+    const count = entries.length;
+    const title = count > 0 ? ` title="${esc(usageListTitle(entries))}"` : '';
+    return `<span class="script-usage-chip" data-usage-chip${count > 0 ? '' : ' hidden'}${title}>${count > 0 ? `Used by ${count}` : ''}</span>`;
+}
+
+/** Details cell content: one clickable link per usage, or `None`. */
+function usagesValueHtml(entries: UsageEntry[]): string {
+    if (entries.length === 0) { return 'None'; }
+    return entries.map(usageButtonHtml).join('');
+}
+
+function usageButtonHtml(entry: UsageEntry): string {
+    const kind = usageKindLabel(entry.usage.kind);
+    return `<button type="button" class="script-usage-link" data-usage-idx="${entry.index}"
+                    title="${esc(`${kind}: ${entry.usage.label}`)}">${esc(entry.usage.label)}<span class="script-usage-kind">${esc(kind)}</span></button>`;
+}
+
+/** Tooltip line for the card chip: one `kind: label` pair per usage. */
+function usageListTitle(entries: UsageEntry[]): string {
+    return entries.map(entry => `${usageKindLabel(entry.usage.kind)}: ${entry.usage.label}`).join('; ');
+}
+
+/** Job-language label for a usage kind (shares the role vocabulary). */
+function usageKindLabel(kind: ScriptUsageKind): string {
+    return roleLabel(kind);
+}
+
+/** Card-menu commands that report through a host callback (path = the acted-on script). */
+const CARD_MENU_REPORTS = new Map<string, (cb: ScriptsCallbacks, path: string) => void>([
+    ['script-open', (cb, path) => cb.onOpenScript?.(path)],
+    ['script-copy', (cb, path) => cb.onCopyPath?.(path)],
+    ['script-reveal', (cb, path) => cb.onRevealScript?.(path)],
+]);
+
+/** Shift+F10 / ContextMenu opens a card menu (matches the hex grid convention). */
+function isCardMenuKey(ev: KeyboardEvent): boolean {
+    return ev.key === 'ContextMenu' || (ev.shiftKey && ev.key === 'F10');
+}
+
+/** Anchor for the keyboard-opened card menu: the card's bottom-left corner (+8px). */
+function cardMenuAnchor(card: HTMLElement): [number, number] {
+    const rect = cardMenuRect(card);
+    return rect ? [rect.left + 8, rect.bottom] : [8, 0];
+}
+
+/** Card viewport rect (guarded: jsdom has no layout engine). */
+function cardMenuRect(card: HTMLElement): DOMRect | null {
+    return typeof card.getBoundingClientRect === 'function' ? card.getBoundingClientRect() : null;
+}
+
+function menuRowHtml(cmd: string, label: string): string {
+    return `<div class="menu-item" data-cmd="${cmd}" role="menuitem" tabindex="-1">` +
+        `<span class="menu-label">${esc(label)}</span></div>`;
+}
+
+function disabledMenuRowHtml(label: string, hint: string): string {
+    return `<div class="menu-item menu-disabled" role="menuitem" tabindex="-1">` +
+        `<span class="menu-label">${esc(label)}</span><span class="menu-hint">${esc(hint)}</span></div>`;
+}
+
+function menuSeparatorHtml(): string {
+    return '<div class="menu-sep"></div>';
 }
 
 /** Escape backslashes for CSS attribute selectors (Windows paths, scripting.md §9.1). */

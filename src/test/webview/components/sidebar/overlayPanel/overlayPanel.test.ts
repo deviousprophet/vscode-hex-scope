@@ -4534,3 +4534,84 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(S.typeInstances.length, 0);
     });
 });
+
+suite('OverlayPanel used-by links (selectInstance)', () => {
+    let dom: JSDOM;
+
+    setup(() => {
+        dom = new JSDOM('<!doctype html><html><body><div id="s-overlay"></div></body></html>');
+
+        Object.defineProperty(globalThis, 'window', { value: dom.window, configurable: true, writable: true });
+        Object.defineProperty(globalThis, 'document', { value: dom.window.document, configurable: true, writable: true });
+        Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true, writable: true });
+        Object.defineProperty(globalThis, 'acquireVsCodeApi', {
+            value: () => ({ postMessage: () => {}, getState: () => ({}), setState: (_state: unknown) => {} }),
+            configurable: true,
+            writable: true,
+        });
+        resetOverlayState();
+    });
+
+    teardown(() => {
+        resetOverlayState();
+        dom.window.close();
+        delete (globalThis as unknown as { window?: Window }).window;
+        delete (globalThis as unknown as { document?: Document }).document;
+        delete (globalThis as unknown as { navigator?: Navigator }).navigator;
+        delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
+    });
+
+    async function mountedPanel(calls: Array<{ start: number; count: number }>): Promise<OverlayPanel> {
+        const { OverlayPanel } = await import('../../../../../webview/components/sidebar/overlayPanel/overlayPanel.js');
+        const panel = new OverlayPanel({
+            readByte: getByte,
+            onSelectRange: (start, count) => { calls.push({ start, count }); },
+        });
+        panel.setData(S.types, S.typeInstances);
+        panel.mount(document.getElementById('s-overlay')!);
+        return panel;
+    }
+
+    test('selectInstance expands the card, marks it selected, and reports its byte range', async () => {
+        setBytesInSegment(0x1200, [1, 2, 3, 4, 5, 6, 7, 8]);
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin-sel', typeId: 'scalar', addr: 0x1200, name: 'inst' }];
+        const calls: Array<{ start: number; count: number }> = [];
+        const panel = await mountedPanel(calls);
+
+        panel.selectInstance('pin-sel');
+        assert.deepStrictEqual(calls, [{ start: 0x1200, count: 2 }], 'range selected like a card header click');
+        const card = document.querySelector<HTMLElement>('.sb-card[data-pin-id="pin-sel"]')!;
+        assert.ok(card.classList.contains('oi-expanded'), 'card expanded');
+        assert.ok(card.classList.contains('oi-card-selected'), 'card marked selected');
+    });
+
+    test('selectInstance for an unknown id is a no-op', async () => {
+        setBytesInSegment(0x1200, [1, 2, 3, 4]);
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin-sel', typeId: 'scalar', addr: 0x1200, name: 'inst' }];
+        const calls: Array<{ start: number; count: number }> = [];
+        const panel = await mountedPanel(calls);
+
+        panel.selectInstance('missing');
+        assert.deepStrictEqual(calls, []);
+        assert.strictEqual(document.querySelectorAll('.oi-card-selected').length, 0);
+    });
+
+    test('an unresolved dynamic instance is revealed without a range selection', async () => {
+        S.types = [scalarDef];
+        S.typeInstances = [{
+            id: 'pin-dyn',
+            typeId: 'scalar',
+            addr: 0,
+            name: 'dyn',
+            addressSource: { scriptPath: '.hexscope/scripts/follow.js' },
+        }];
+        const calls: Array<{ start: number; count: number }> = [];
+        const panel = await mountedPanel(calls);
+
+        panel.selectInstance('pin-dyn');
+        assert.deepStrictEqual(calls, [], 'unresolved address → no range report');
+        assert.ok(document.querySelector<HTMLElement>('.sb-card[data-pin-id="pin-dyn"]'), 'card survives the reveal attempt');
+    });
+});

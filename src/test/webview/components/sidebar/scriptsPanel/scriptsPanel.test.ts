@@ -5,12 +5,14 @@ import '../../../cssImportHook';
 import {
     ScriptsPanel,
     type ScriptInfo,
+    type ScriptUsageRef,
     type ScriptWriteSummary,
 } from '../../../../../webview/components/sidebar/scriptsPanel/scriptsPanel';
 import {
     PermissionPrompt,
     type ScriptPermissionRequest,
 } from '../../../../../webview/components/sidebar/scriptsPanel/permissionPrompt';
+import { menuController } from '../../../../../webview/components/menuController/menuController';
 import type { ScriptTemplateId } from '../../../../../core/scripting/templates';
 
 let currentDom: JSDOM | null = null;
@@ -40,6 +42,7 @@ type Cb = {
     reveals: string[];
     jsVersions: string[];
     guides: number;
+    selectedUsages: ScriptUsageRef[];
 };
 
 type Harness = {
@@ -107,6 +110,20 @@ const PERMISSION_REQUEST: ScriptPermissionRequest = {
     scopes: ['once', 'script', 'session', 'workspace'],
 };
 
+const USAGE_INTEGRITY: ScriptUsageRef = {
+    scriptPath: BOTH.filePath,
+    kind: 'integrity',
+    label: 'Flash CRC',
+    checkId: 7,
+};
+
+const USAGE_ADDRESS: ScriptUsageRef = {
+    scriptPath: PROVIDER.filePath,
+    kind: 'address',
+    label: 'boot header',
+    pinId: 'pin-1',
+};
+
 function permissionRequest(overrides: Partial<ScriptPermissionRequest> = {}): ScriptPermissionRequest {
     return { ...PERMISSION_REQUEST, ...overrides };
 }
@@ -136,7 +153,7 @@ function installDom(): Harness {
 
     const cb: Cb = {
         requested: 0, added: 0, created: [], runs: [], cancels: [], opens: [], decisions: [], revokes: [], revokeAlls: [],
-        copies: [], reveals: [], jsVersions: [], guides: 0,
+        copies: [], reveals: [], jsVersions: [], guides: 0, selectedUsages: [],
     };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const generation: { value: number } = { value: 0 };
@@ -158,6 +175,7 @@ function installDom(): Harness {
         onRevealScript: path => { cb.reveals.push(path); },
         onCreateJsVersion: path => { cb.jsVersions.push(path); },
         onOpenScriptingGuide: () => { cb.guides++; },
+        onSelectUsage: usage => { cb.selectedUsages.push(usage); },
         getSelection: () => sel.value,
         getGeneration: () => generation.value,
     });
@@ -173,6 +191,7 @@ function cleanupDom(): void {
         // flaky ReferenceError: document is not defined under suite load).
         currentPanel?.dispose();
         currentPanel = null;
+        menuController.hide();
         currentDom.window.close();
         currentDom = null;
         delete (globalThis as unknown as { window?: Window }).window;
@@ -446,6 +465,18 @@ suite('ScriptsPanel setScripts', () => {
         click(dom, tsBtn);
         assert.deepStrictEqual(cb.opens, [A, 'D:\\sample\\crc-check.ts']);
         assert.deepStrictEqual(cb.runs, []);
+    });
+
+    test('clicking the filename opens the script; the pencil stays as a secondary affordance', () => {
+        panel.setScripts(SCRIPTS, true);
+        const name = cardFor(A).querySelector<HTMLElement>('.script-name')!;
+        assert.strictEqual(name.tagName, 'BUTTON', 'the name is a real button (keyboard reachable)');
+        assert.strictEqual(name.getAttribute('aria-label'), 'Open crc-check.js');
+        assert.strictEqual(name.title, A, 'path tooltip stays on the name');
+        click(dom, name);
+        click(dom, openBtn(A));
+        assert.deepStrictEqual(cb.opens, [A, A], 'name and pencil both open the script');
+        assert.deepStrictEqual(cb.runs, [], 'opening never runs the script');
     });
 
     test('status dot flips to ok/err after showResult', () => {
@@ -1356,20 +1387,24 @@ suite('ScriptsPanel details row', () => {
         assert.strictEqual(cardFor(A).querySelector<HTMLElement>('[data-details-toggle]')!.getAttribute('aria-expanded'), 'true');
     });
 
-    test('details render roles, capabilities, entries, fingerprint, last run, and grants', () => {
+    test('details render roles, capabilities, used-by, entries, fingerprint, last run, and grants', () => {
         panel.setScripts([{ ...SCRIPTS[0], capabilities: ['write', 'exec'], roles: ['address'] }], true);
+        panel.setUsages([{ ...USAGE_INTEGRITY, scriptPath: A, label: 'Flash CRC' }]);
         panel.showResult(A, [], [], 'slow', 'timeout', 0);
         panel.setPermissionGrants([{ scriptPath: A, capability: 'write', scope: 'script' }]);
         const values = [...cardFor(A).querySelectorAll('.script-details-value')].map(el => el.textContent);
-        assert.deepStrictEqual(values.slice(0, 4), [
+        assert.deepStrictEqual(values.slice(0, 2), [
             'Instance address',
             'write, exec',
+        ]);
+        assert.strictEqual(values[2]?.startsWith('Flash CRC'), true, 'used-by link renders its label');
+        assert.deepStrictEqual(values.slice(3, 5), [
             'run, getAddress',
             'fp-1',
         ]);
-        assert.match(values[4]!, /^\d{2}:\d{2} · Timeout$/, 'last run shows time + terminal state');
-        assert.strictEqual(values[5], '1', 'active grants count includes the script grant');
-        assert.strictEqual(cardFor(A).querySelectorAll('.script-details-value').length, 6, 'usages row omitted until honest metadata exists');
+        assert.match(values[5]!, /^\d{2}:\d{2} · Timeout$/, 'last run shows time + terminal state');
+        assert.strictEqual(values[6], '1', 'active grants count includes the script grant');
+        assert.strictEqual(cardFor(A).querySelectorAll('.script-details-value').length, 7);
     });
 
     test('unknown scripts report no entries and an unsafe fingerprint stays escaped', () => {
@@ -1378,10 +1413,11 @@ suite('ScriptsPanel details row', () => {
         const values = [...card.querySelectorAll('.script-details-value')].map(el => el.textContent);
         assert.strictEqual(values[0], 'None', 'no roles');
         assert.strictEqual(values[1], 'None', 'no capabilities');
-        assert.strictEqual(values[2], 'None detected', 'no entries');
-        assert.strictEqual(values[3], '<b>x</b>', 'fingerprint text, not markup');
+        assert.strictEqual(values[2], 'None', 'no usages');
+        assert.strictEqual(values[3], 'None detected', 'no entries');
+        assert.strictEqual(values[4], '<b>x</b>', 'fingerprint text, not markup');
         assert.strictEqual(card.querySelectorAll('b').length, 0, 'escaped');
-        assert.strictEqual(values[4], 'Not run yet');
+        assert.strictEqual(values[5], 'Not run yet');
     });
 
     test('details actions report open, copy path, and reveal for the card', () => {
@@ -1411,6 +1447,154 @@ suite('ScriptsPanel details row', () => {
             cardFor(path).querySelector<HTMLElement>('[data-details-grants]')?.textContent ?? undefined;
         assert.strictEqual(grantsOf(A), '1');
         assert.strictEqual(grantsOf(B), '1');
+    });
+});
+
+suite('ScriptsPanel used-by links', () => {
+    let dom: JSDOM;
+    let panel: ScriptsPanel;
+    let cb: Cb;
+
+    setup(() => {
+        const harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        cb = harness.cb;
+        currentDom = dom;
+        panel.setScripts([PROVIDER, BOTH], true);
+    });
+
+    teardown(cleanupDom);
+
+    function usageChip(path: string): HTMLElement {
+        return cardFor(path).querySelector<HTMLElement>('[data-usage-chip]')!;
+    }
+
+    function usageCell(path: string): HTMLElement {
+        return cardFor(path).querySelector<HTMLElement>('[data-details-usages]')!;
+    }
+
+    test('used-by links render in the details cell; the card carries a count chip', () => {
+        panel.setUsages([USAGE_INTEGRITY, USAGE_ADDRESS]);
+        const link = usageCell(BOTH.filePath).querySelector<HTMLElement>('.script-usage-link')!;
+        assert.strictEqual(link.textContent, 'Flash CRCIntegrity check');
+        assert.strictEqual(link.querySelector('.script-usage-kind')?.textContent, 'Integrity check');
+        assert.strictEqual(link.title, 'Integrity check: Flash CRC');
+        assert.strictEqual(usageChip(BOTH.filePath).textContent, 'Used by 1');
+        assert.strictEqual(usageChip(BOTH.filePath).title, 'Integrity check: Flash CRC');
+
+        assert.strictEqual(usageCell(PROVIDER.filePath).querySelector('.script-usage-kind')?.textContent, 'Instance address');
+        assert.strictEqual(usageChip(PROVIDER.filePath).textContent, 'Used by 1');
+    });
+
+    test('cards without usages show the chip hidden and "None" in the details cell', () => {
+        assert.ok(usageChip(BOTH.filePath).hidden, 'no usages → chip hidden');
+        assert.strictEqual(usageCell(BOTH.filePath).textContent, 'None');
+    });
+
+    test('a usage link reports the derived usage for host navigation', () => {
+        panel.setUsages([USAGE_INTEGRITY, USAGE_ADDRESS]);
+        click(dom, usageCell(PROVIDER.filePath).querySelector('[data-usage-idx]'));
+        assert.deepStrictEqual(cb.selectedUsages, [USAGE_ADDRESS]);
+        click(dom, usageCell(BOTH.filePath).querySelector('[data-usage-idx]'));
+        assert.deepStrictEqual(cb.selectedUsages, [USAGE_ADDRESS, USAGE_INTEGRITY]);
+    });
+
+    test('usage refresh re-renders in place and keeps result areas intact', () => {
+        panel.showResult(BOTH.filePath, [], ['streamed'], '', undefined, 0);
+        panel.setUsages([USAGE_INTEGRITY]);
+        assert.strictEqual(usageChip(BOTH.filePath).textContent, 'Used by 1');
+        const block = cardFor(BOTH.filePath).querySelector('.script-output-block');
+        assert.ok(block, 'result block survives the usage refresh');
+        assert.strictEqual(block!.querySelector('.script-output-log')?.textContent, 'streamed');
+        panel.setUsages([]);
+        assert.ok(usageChip(BOTH.filePath).hidden, 'cleared usages hide the chip again');
+        assert.strictEqual(cardFor(BOTH.filePath).querySelector('.script-output-block'), block, 'the very same result DOM stays attached');
+    });
+
+    test('usages pushed before a rescan render into the rebuilt cards', () => {
+        panel.setUsages([USAGE_INTEGRITY]);
+        panel.setScripts([BOTH], true); // rebuild: fresh cards read the pushed usages
+        const link = cardFor(BOTH.filePath).querySelector<HTMLElement>('.script-usage-link');
+        assert.ok(link, 'rebuilt cards render the used-by link');
+        assert.strictEqual(usageChip(BOTH.filePath).textContent, 'Used by 1');
+    });
+
+    test('an unmatched usage path renders nowhere and never crashes the list', () => {
+        panel.setUsages([{ scriptPath: '.hexscope/scripts/deleted.js', kind: 'address', label: 'gone', pinId: 'p' }]);
+        assert.strictEqual(document.querySelectorAll('.script-usage-link').length, 0);
+        assert.ok(usageChip(BOTH.filePath).hidden);
+    });
+});
+
+suite('ScriptsPanel card context menu', () => {
+    let dom: JSDOM;
+    let panel: ScriptsPanel;
+    let cb: Cb;
+
+    setup(() => {
+        const harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        cb = harness.cb;
+        currentDom = dom;
+        panel.setScripts(SCRIPTS, true);
+    });
+
+    teardown(cleanupDom);
+
+    function openCardMenu(path: string): void {
+        cardFor(path).dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 5, clientY: 5 }));
+    }
+
+    function menuRow(cmd: string): HTMLElement | null {
+        return document.querySelector<HTMLElement>(`#menu .menu-item[data-cmd="${cmd}"]`);
+    }
+
+    test('right-click opens the card menu; Open/Copy/Reveal report the card path', () => {
+        openCardMenu(A);
+        assert.ok(document.getElementById('menu'), 'shared menu container opens');
+        assert.ok(menuRow('script-open'));
+        assert.ok(menuRow('script-copy'));
+        assert.ok(menuRow('script-reveal'));
+        assert.ok(menuRow('script-details'));
+        const disabledManage = document.querySelector<HTMLElement>('#menu .menu-item.menu-disabled');
+        assert.strictEqual(disabledManage?.querySelector('.menu-label')?.textContent, 'Manage permissions');
+        assert.strictEqual(disabledManage?.querySelector('.menu-hint')?.textContent, 'No active grants');
+
+        click(dom, menuRow('script-open'));
+        assert.strictEqual(menuController.openMenu(), null, 'the menu closes after a command');
+        assert.deepStrictEqual(cb.opens, [A]);
+
+        openCardMenu(A);
+        click(dom, menuRow('script-copy'));
+        openCardMenu(A);
+        click(dom, menuRow('script-reveal'));
+        assert.deepStrictEqual(cb.copies, [A]);
+        assert.deepStrictEqual(cb.reveals, [A]);
+        assert.deepStrictEqual(cb.runs, [], 'the card menu never runs the script');
+    });
+
+    test('Shift+F10 opens the menu from the keyboard; Escape closes it', () => {
+        cardFor(A).dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true }));
+        assert.ok(menuRow('script-open'), 'keyboard entry opens the card menu');
+
+        document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        assert.strictEqual(menuController.openMenu(), null, 'Escape closes the menu');
+    });
+
+    test('Show details expands the card row; Manage permissions expands the section', () => {
+        panel.setPermissionGrants([{ scriptPath: A, capability: 'write', scope: 'script' }]);
+        assert.ok(cardFor(A).querySelector<HTMLElement>('.script-details')!.hidden);
+
+        openCardMenu(A);
+        assert.ok(!menuRow('script-permissions')!.classList.contains('menu-disabled'), 'grant exists → manage is actionable');
+        click(dom, menuRow('script-details'));
+        assert.ok(!cardFor(A).querySelector<HTMLElement>('.script-details')!.hidden, 'Show details expands the row');
+
+        openCardMenu(A);
+        click(dom, menuRow('script-permissions'));
+        assert.ok(document.querySelector<HTMLElement>('.script-perms-section')!.classList.contains('expanded'));
     });
 });
 
@@ -1591,5 +1775,14 @@ suite('ScriptsPanel last run', () => {
 
     test('an untouched script reports "Not run yet"', () => {
         assert.strictEqual(cardFor(B).querySelector<HTMLElement>('[data-details-last-run]')!.textContent, 'Not run yet');
+    });
+
+    test('last-run state survives a panel rescan', () => {
+        panel.showResult(A, [], [], '', undefined, 0);
+        panel.setScripts(SCRIPTS, true); // rebuild: state comes from the panel's last-run map
+        const dot = cardFor(A).querySelector<HTMLElement>('.sb-status-dot')!;
+        assert.ok(dot.classList.contains('ok'));
+        assert.match(dot.title, /^Last run succeeded · \d{2}:\d{2}$/);
+        assert.match(cardFor(A).querySelector<HTMLElement>('[data-details-last-run]')!.textContent!, /^\d{2}:\d{2} · Succeeded$/);
     });
 });

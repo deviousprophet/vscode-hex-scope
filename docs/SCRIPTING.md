@@ -98,12 +98,18 @@ is type-checked in CI (`npm run check-examples`), so it cannot drift from the AP
   embedded results, run history, the Permissions section, and the **＋ New** button all
   stay intact, and a group with no visible cards disappears. A one-line **No scripts
   match the filter** state appears when nothing matches.
-- Each card's chevron expands a details row: roles, declared capabilities, the entries
-  the runner invokes (`run`, `getAddress`, `getSize`, `getIntegrityValue`,
+- Each card's chevron expands a details row: roles, declared capabilities, **Used by**
+  links (the integrity checks and instances this script feeds — click one to jump to it),
+  the entries the runner invokes (`run`, `getAddress`, `getSize`, `getIntegrityValue`,
   `verifyIntegrity`), the short fingerprint (full value on hover), the last run (time and
   terminal state), and the number of active grants. Its actions are **Open**,
   **Copy path**, **Reveal**, and **Manage permissions** (expands the Permissions section;
   shown only when the script has a grant).
+- The script name is the primary open affordance: click the filename (or the pencil) to
+  open the file.
+- Right-click a card (or press Shift+F10 / ContextMenu with card focus) for its context
+  menu: **Open**, **Copy path**, **Reveal in Explorer**, **Show details**, and
+  **Manage permissions**.
 - The status dot stays the glance signal: green after a successful run, red after an
   error, with the last-run time in its tooltip.
 

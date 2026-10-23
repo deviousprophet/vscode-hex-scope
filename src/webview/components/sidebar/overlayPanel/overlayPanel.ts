@@ -3368,39 +3368,73 @@ private wireInstanceCards(sec: HTMLElement): void {
 }
 
 
-    private onCardHeaderClick(sec: HTMLElement, hdr: HTMLElement, e: Event): void {
+    private onCardHeaderClick(_sec: HTMLElement, hdr: HTMLElement, e: Event): void {
         if ((e.target as HTMLElement).closest('.oi-expand-btn, .oi-card-actions')) { return; }
-    this.clearArrSep();
-    this.clearSelRow();
-    this._selectedBitRange = null;
-    this._hoveredBitRange = null;
-    this._selectedBitRowKey = null;
-    this._hoveredBitRowKey = null;
-    this._selectedFieldAddr = null;
-    this._selectedArrKey    = null;
-    this._selectedArrElemKey = null;
-    const sel = this.cardSelection(hdr);
-    if (!sel) { return; }
-    const addr = this.instanceAddress(sel.pin);
-    if (addr === null) { return; }
-    const size = typeByteSize(sel.def, this._types, this.pinLayoutParams(sel.pin, sel.def) ?? {});
-    this._activeTypeAddr = addr;
-    this._selectedPinId = sel.pin.id;
-    sec.querySelectorAll<HTMLElement>('.sb-card').forEach(c => c.classList.remove('oi-card-selected'));
-    sel.card.classList.add('oi-card-selected');
-    this.cb.onSelectRange?.(addr, size);
-}
+        const card = hdr.closest<HTMLElement>('.sb-card');
+        if (card) { this.selectPinCard(card); }
+    }
 
-private cardSelection(hdr: HTMLElement): { card: HTMLElement; pin: TypeInstance; def: TypeDef } | null {
-    const card = hdr.closest<HTMLElement>('.sb-card');
-    if (!card) { return null; }
-    const idx = parseInt(card.dataset.idx!);
-    const pin = this._pins[idx];
-    if (!pin) { return null; }
-    const def = allTypes(this._types).find(d => d.id === pin.typeId);
-    if (!def) { return null; }
-    return { card, pin, def };
-}
+    /**
+     * Host used-by link: expand one instance card, select its byte range, and
+     * reveal it in the Instances list (no-op when the id vanished). Undecodable
+     * dynamic instances keep the expanded state; rows appear once resolved.
+     */
+    selectInstance(pinId: string): void {
+        if (!this._pins.some(pin => pin.id === pinId)) { return; }
+        this._expanded.add(pinId);
+        this.render();
+        const card = this.instanceCardOf(pinId);
+        if (!card) { return; }
+        this.selectPinCard(card);
+        this.scrollPinCardIntoView(card);
+    }
+
+    private instanceCardOf(pinId: string): HTMLElement | null {
+        for (const card of this._root?.querySelectorAll<HTMLElement>('.sb-card') ?? []) {
+            if (card.dataset.pinId === pinId) { return card; }
+        }
+        return null;
+    }
+
+    private scrollPinCardIntoView(card: HTMLElement): void {
+        if (typeof card.scrollIntoView === 'function') { card.scrollIntoView({ block: 'nearest' }); }
+    }
+
+    /** Card header click + used-by link share the same range selection. */
+    private selectPinCard(card: HTMLElement): void {
+        this.clearPinSelection();
+        const pin = this._pins[parseInt(card.dataset.idx!)];
+        if (!pin) { return; }
+        const def = allTypes(this._types).find(d => d.id === pin.typeId);
+        if (!def) { return; }
+        const addr = this.instanceAddress(pin);
+        if (addr === null) { return; }
+        this.markPinSelected(card, pin, def, addr);
+    }
+
+    /** Drop every transient selection marker before a pin selection is applied. */
+    private clearPinSelection(): void {
+        this.clearArrSep();
+        this.clearSelRow();
+        this._selectedBitRange = null;
+        this._hoveredBitRange = null;
+        this._selectedBitRowKey = null;
+        this._hoveredBitRowKey = null;
+        this._selectedFieldAddr = null;
+        this._selectedArrKey    = null;
+        this._selectedArrElemKey = null;
+    }
+
+    /** Apply the range + card selection for one pin (shared by header click and used-by link). */
+    private markPinSelected(card: HTMLElement, pin: TypeInstance, def: TypeDef, addr: number): void {
+        const size = typeByteSize(def, this._types, this.pinLayoutParams(pin, def) ?? {});
+        this._activeTypeAddr = addr;
+        this._selectedPinId = pin.id;
+        this._root?.querySelectorAll<HTMLElement>('.sb-card').forEach(c => c.classList.remove('oi-card-selected'));
+        card.classList.add('oi-card-selected');
+        this.cb.onSelectRange?.(addr, size);
+    }
+
 
 /** View-type preview toggle — always-visible card action button (`.act-btn-view-type`). */
 private toggleTypePreview(btn: HTMLElement): void {

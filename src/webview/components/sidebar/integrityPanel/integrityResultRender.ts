@@ -37,7 +37,7 @@ function algorithmLabel(algorithm: IntegrityAlgorithm): string {    return ALGOR
 }
 
 /** Card title: custom name, else the script file name / algorithm label. */
-function checkTitle(check: IntegrityCheckState): string {
+export function checkTitle(check: IntegrityCheckState): string {
     if (check.name) { return check.name; }
     if (check.kind === 'script') { return integrityScriptName(check.scriptPath) || 'Script'; }
     return algorithmLabel(check.algorithm);

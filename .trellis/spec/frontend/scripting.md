@@ -483,10 +483,12 @@ staged writes. Informational only — there is no Apply & Save / Discard control
 | D42 | Write outcome | Webview-owned `ScriptWriteSummary` (range, bytes, before/after, status); `savedEdits`/`scriptSaveFailed` flip it; failed save keeps the staged edits |
 | D43 | Large write ranges | Full before/after up to 8 bytes, then first/last byte only (`WRITE_PREVIEW_MAX`) |
 | D44 | List filtering | Hide/show only (cards + empty groups + a no-match line), never re-renders, so results/history/permissions survive; state is session-local |
-| D45 | Details surface | Expandable per-card row with derived data only (no persistence); usages stay omitted until honest metadata exists (integration-polish task) |
+| D45 | Details surface | Expandable per-card row with derived data only (no persistence); the **Used by** row is derived transiently from the bound profile (integrity checks + instance address/size sources) — never persisted (integration-polish) |
 | D46 | Last run | Per-path `{ at, state }` in panel-local memory; details row + status tooltip, dot stays the glance signal |
 | D47 | Live discovery | `createFileSystemWatcher` on `.hexscope/scripts/*.{js,ts}` (non-recursive), 250 ms trailing debounce (`ScriptRescanDebounce`), disposed with the session |
 | D48 | JS version | Copy to the `.js` sibling with a conversion header, exclusive `wx` write, never rewrites the source, trust-gated, then rescan |
+| D49 | Used-by links | Host-derived from the bound profile (script checks + instance/param sources); pushed via `setUsages`, refreshed in place; a click reveals the destination panel. Configured-but-unscanned paths keep their authored form (no card) |
+| D50 | Card integration | The filename is a `<button>` that opens the script (pencil stays); a card context menu on the shared MenuController carries Open / Copy path / Reveal in Explorer / Show details / Manage permissions (right-click or Shift+F10 / ContextMenu) |
 
 ### 9. Gotchas
 
@@ -614,12 +616,18 @@ The button has a fixed `width: 28px; height: 22px` to prevent layout shift on st
   options and lifetime labels, Escape, focus return, one-at-a-time, result/cancel close), Permissions
   list (scope chips, session-wide `All scripts`, per-row revoke, Manage/bulk two-step confirm),
   write summary (saving/saved/failed states, large-range truncation, history snapshot, clear),
-  details row (toggle + rescan persistence, roles/caps/entries/fingerprint/last run/grants,
-  escaping, actions, manage visibility), filter bar (hide/show preservation, group hiding,
+  details row (toggle + rescan persistence, roles/caps/used-by/entries/fingerprint/last run/grants,
+  escaping, actions, manage visibility), used-by links (chip + details links, `onSelectUsage` payload,
+  in-place refresh preserving results, unmatched paths), card context menu (right-click + Shift+F10,
+  Open/Copy/Reveal commands, disabled Manage, details/permissions local actions), filename-click open,
+  filter bar (hide/show preservation, group hiding,
   no-match, chips, rescan survival), TypeScript row (disabled vs compiler-available vs untrusted),
   last-run tooltip + details, writes notice, action/provider/both/unknown cards, no
   `.script-run-btn` on providers/unknown, group order/counts/collapse, result-area preservation
   across regrouping
+- `src/test/webview/components/sidebar/scriptsPanel/scriptUsages.test.ts` - pure used-by derivation:
+  configured path resolution (relative/absolute, case fallback, unresolved kept), address/size/param
+  usages, manual `paramValues` override, blank sources skipped, checks-before-instances ordering
 - Protocol tests: new message types tested in `webviewMessageModel.test.ts` (including
   `scriptSaveFailed` dispatch + passive model coverage)
 - Integration: manual test with sample .js/.ts scripts run from sidebar

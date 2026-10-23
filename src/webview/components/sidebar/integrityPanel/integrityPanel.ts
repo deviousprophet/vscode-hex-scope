@@ -44,6 +44,7 @@ import {
     checkCardHtml,
     checkStatusClass,
     checkStatusLabel,
+    checkTitle,
     isMismatchedCheck,
     resultBodyHtml,
     type IntegrityResultRenderDeps,
@@ -85,6 +86,16 @@ export interface IntegrityHighlight {
 
 /** One discovered script offered by the add/edit form's script picker. */
 type IntegrityScriptOption = Pick<ScriptInfo, 'name' | 'roles'> & { relativePath: string };
+
+/** One configured script check exposed to the host for used-by derivation. */
+export interface IntegrityScriptUsageRef {
+    /** Runtime check id (assigned by the panel); `selectCheck` takes it back. */
+    checkId: number;
+    /** Authored (workspace-relative) script path; kept even when no scan resolves it. */
+    scriptPath: string;
+    /** Card title: custom check name, else the script file name. */
+    label: string;
+}
 
 /** Host request for one script check run (the panel owns the ids). */
 export interface IntegrityScriptRunRequest extends IntegrityScriptRunPayload {
@@ -291,6 +302,29 @@ export class IntegrityPanel {
         }
         if (check.result || check.error) { check.stale = true; }
         this.updateCheckCard(check);
+    }
+
+    // ── Host used-by links (Scripts panel) ─────────────────────────
+
+    /** Every configured script check with its runtime id (host derives used-by links from these). */
+    scriptUsages(): IntegrityScriptUsageRef[] {
+        return this.checks
+            .filter(check => check.kind === 'script' && check.scriptPath.trim() !== '')
+            .map(check => ({ checkId: check.id, scriptPath: check.scriptPath.trim(), label: checkTitle(check) }));
+    }
+
+    /** Host used-by link: highlight one check and reveal its card (scrolls it into view). */
+    selectCheck(id: number): void {
+        if (!this.checks.some(check => check.id === id)) { return; }
+        this.highlightedCheckId = id;
+        this.render();
+        this.syncHighlight();
+        this.scrollCheckCardIntoView(id);
+    }
+
+    private scrollCheckCardIntoView(id: number): void {
+        const card = this._panel?.querySelector<HTMLElement>(`.integrity-card[data-check-id="${id}"]`);
+        if (card && typeof card.scrollIntoView === 'function') { card.scrollIntoView({ block: 'nearest' }); }
     }
 
     // ── Shared byte-order source ───────────────────────────────────

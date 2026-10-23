@@ -600,6 +600,68 @@ suite('IntegrityPanel highlight + activation', () => {
     });
 });
 
+suite('IntegrityPanel used-by links', () => {
+    let harness: Harness;
+    let dom: JSDOM;
+    let panel: IntegrityPanel;
+    let cb: Cb;
+
+    setup(() => {
+        harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        cb = harness.cb;
+        currentDom = dom;
+    });
+
+    teardown(cleanupDom);
+
+    function loadChecks(): void {
+        panel.setChecks({
+            schemaVersion: 1,
+            checks: [
+                { kind: 'script', scriptPath: '.hexscope/scripts/verify.js', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false, name: 'Flash CRC' },
+                { kind: 'builtin', algorithm: 'crc32-iso-hdlc', startAddress: 0x1000, endAddress: 0x1003, autoFixStoredValue: false },
+                { kind: 'script', scriptPath: '  .hexscope/scripts/other.js  ', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false },
+            ],
+        });
+    }
+
+    test('scriptUsages() lists configured script checks with runtime ids and titles', () => {
+        loadChecks();
+        assert.deepStrictEqual(panel.scriptUsages(), [
+            { checkId: 1, scriptPath: '.hexscope/scripts/verify.js', label: 'Flash CRC' },
+            { checkId: 3, scriptPath: '.hexscope/scripts/other.js', label: 'other.js' },
+        ]);
+        assert.deepStrictEqual(new IntegrityPanel({
+            readByte: getByte, getSelection: () => null, getEndian: () => 'le',
+        }).scriptUsages(), [], 'no checks → no usages');
+    });
+
+    test('selectCheck highlights the card, reports the highlight, and reveals it', () => {
+        const scrolled: string[] = [];
+        Object.defineProperty(dom.window.HTMLElement.prototype, 'scrollIntoView', {
+            value: () => { scrolled.push('card'); },
+            configurable: true,
+        });
+        setBytesInSegment(0x1000, [1, 2, 3, 4]);
+        loadChecks();
+        panel.selectCheck(3);
+        assert.ok(integrityCard(2).classList.contains('integrity-card-selected'), 'target card highlighted');
+        assert.ok(!integrityCard(0).classList.contains('integrity-card-selected'));
+        assert.deepStrictEqual(cb.highlights.at(-1), { rangeStart: 0x1000, rangeEnd: 0x1001, status: 'unverified' });
+        assert.deepStrictEqual(scrolled, ['card'], 'revealed card scrolls into view');
+    });
+
+    test('selectCheck for an unknown id is a no-op', () => {
+        loadChecks();
+        const before = cb.highlights.length;
+        panel.selectCheck(99);
+        assert.strictEqual(cb.highlights.length, before);
+        assert.strictEqual(document.querySelectorAll('.integrity-card-selected').length, 0);
+    });
+});
+
 suite('IntegrityPanel script checks', () => {
     let harness: Harness;
     let dom: JSDOM;

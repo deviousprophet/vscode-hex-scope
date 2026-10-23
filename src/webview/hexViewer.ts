@@ -61,7 +61,9 @@ import {
 } from './appModel';
 import { IntegrityPanel, type IntegrityHighlight } from './components/sidebar/integrityPanel/integrityPanel';
 import { ScriptsPanel } from './components/sidebar/scriptsPanel/scriptsPanel';
+import { deriveScriptUsages, type ScriptUsageRef } from './components/sidebar/scriptsPanel/scriptUsages';
 import type { ProviderToWebviewMessage } from '../webviewProtocol';
+import type { ScriptInfo } from '../core/scripting/types';
 import { profilePicker } from './profilePicker';
 import { dispatchProviderMessage, type ProviderMessageHandlers } from './webviewMessageDispatcher';
 import {
@@ -189,6 +191,8 @@ function applyPins(pins: TypeInstance[]): void {
     postProviderMessage({ type: 'saveTypeInstances', pins });
     // A new/edited/deleted dynamic instance changes the batch immediately.
     scheduleInstanceAddressResolution(0);
+    // …and the used-by links of every script the instances reference.
+    refreshScriptUsages();
 }
 
 // ── Script-resolved instance addresses and parameter sizes (transient) ──
@@ -446,7 +450,11 @@ const integrityPanel = new IntegrityPanel({
     getEndian: () => S.endian,
     onHighlightChange: applyIntegrityHighlight,
     onCopyText: (text, label) => postProviderMessage({ type: 'copyText', text, label }),
-    onPersistChecks: state => postProviderMessage({ type: 'saveIntegrityChecks', state }),
+    onPersistChecks: state => {
+        postProviderMessage({ type: 'saveIntegrityChecks', state });
+        // Check add/edit/delete changes which scripts are used by the profile.
+        refreshScriptUsages();
+    },
     onScriptCheckRequest: request => postProviderMessage({ type: 'runIntegrityScript', ...request }),
     onOpenScript: scriptPath => postProviderMessage({ type: 'openScript', scriptPath }),
     onRequestScriptList: () => postProviderMessage({ type: 'requestScriptList' }),
@@ -496,9 +504,47 @@ const scriptsPanel = new ScriptsPanel({
     onRevealScript: scriptPath => postProviderMessage({ type: 'revealScript', scriptPath }),
     onCreateJsVersion: scriptPath => postProviderMessage({ type: 'convertScriptToJs', scriptPath }),
     onOpenScriptingGuide: () => postProviderMessage({ type: 'openScriptingGuide' }),
+    onSelectUsage: usage => handleScriptUsageSelect(usage),
     getSelection: () => currentSelectionRange(),
     getGeneration: () => S.documentGeneration,
 });
+
+// ── Used-by links (transient profile usages; never persisted) ─────
+// Derived from the bound profile: script-backed integrity checks + script
+// sources on instance addresses/parameters. Rebuilt on scan, profile switch,
+// check edits, and pin edits. A configured path that no scan resolves keeps
+// its authored form (no card), so nothing is silently dropped.
+
+/** Last scanned script list (scriptInfo push); resolves configured paths to card identities. */
+let scannedScripts: ScriptInfo[] = [];
+
+/** Rebuild the Scripts panel's used-by links from the bound profile. */
+function refreshScriptUsages(): void {
+    scriptsPanel.setUsages(deriveScriptUsages({
+        checks: integrityPanel.scriptUsages(),
+        pins: S.typeInstances,
+        scripts: scannedScripts,
+    }));
+}
+
+/** Used-by link: reveal the destination — Integrity check highlight or Overlay instance expand. */
+function handleScriptUsageSelect(usage: ScriptUsageRef): void {
+    if (usage.kind === 'integrity' && usage.checkId !== undefined) {
+        activateSidebarTab('integrity');
+        integrityPanel.selectCheck(usage.checkId);
+        return;
+    }
+    if (usage.pinId !== undefined) {
+        activateSidebarTab('overlay');
+        overlayPanel.selectInstance(usage.pinId);
+    }
+}
+
+/** Switch the sidebar to a panel before revealing something inside it (no-op when already active). */
+function activateSidebarTab(tab: SidebarTab): void {
+    if (S.sidebarTab === tab) { return; }
+    onSidebarTabChange(tab);
+}
 
 /** Commit script-written bytes: one undoable transaction, then auto-save (mapped addresses only). */
 function applyScriptWrites(scriptPath: string, writes: Array<[number, number]>): void {
@@ -1251,6 +1297,8 @@ function handleCopyCommandMessage(msg: WebviewMessageByType<'copyCommand'>): voi
 function handleTypesExternalChangeMessage(msg: WebviewMessageByType<'typesExternalChange'>): void {
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
     scheduleInstanceAddressResolution(0);
+    // Pins whose definition vanished were pruned: refresh the used-by links.
+    refreshScriptUsages();
 }
 
 function handlePerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataChange'>): void {
@@ -1258,6 +1306,8 @@ function handlePerFileDataChangeMessage(msg: WebviewMessageByType<'perFileDataCh
     resetInstanceAddressResolutions('profile');
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
     scheduleInstanceAddressResolution(0);
+    // Profile switch: both usage sources (checks + instances) were replaced.
+    refreshScriptUsages();
 }
 
 function handleSavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): void {
@@ -1288,9 +1338,12 @@ function handleRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>
 }
 
 function handleScriptInfoMessage(msg: WebviewMessageByType<'scriptInfo'>): void {
+    scannedScripts = msg.scripts;
     scriptsPanel.setScripts(msg.scripts, msg.trusted, msg.compilerAvailable === true);
     integrityPanel.setAvailableScripts(msg.scripts, msg.trusted);
     overlayPanel.setScripts(msg.scripts, msg.trusted);
+    // A rescan re-resolves configured paths to card identities (deleted scripts keep their usages).
+    refreshScriptUsages();
 }
 
 function handleScriptResultMessage(msg: WebviewMessageByType<'scriptResult'>): void {
@@ -1369,6 +1422,7 @@ function applyWebviewModelUpdate(update: WebviewModelUpdate): void {
 function applyActiveChecksUpdate(update: WebviewModelUpdate): void {
     if (update.activeChecks) {
         integrityPanel.setChecks(update.activeChecks);
+        refreshScriptUsages();
     }
 }
 
