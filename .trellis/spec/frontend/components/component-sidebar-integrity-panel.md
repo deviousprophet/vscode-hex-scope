@@ -37,6 +37,8 @@ interface IntegrityCallbacks {
     onScriptCheckRequest?: (request: IntegrityScriptRunRequest) => void; // host posts runIntegrityScript
     onOpenScript?: (scriptPath: string) => void;              // host posts openScript
     onRequestScriptList?: () => void;                         // picker discovery → host posts requestScriptList
+    onCreateScript?: (role: ScriptRole) => void;              // empty picker → host posts createScript
+    onOpenScriptsFolder?: () => void;                         // empty picker → host posts openScriptsFolder
     getPendingEdits?: () => Array<[number, number]>;          // script run input (S.edits)
     getGeneration?: () => number;                             // stale-response guard (S.documentGeneration)
 }
@@ -69,7 +71,7 @@ class IntegrityPanel {
 ## Behaviour
 
 - Default: empty check list renders "No integrity checks configured.".
-- Kinds: the kind control (algorithm select) gains a `Script` option. Selecting it reveals `[data-script-field]` with a picker of `@script integrity` scripts (relative paths) plus a free-text path input; a selected check persists `kind:'script'` and a workspace-relative `scriptPath`.
+- Kinds: the kind control (algorithm select) gains a `Script` option. Selecting it reveals `[data-script-field]` with a picker of `@script integrity` scripts (relative paths) plus a free-text path input; a selected check persists `kind:'script'` and a workspace-relative `scriptPath`. An empty picker shows a disabled placeholder plus **Create integrity script** (`data-create-script="integrity"` → `onCreateScript`) and **Open scripts folder** (`data-open-scripts-folder` → `onOpenScriptsFolder`); both disappear once a matching script exists.
 - Script cards: `Script · <name>` chip (full path in the tooltip), status-line states `Verified`/`Failed` (verify), `Match`/`Mismatch` (value), `Stale`, refresh (`data-script-refresh`) and open-script (`data-script-open`) actions. The calculated pane header is `Value` (byte result) or `Verify` (PASS/FAIL); the stored pane is `Stored` with no endian tag.
 - Script scheduling: run on tab activation / document open / save / refresh (`startScriptRun` → `onScriptCheckRequest`, per-check request id + generation). A byte change bumps the token and marks the settled result stale; auto-fix suppression is reused unchanged. Stale or calculating script checks never contribute to Fix all, and a `valid === true` script result contributes no fix.
 - Add form opens with selection defaults from `getSelection()`; no selection → full-file range from `getDataRange()` (host derives min segment start → max segment end from `S.parseResult.segments`); neither → blank. Optional "Check name" input (`data-draft-control="name"`, maxlength 40, trimmed, duplicates allowed); empty name persists as no field. Card title = `check.name || algorithmLabel(check.algorithm)` (script: `name || script base name`). `IntegrityCheckConfig.name?` carried by `normalizeIntegrityCheck` (trim, >40 dropped) so names survive reload; `schemaVersion` unchanged.
@@ -96,7 +98,7 @@ class IntegrityPanel {
 
 ## Tests Required
 
-`src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts`: mount (shell + empty states + idempotent render), add-form selection defaults, check add/edit/delete → `onPersistChecks`, inline validation, hash stored-field visibility, result render + copy → `onCopyText`, stored match/mismatch, hash auto-fix staging + discard suppression, `notifyEndianChanged` re-decode, highlight toggle → `onHighlightChange` + clear on delete, `setTabActive` lazy-init, script card statuses, stale/refresh, script picker + path validation, script auto-fix/Fix all, stale generation re-request. Existing `integrityCheckModel.test.ts` + `webview.test.ts` `Integrity Checks sidebar` suite pass unchanged (parity gate, writer expectations carry `kind:'builtin'`).
+`src/test/webview/components/sidebar/integrityPanel/integrityPanel.test.ts`: mount (shell + empty states + idempotent render), add-form selection defaults, check add/edit/delete → `onPersistChecks`, inline validation, hash stored-field visibility, result render + copy → `onCopyText`, stored match/mismatch, hash auto-fix staging + discard suppression, `notifyEndianChanged` re-decode, highlight toggle → `onHighlightChange` + clear on delete, `setTabActive` lazy-init, script card statuses, stale/refresh, script picker + path validation, empty picker (disabled placeholder + create/open-folder actions and their disappearance), script auto-fix/Fix all, stale generation re-request. Existing `integrityCheckModel.test.ts` + `webview.test.ts` `Integrity Checks sidebar` suite pass unchanged (parity gate, writer expectations carry `kind:'builtin'`).
 
 ## Anti-patterns
 

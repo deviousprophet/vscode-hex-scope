@@ -13,7 +13,29 @@
     gap: 6px;
 }
 
-.script-add-examples.sb-btn {
+/* New split button — bar above the list; the caret expands the template chooser
+   in flow (same pattern as the prompt's More options menu), so no clipping. */
+.script-new-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+    padding: 6px 8px; border-bottom: 1px solid var(--border);
+}
+.script-new-split { display: inline-flex; }
+.script-new-btn.sb-btn {
+    border-top-right-radius: 0; border-bottom-right-radius: 0;
+    font-size: 11px; padding: 2px 10px; line-height: 1.5;
+}
+.script-new-caret.sb-btn {
+    border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none;
+    font-size: 10px; padding: 2px 6px; line-height: 1.5;
+}
+.script-new-popup {
+    flex-basis: 100%;
+    display: flex; flex-direction: column; gap: 2px; margin-top: 2px;
+}
+.script-new-popup[hidden] { display: none; }
+
+.script-add-examples.sb-btn,
+.script-create.sb-btn {
     font-style: normal;
     font-size: 11px;
     padding: 2px 8px;
@@ -200,12 +222,16 @@
 .script-perm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .script-perm-menu { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .script-perm-menu[hidden] { display: none; }
-.script-perm-option {
+/* Shared option-row styling: the prompt's More-options menu and the New template chooser. */
+.script-perm-option,
+.script-new-option {
     text-align: left; background: rgba(255,255,255,.04); border: 1px solid var(--border);
     color: var(--fg); font-size: 11px; padding: 4px 8px; border-radius: 3px; cursor: pointer;
 }
-.script-perm-option:hover { background: rgba(255,255,255,.08); }
-.script-perm-option:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: 1px; }
+.script-perm-option:hover,
+.script-new-option:hover { background: rgba(255,255,255,.08); }
+.script-perm-option:focus-visible,
+.script-new-option:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: 1px; }
 
 /* Error type header variants */
 .script-output-hdr-err { color: var(--err); background: rgba(241,76,76,.08); }

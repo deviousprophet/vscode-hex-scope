@@ -9,7 +9,9 @@ the role examples show the optional `address`, `size`, and `integrity` entries.
 
 Run **HexScope: Add Example Scripts** from the Command Palette, or use **Add
 example scripts** in the Scripts panel (header button or the empty-state
-button). The command copies these files into your workspace:
+button). **HexScope: Manage Scripts** offers the same catalog as **Add all
+examples** plus a **Browse examples…** multi-select that copies only the rows you
+check. The command copies these files into your workspace:
 
 ```text
 .hexscope/

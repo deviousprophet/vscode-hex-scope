@@ -8,7 +8,7 @@ never imports the `S` global, never posts provider messages, and never
 touches the render registry. Pure codec logic lives in overlayCodec.ts. */
 
 import { esc, actionBtnsHtml, wireActionBtns, formatHex } from '../../../utils';
-import type { ScriptInfo } from '../../../../core/scripting/types';
+import type { ScriptInfo, ScriptRole } from '../../../../core/scripting/types';
 import {
     addressSourceError,
     effectiveInstanceAddress,
@@ -127,6 +127,10 @@ export interface OverlayCallbacks {
     onOpenScript?: (scriptPath: string) => void;
     /** Ask the host for the role-tagged script list (instance source picker). */
     onRequestScripts?: () => void;
+    /** Empty address/size picker → host creates the role template. */
+    onCreateScript?: (role: ScriptRole) => void;
+    /** Empty address/size picker → host reveals `.hexscope/scripts`. */
+    onOpenScriptsFolder?: () => void;
 }
 
 type ValueKeyKind = 'default' | 'bit' | 'bitunit';
@@ -2049,6 +2053,7 @@ private addInstanceAddressSourceHtml(pin: TypeInstance | null): string {
     const fromScript = this._pinSourceDraft.mode === 'script';
     const locked = Boolean(pin?.pointerSources?.length);
     const lockTitle = 'Pointer-created instances must use a fixed address';
+    const empty = this.addressScripts().length === 0;
     return (
         `<div class="oa-row oa-src-row">` +
         `<select id="oa-addr-source" class="sb-select" aria-label="Address source"` +
@@ -2068,8 +2073,20 @@ private addInstanceAddressSourceHtml(pin: TypeInstance | null): string {
         `<button type="button" id="oa-script-open" class="sb-btn sb-btn-secondary oa-script-open"` +
                `${this._pinSourceDraft.scriptPath ? '' : ' disabled'}>Open</button>` +
         `</div>` +
+        this.addressEmptyActionsHtml(fromScript, empty) +
         `<div id="oa-script-untrusted" class="oa-hint"${this._scriptsTrusted ? ' hidden' : ''}>` +
         `Workspace not trusted \u2014 scripts cannot run.</div>`
+    );
+}
+
+/** Empty address picker: a real create action and the folder reveal. */
+private addressEmptyActionsHtml(fromScript: boolean, empty: boolean): string {
+    if (!empty) { return ''; }
+    return (
+        `<div class="oa-row oa-script-empty-row"${fromScript ? '' : ' hidden'}>` +
+        `<button type="button" class="sb-btn sb-btn-secondary oa-create-script" data-create-script="address">Create instance address script</button>` +
+        `<button type="button" class="sb-btn sb-btn-secondary oa-open-scripts-folder" data-open-scripts-folder>Open scripts folder</button>` +
+        `</div>`
     );
 }
 
@@ -2118,8 +2135,19 @@ private refreshSourceScriptSelect(): void {
         paramSel.innerHTML = this.sizeScriptOptionsHtml(selected);
     });
     this.syncParamOpenButtons();
+    this.refreshScriptEmptyRows();
     const untrusted = this._root?.querySelector<HTMLElement>('#oa-script-untrusted');
     if (untrusted) { untrusted.hidden = this._scriptsTrusted; }
+}
+
+/** Empty-picker rows follow the pushed script list (create/open-folder affordances). */
+private refreshScriptEmptyRows(): void {
+    const addressRow = this._root?.querySelector<HTMLElement>('.oa-script-empty-row');
+    if (addressRow) {
+        addressRow.hidden = this._pinSourceDraft.mode !== 'script' || this.addressScripts().length > 0;
+    }
+    const paramsRow = this._root?.querySelector<HTMLElement>('.oa-params-empty-row');
+    if (paramsRow) { paramsRow.hidden = this.sizeScripts().length > 0; }
 }
 
 private syncParamOpenButtons(): void {
@@ -2215,7 +2243,18 @@ private addInstanceParamsHtml(def: TypeDef | undefined): string {
             `</div>`
         );
     }).join('');
-    return `<div id="oa-params" class="oa-params"><div class="oa-params-hdr">Parameters</div>${rows}</div>`;
+    return `<div id="oa-params" class="oa-params"><div class="oa-params-hdr">Parameters</div>${rows}${this.sizeEmptyActionsHtml()}</div>`;
+}
+
+/** Empty size picker (no `@script size` scripts): create action + folder reveal. */
+private sizeEmptyActionsHtml(): string {
+    if (this.sizeScripts().length > 0) { return ''; }
+    return (
+        `<div class="oa-row oa-params-empty-row">` +
+        `<button type="button" class="sb-btn sb-btn-secondary oa-create-script" data-create-script="size">Create array size script</button>` +
+        `<button type="button" class="sb-btn sb-btn-secondary oa-open-scripts-folder" data-open-scripts-folder>Open scripts folder</button>` +
+        `</div>`
+    );
 }
 
 /** Form draft for one parameter: explicit draft, else the edited instance's source, else manual. */
@@ -2569,13 +2608,8 @@ private wireAddInstanceControls(sec: HTMLElement): void {
         // Attribute-only toggle: a full re-render would drop unsaved name/param input.
         const mode = (e.target as HTMLSelectElement).value === 'script' ? 'script' : 'fixed';
         this._pinSourceDraft.mode = mode;
-        const addrRow = sec.querySelector<HTMLElement>('.oa-addr-row');
-        const scriptRow = sec.querySelector<HTMLElement>('.oa-script-row');
-        if (addrRow) { addrRow.hidden = mode === 'script'; }
-        if (scriptRow) { scriptRow.hidden = mode !== 'script'; }
-        if (mode === 'script' && !this._pinSourceDraft.scriptPath) {
-            this._pinSourceDraft.scriptPath = sec.querySelector<HTMLSelectElement>('#oa-script-sel')?.value ?? '';
-        }
+        this.applySourceModeRows(mode);
+        this.fillDefaultAddressScript();
         this.syncScriptOpenButton();
         this.refreshInstanceConfirmState();
     });
@@ -2588,6 +2622,7 @@ private wireAddInstanceControls(sec: HTMLElement): void {
         const scriptPath = this.selectedAddressScript();
         if (scriptPath) { this.cb.onOpenScript?.(scriptPath); }
     });
+    this.wireScriptEmptyActions(sec);
     this.wireParamSourceControls(sec);
     sec.querySelector('#oa-confirm')?.addEventListener('click', () => {
         this.confirmInstance();
@@ -2596,6 +2631,42 @@ private wireAddInstanceControls(sec: HTMLElement): void {
         this.resetPinFormState();
         this.render();
     });
+}
+
+/** Empty address/size picker actions: create-from-template and folder reveal. */
+private wireScriptEmptyActions(sec: HTMLElement): void {
+    sec.querySelectorAll<HTMLElement>('[data-create-script]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const role = btn.dataset.createScript as ScriptRole | undefined;
+            if (role) { this.cb.onCreateScript?.(role); }
+        });
+    });
+    sec.querySelectorAll<HTMLElement>('[data-open-scripts-folder]').forEach(btn => {
+        btn.addEventListener('click', () => this.cb.onOpenScriptsFolder?.());
+    });
+}
+
+/** Attribute-only source toggle: show the row that matches the picked mode. */
+private applySourceModeRows(mode: PinSourceDraft['mode']): void {
+    this.hideRow('.oa-addr-row', mode === 'script');
+    this.hideRow('.oa-script-row', mode !== 'script');
+    this.hideRow('.oa-script-empty-row', mode !== 'script');
+}
+
+private hideRow(selector: string, hidden: boolean): void {
+    const row = this._root?.querySelector<HTMLElement>(selector);
+    if (row) { row.hidden = hidden; }
+}
+
+/** First switch to script mode: seed the draft from the picker's current value. */
+private fillDefaultAddressScript(): void {
+    if (this._pinSourceDraft.scriptPath || this._pinSourceDraft.mode !== 'script') { return; }
+    this._pinSourceDraft.scriptPath = this.pickedAddressScript();
+}
+
+/** Current picker value (`''` when the select or its value is absent). */
+private pickedAddressScript(): string {
+    return this._root?.querySelector<HTMLSelectElement>('#oa-script-sel')?.value ?? '';
 }
 
 private wireParamSourceControls(sec: HTMLElement): void {

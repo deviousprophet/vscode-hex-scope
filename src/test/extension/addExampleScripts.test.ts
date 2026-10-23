@@ -10,9 +10,11 @@ import {
     OPEN_SCRIPTS_FOLDER,
     UNTRUSTED_MESSAGE,
     runAddExampleScripts,
+    runBrowseExampleScripts,
     type AddExamplesDeps,
+    type BrowseExamplesDeps,
 } from '../../addExampleScripts';
-import { EXAMPLE_INSTALL_FILES } from '../../core/scripting/examples';
+import { EXAMPLE_INSTALL_FILES, type ExamplePickerItem } from '../../core/scripting/examples';
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const EXAMPLES_ROOT = path.join(REPO_ROOT, 'examples');
@@ -199,6 +201,94 @@ test('a broken catalog is reported, never silently skipped', async () => {
     }
 });
 
+});
+
+suite('browse example scripts', () => {
+
+    function makeBrowseDeps(
+        targetRoot: string | null,
+        options: { trusted?: boolean; selected?: readonly string[]; action?: string } = {},
+    ): { deps: BrowseExamplesDeps; captured: Captured; picked: ExamplePickerItem[][] } {
+        const base = makeDeps(targetRoot, options);
+        const picked: ExamplePickerItem[][] = [];
+        const deps: BrowseExamplesDeps = {
+            ...base.deps,
+            pick: async items => {
+                picked.push([...items]);
+                return options.selected;
+            },
+        };
+        return { deps, captured: base.captured, picked };
+    }
+
+    test('only the checked rows are copied', async () => {
+        const root = tempRoot();
+        try {
+            const { deps, captured, picked } = makeBrowseDeps(root, { selected: ['scripts/hello.js', 'scripts/verify-crc.js'] });
+            const result = await runBrowseExampleScripts(deps);
+
+            assert.deepStrictEqual(result?.added, ['.hexscope/scripts/hello.js', '.hexscope/scripts/verify-crc.js']);
+            assert.deepStrictEqual(result?.skipped, []);
+            assert.ok(fs.existsSync(installedFile(root, '.hexscope/scripts/hello.js')));
+            assert.ok(fs.existsSync(installedFile(root, '.hexscope/scripts/verify-crc.js')));
+            assert.ok(!fs.existsSync(installedFile(root, '.hexscope/scripts/write-pattern.js')), 'unchecked rows stay out');
+            assert.deepStrictEqual(picked[0].map(item => item.source), EXAMPLE_INSTALL_FILES.map(file => file.source),
+                'the picker sees the whole catalog in catalog order');
+            assert.deepStrictEqual(captured.infos, [{
+                message: 'Added 2 example files, skipped 0 existing files.',
+                actions: [OPEN_SCRIPTS_FOLDER, OPEN_SCRIPTING_GUIDE],
+            }]);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('cancelling or an empty selection installs nothing', async () => {
+        for (const selected of [undefined, []] as const) {
+            const root = tempRoot();
+            try {
+                const { deps, captured } = makeBrowseDeps(root, { selected });
+                assert.strictEqual(await runBrowseExampleScripts(deps), null);
+                assert.deepStrictEqual(captured.infos, []);
+                assert.ok(!fs.existsSync(path.join(root, '.hexscope')));
+            } finally {
+                fs.rmSync(root, { recursive: true, force: true });
+            }
+        }
+    });
+
+    test('already installed rows are selected but reported as skipped', async () => {
+        const root = tempRoot();
+        try {
+            await runAddExampleScripts(makeDeps(root).deps);
+            const { deps, captured } = makeBrowseDeps(root, { selected: ['scripts/hello.js', 'scripts/verify-crc.js'] });
+            const result = await runBrowseExampleScripts(deps);
+            assert.deepStrictEqual(result, { added: [], skipped: ['.hexscope/scripts/hello.js', '.hexscope/scripts/verify-crc.js'] });
+            assert.strictEqual(captured.infos[0].message, 'Added 0 example files, skipped 2 existing files.');
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('an untrusted workspace is refused before the picker opens', async () => {
+        const root = tempRoot();
+        try {
+            const { deps, captured, picked } = makeBrowseDeps(root, { trusted: false });
+            assert.strictEqual(await runBrowseExampleScripts(deps), null);
+            assert.deepStrictEqual(captured.warnings, [UNTRUSTED_MESSAGE]);
+            assert.deepStrictEqual(picked, []);
+            assert.ok(!fs.existsSync(path.join(root, '.hexscope')));
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('a missing workspace root is reported instead of guessing one', async () => {
+        const { deps, captured, picked } = makeBrowseDeps(null);
+        assert.strictEqual(await runBrowseExampleScripts(deps), null);
+        assert.deepStrictEqual(captured.warnings, [NO_WORKSPACE_MESSAGE]);
+        assert.deepStrictEqual(picked, []);
+    });
 });
 
 suite('add example scripts packaging', () => {

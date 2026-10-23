@@ -24,6 +24,8 @@ type Cb = {
     staged: Array<Array<[number, number]>>;
     scriptRequests: IntegrityScriptRunRequest[];
     openedScripts: string[];
+    createdScripts: string[];
+    openedFolders: number;
 };
 
 type Harness = {
@@ -48,7 +50,7 @@ function installDom(): Harness {
     (globalThis as unknown as { requestAnimationFrame?: (cb: (t: number) => void) => number }).requestAnimationFrame =
         () => 0;
 
-    const cb: Cb = { highlights: [], copies: [], persisted: [], staged: [], scriptRequests: [], openedScripts: [] };
+    const cb: Cb = { highlights: [], copies: [], persisted: [], staged: [], scriptRequests: [], openedScripts: [], createdScripts: [], openedFolders: 0 };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const endian: { value: 'le' | 'be' } = { value: 'le' };
     const panel = new IntegrityPanel({
@@ -64,6 +66,8 @@ function installDom(): Harness {
         onPersistChecks: state => cb.persisted.push(state),
         onScriptCheckRequest: request => cb.scriptRequests.push(request),
         onOpenScript: scriptPath => cb.openedScripts.push(scriptPath),
+        onCreateScript: role => cb.createdScripts.push(role),
+        onOpenScriptsFolder: () => { cb.openedFolders++; },
         getPendingEdits: () => Array.from(S.edits.entries()),
         getGeneration: () => 1,
     });
@@ -839,6 +843,43 @@ suite('IntegrityPanel script checks', () => {
         click(dom, form.querySelector('[data-form-action="save"]'));
         assert.match(form.querySelector('[data-form-error]')!.textContent!, /Script path is required/);
         assert.strictEqual(cb.persisted.length, 0);
+    });
+
+    test('an empty script picker offers Create and Open scripts folder instead of a dead option', () => {
+        panel.setAvailableScripts([], true);
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        setAlgorithm(dom, form, 'script');
+
+        const picker = form.querySelector<HTMLSelectElement>('[data-draft-control="script-pick"]')!;
+        assert.ok([...picker.options].every(option => option.disabled), 'the placeholder is not selectable');
+        const create = form.querySelector<HTMLElement>('[data-create-script]')!;
+        const openFolder = form.querySelector<HTMLElement>('[data-open-scripts-folder]')!;
+        assert.ok(create, 'empty picker exposes the create action');
+        assert.strictEqual(create.dataset.createScript, 'integrity');
+        assert.strictEqual(create.textContent?.trim(), 'Create integrity script');
+        assert.strictEqual(openFolder.textContent?.trim(), 'Open scripts folder');
+        assert.match(form.querySelector('.integrity-script-hint')!.textContent!, /Create one/);
+
+        cb.createdScripts = [];
+        click(dom, create);
+        assert.deepStrictEqual(cb.createdScripts, ['integrity']);
+        cb.openedFolders = 0;
+        click(dom, openFolder);
+        assert.strictEqual(cb.openedFolders, 1);
+    });
+
+    test('the empty-picker actions disappear once a matching script exists', () => {
+        panel.setAvailableScripts([
+            { name: 'verify.js', relativePath: '.hexscope/scripts/verify.js', roles: ['integrity'] },
+        ], true);
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        setAlgorithm(dom, form, 'script');
+        assert.strictEqual(form.querySelector('[data-create-script]'), null);
+        assert.strictEqual(form.querySelector('[data-open-scripts-folder]'), null);
+        const picker = form.querySelector<HTMLSelectElement>('[data-draft-control="script-pick"]')!;
+        assert.deepStrictEqual([...picker.options].map(option => option.value), ['', '.hexscope/scripts/verify.js']);
     });
 
     test('Fix all merges a script fix with a built-in fix', async function () {

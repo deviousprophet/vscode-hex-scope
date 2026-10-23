@@ -4319,6 +4319,68 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(S.typeInstances[0].addr, 0, 'addr remains the numeric fallback');
     });
 
+    test('empty address and size pickers offer create and open-folder actions', async () => {
+        S.types = [templatedDef(1)];
+        S.typeInstances = [];
+        const created: string[] = [];
+        let folders = 0;
+        const panel = await createMountedPanel({
+            onCreateScript: role => created.push(role),
+            onOpenScriptsFolder: () => { folders++; },
+        });
+        panel.setScripts([], true);
+
+        click(dom, document.getElementById('oi-add-btn'));
+        const source = document.getElementById('oa-addr-source') as HTMLSelectElement;
+        source.value = 'script';
+        source.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+        const addressEmpty = document.querySelector<HTMLElement>('.oa-script-empty-row')!;
+        assert.ok(addressEmpty, 'the empty address picker exposes actions');
+        assert.strictEqual(addressEmpty.hidden, false);
+        const createAddress = addressEmpty.querySelector<HTMLElement>('[data-create-script]')!;
+        assert.strictEqual(createAddress.dataset.createScript, 'address');
+        assert.strictEqual(createAddress.textContent?.trim(), 'Create instance address script');
+        click(dom, createAddress);
+        assert.deepStrictEqual(created, ['address'], 'the create action reports the address role');
+        click(dom, addressEmpty.querySelector('[data-open-scripts-folder]'));
+        assert.strictEqual(folders, 1);
+
+        const paramsEmpty = document.querySelector<HTMLElement>('.oa-params-empty-row')!;
+        assert.ok(paramsEmpty, 'the empty size picker exposes actions');
+        const createSize = paramsEmpty.querySelector<HTMLElement>('[data-create-script]')!;
+        assert.strictEqual(createSize.dataset.createScript, 'size');
+        click(dom, createSize);
+        assert.deepStrictEqual(created, ['address', 'size']);
+        click(dom, paramsEmpty.querySelector('[data-open-scripts-folder]'));
+        assert.strictEqual(folders, 2);
+    });
+
+    test('pushing matching scripts hides the empty-picker actions without rebuilding the form', async () => {
+        S.types = [templatedDef(1)];
+        S.typeInstances = [];
+        const panel = await createMountedPanel();
+        panel.setScripts([], true);
+
+        click(dom, document.getElementById('oi-add-btn'));
+        const source = document.getElementById('oa-addr-source') as HTMLSelectElement;
+        source.value = 'script';
+        source.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.strictEqual(document.querySelector<HTMLElement>('.oa-script-empty-row')!.hidden, false);
+
+        panel.setScripts([
+            { name: 'addr.js', filePath: '/w/.hexscope/scripts/addr.js', relativePath: '.hexscope/scripts/addr.js', capabilities: [], roles: ['address'], fingerprint: 'x' },
+            { name: 'size.js', filePath: '/w/.hexscope/scripts/size.js', relativePath: '.hexscope/scripts/size.js', capabilities: [], roles: ['size'], fingerprint: 'y' },
+        ], true);
+
+        assert.strictEqual(document.querySelector<HTMLElement>('.oa-script-empty-row')!.hidden, true,
+            'a matching address script replaces the create action');
+        assert.strictEqual(document.querySelector<HTMLElement>('.oa-params-empty-row')!.hidden, true,
+            'a matching size script replaces the create action');
+        const scriptSel = document.getElementById('oa-script-sel') as HTMLSelectElement;
+        assert.deepStrictEqual([...scriptSel.options].map(option => option.value), ['.hexscope/scripts/addr.js']);
+    });
+
     test('pointer-created instances cannot switch to a script source', async () => {
         S.types = [scalarDef];
         S.typeInstances = [{

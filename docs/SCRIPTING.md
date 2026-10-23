@@ -23,7 +23,7 @@ All scripts live under `.hexscope/scripts/` relative to the workspace root. Both
 
 ## Getting started
 
-1. Create `.hexscope/scripts/` in your workspace root, or run **HexScope: Add Example Scripts** to copy the bundled catalog (see [Start from an example](#start-from-an-example))
+1. Create `.hexscope/scripts/` in your workspace root, or run **HexScope: Manage Scripts** (works without an open hex file) to create one from a template or copy the bundled examples — see [Create a script](#create-a-script) and [Start from an example](#start-from-an-example)
 2. Add a `.ts` or `.js` file with a `run` function (an action) or a `@script` role export (a provider)
 3. Open a HEX file in Hex Scope (the editor must have an active document)
 4. Click the **Scripts** tab in the sidebar, or press `Ctrl+Shift+P` and run the `HexScope: Run Script` command
@@ -32,11 +32,38 @@ All scripts live under `.hexscope/scripts/` relative to the workspace root. Both
 
 The script list refreshes when you switch to the Scripts tab. If no scripts appear, verify the `.hexscope/scripts/` path is correct and your workspace root is set in VS Code.
 
+## Create a script
+
+**HexScope: Manage Scripts** works with no hex document open. It lists the scanned Actions
+and Providers (picking one opens the file) and offers:
+
+- **New action script** — a `run(api)` starter that reports a result and a log line,
+- **New integrity check** — `@script integrity` with `verifyIntegrity` / `getIntegrityValue`,
+- **New instance address script** — `@script address` with `getAddress`,
+- **New array size script** — `@script size` with `getSize`,
+- **Browse examples…** — a multi-select picker over the bundled catalog,
+- **Add all examples** — the bulk copy (see [Start from an example](#start-from-an-example)),
+- **Manage permissions…** — lists the stored script grants and revokes the one you pick,
+- **Open scripts folder**,
+- **Reveal a script in Explorer…** — shows a script picker and reveals the chosen file in the Explorer view (only offered when scripts exist).
+
+The Scripts panel has the same creation path: the **＋ New** split button opens the template
+picker, its caret lists the four templates directly, and the empty state has a **Create
+script** button. Empty provider pickers in the Overlay and Integrity panels offer **Create …
+script** and **Open scripts folder** next to their disabled placeholder.
+
+Creation asks for a file name (prefilled by the template), refuses names that are not a
+plain `.js`/`.ts` file, never overwrites an existing file (a clear message names the
+duplicate instead), requires a trusted workspace, and opens the new file with the correct
+`// @ts-check`, type reference, and role/`@requires` header. The new script appears in the
+matching group without a manual refresh.
+
 ## Start from an example
 
 **HexScope: Add Example Scripts** copies a working catalog into `.hexscope/scripts/`
 (also reachable from the Scripts panel: the **+** header action and the empty-state
-**Add example scripts** button). The command:
+**Add example scripts** button, and from **HexScope: Manage Scripts** as **Add all
+examples**). The command:
 
 - refuses to run in an untrusted workspace,
 - creates `.hexscope/scripts/` and `.hexscope/scripts/types/` as needed,
@@ -46,6 +73,10 @@ The script list refreshes when you switch to the Scripts tab. If no scripts appe
 
 Running it twice installs nothing and changes nothing. Removing an installed example
 leaves the bundled catalog untouched.
+
+**Browse examples…** opens a multi-select QuickPick with one row per catalog file, its
+target path, and its installed state; only the checked rows are copied, and existing
+targets are still skipped without being read or replaced.
 
 | File | Kind | Demonstrates | Adapt |
 |------|------|--------------|-------|

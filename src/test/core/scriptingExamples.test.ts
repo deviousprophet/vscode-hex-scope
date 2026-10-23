@@ -3,7 +3,11 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { crc32 } from '../../core/byteTools/crc';
-import { EXAMPLE_INSTALL_FILES, installExampleScripts } from '../../core/scripting/examples';
+import {
+    EXAMPLE_INSTALL_FILES,
+    examplePickerItems,
+    installExampleScripts,
+} from '../../core/scripting/examples';
 import { execute, executeEntry, scanScripts, type ScriptInfo } from '../../core/scripting/scriptRunner';
 import type { ScriptHost } from '../../core/scripting/types';
 
@@ -173,6 +177,59 @@ test('scanning an installed workspace lists the six scripts and skips the .d.ts'
         for (const name of ['follow-pointer.js', 'array-size-from-header.js', 'verify-integrity.js']) {
             assert.strictEqual(hasRunOf(scripts, name), false, `${name} is provider-only`);
         }
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('a selective install copies only the selected sources and never overwrites', () => {
+    const root = tempRoot();
+    try {
+        const result = installExampleScripts(EXAMPLES_ROOT, root, ['scripts/hello.js', 'scripts/types/hexscope.d.ts']);
+        assert.deepStrictEqual(result, {
+            added: ['.hexscope/scripts/hello.js', '.hexscope/scripts/types/hexscope.d.ts'],
+            skipped: [],
+        });
+        assert.ok(fs.existsSync(path.join(root, '.hexscope', 'scripts', 'hello.js')));
+        assert.ok(fs.existsSync(path.join(root, '.hexscope', 'scripts', 'types', 'hexscope.d.ts')));
+        assert.ok(!fs.existsSync(path.join(root, '.hexscope', 'scripts', 'verify-crc.js')),
+            'unchecked files stay out of the workspace');
+
+        const again = installExampleScripts(EXAMPLES_ROOT, root, ['scripts/hello.js', 'scripts/verify-crc.js']);
+        assert.deepStrictEqual(again, {
+            added: ['.hexscope/scripts/verify-crc.js'],
+            skipped: ['.hexscope/scripts/hello.js'],
+        });
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('an unknown source selection copies nothing; omitting the list stays the full install', () => {
+    const root = tempRoot();
+    try {
+        assert.deepStrictEqual(installExampleScripts(EXAMPLES_ROOT, root, ['scripts/missing.js']), { added: [], skipped: [] });
+        assert.ok(!fs.existsSync(path.join(root, '.hexscope')));
+        const bulk = installExampleScripts(EXAMPLES_ROOT, root);
+        assert.strictEqual(bulk.added.length, EXAMPLE_INSTALL_FILES.length, 'the no-list default is the bulk action');
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('examplePickerItems reports each catalog row and its installed state', () => {
+    const root = tempRoot();
+    try {
+        const before = examplePickerItems(root);
+        assert.deepStrictEqual(before.map(item => item.source), EXAMPLE_INSTALL_FILES.map(file => file.source));
+        assert.deepStrictEqual(before.map(item => item.target), EXAMPLE_INSTALL_FILES.map(file => file.target));
+        assert.ok(before.every(item => !item.installed), 'a fresh workspace has nothing installed');
+
+        installExampleScripts(EXAMPLES_ROOT, root, ['scripts/hello.js']);
+        const after = examplePickerItems(root);
+        assert.deepStrictEqual(after.filter(item => item.installed).map(item => item.source), ['scripts/hello.js']);
+        assert.strictEqual(after.find(item => item.source === 'scripts/hello.js')?.label, 'hello.js');
+        assert.strictEqual(after.find(item => item.source === 'scripts/types/hexscope.d.ts')?.label, 'hexscope.d.ts');
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }

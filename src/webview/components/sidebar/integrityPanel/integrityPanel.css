@@ -169,6 +169,13 @@
 
 .integrity-script-field[hidden] { display: none; }
 
+/* Empty picker: real create/open-folder actions instead of a dead select option. */
+.integrity-script-empty-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
 .integrity-script-hint {
     color: var(--addr-fg);
     font-family: var(--font-ui);

@@ -3,6 +3,7 @@ import type { HexScopeFormat } from './core/document';
 import type { IntegrityCheckSet } from './core/integrity';
 import type { ScriptInfo } from './core/scripting/types';
 import type { ScriptContext, ScriptErrorType } from './core/scripting/types';
+import type { ScriptTemplateId } from './core/scripting/templates';
 import type { BitFieldAllocation, SegmentLabel, SerializedRecord, TypeDef, TypeInstance, WireParseResult } from './core/types';
 
 export const RECORD_PAGE_SIZE = 512;
@@ -231,7 +232,11 @@ export type WebviewToProviderMessage =
     }
     | { type: 'revokeScriptPermission'; scope: ScriptGrantScope; scriptPath: string; capability: ScriptCapabilityGrant }
     | { type: 'revokeAllScriptPermissions'; scope?: ScriptGrantScope; scriptPath?: string }
-    | { type: 'addExampleScripts' };
+    | { type: 'addExampleScripts' }
+    /** Create a script from a template; without `template` the host asks which one. */
+    | { type: 'createScript'; template?: ScriptTemplateId }
+    /** Reveal `.hexscope/scripts` (empty provider pickers). */
+    | { type: 'openScriptsFolder' };
 
 export function messageType(message: unknown): string | undefined {
     return typeof (message as { type?: unknown })?.type === 'string'

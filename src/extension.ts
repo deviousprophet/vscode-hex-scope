@@ -5,6 +5,7 @@ import { HexEditorSession } from './hexEditorSession';
 import { DiffEditorPanel } from './diff/diffEditorPanel';
 import { CompareSelectionStore, selectionName, type CompareSelection } from './diff/compareSelection';
 import { registerAddExampleScripts } from './addExampleScripts';
+import { registerCreateScript, registerManageScripts } from './manageScripts';
 import { detectFormatFromParts, repairChecksums } from './core/document';
 import { parseIntelHex } from './core/parser/intelHexParser';
 import { parseSRec } from './core/parser/srecParser';
@@ -111,6 +112,8 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(registerAddExampleScripts(context));
+    context.subscriptions.push(registerManageScripts(context));
+    context.subscriptions.push(registerCreateScript(context));
 
     // Profile registry CRUD + select (three-tier profile system)
     context.subscriptions.push(

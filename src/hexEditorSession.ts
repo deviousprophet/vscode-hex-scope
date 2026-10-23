@@ -64,6 +64,7 @@ import { scriptGrantStoreFor, ScriptPermissionBroker, type ScriptGrantStore } fr
 import { resolveIntegrityScriptPath, runIntegrityScript, withRelativeScriptPaths } from './integrityScriptRunner';
 import { runInstanceAddresses, runInstanceParams, withRelativeAddressSources } from './instanceAddressRunner';
 import { addExampleScriptsAt } from './addExampleScripts';
+import { hostCreateDeps, openScriptsFolder, requestCreateScript } from './manageScripts';
 
 function hasParseErrors(result: Pick<ParseResult, 'checksumErrors' | 'malformedLines'>): boolean {
     return result.checksumErrors > 0 || result.malformedLines > 0;
@@ -1315,6 +1316,21 @@ export class HexEditorSession {
                 if (installed && installed.added.length > 0) {
                     await messageHandlers.requestScriptList?.({ type: 'requestScriptList' });
                 }
+            },
+            createScript: async msg => {
+                // Session root = the folder requestScriptList scans (workspace folder,
+                // else the document directory). Create, then rescan so the new card
+                // appears without a manual refresh.
+                const created = await requestCreateScript(hostCreateDeps(root), msg.template);
+                if (created) { await messageHandlers.requestScriptList?.({ type: 'requestScriptList' }); }
+            },
+            openScriptsFolder: async () => {
+                await openScriptsFolder({
+                    root,
+                    trusted: vscode.workspace.isTrusted,
+                    warn: message => { void vscode.window.showWarningMessage(message); },
+                    reveal: async dir => { await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir)); },
+                });
             },
             runIntegrityScript: async msg => {
                 if (!parseResult || disposed) { return; }

@@ -162,6 +162,16 @@
         "category": "HexScope"
       },
       {
+        "command": "hexScope.manageScripts",
+        "title": "Manage Scripts",
+        "category": "HexScope"
+      },
+      {
+        "command": "hexScope.createScript",
+        "title": "New Script",
+        "category": "HexScope"
+      },
+      {
         "command": "hexScope.selectProfile",
         "title": "Select Profile",
         "category": "HexScope"

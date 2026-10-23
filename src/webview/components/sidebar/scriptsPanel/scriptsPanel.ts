@@ -10,6 +10,7 @@ render registry. */
 
 import { esc } from '../../../utils';
 import { fileName } from '../../../../core/pathName';
+import { SCRIPT_TEMPLATES, type ScriptTemplateId } from '../../../../core/scripting/templates';
 import type { ScriptInfo } from '../../../../core/scripting/types';
 import type {
     ScriptCapabilityGrant,
@@ -45,6 +46,8 @@ export interface ScriptsCallbacks {
     onRevokeAllScriptPermissions?: (scope?: ScriptGrantScope, scriptPath?: string) => void;
     /** Copy the bundled example catalog: host posts addExampleScripts (or runs the command). */
     onAddExampleScripts?: () => void;
+    /** Create a script from a template; without a template the host asks which one. */
+    onCreateScript?: (template?: ScriptTemplateId) => void;
     /** Selection snapshot for the run payload (was currentSelectionRange). */
     getSelection?: () => { start: number; end: number } | null;
     /** Document generation for the run payload (was S.documentGeneration). */
@@ -103,6 +106,8 @@ export class ScriptsPanel {
     private readonly collapsedGroups = new Set<ScriptGroupKey>();
     /** Inline per-command approval surface (one prompt at a time). */
     private readonly prompt: PermissionPrompt;
+    /** Outside-click closer for the New template chooser (attached only while open). */
+    private menuDocHandler: ((event: Event) => void) | null = null;
 
     constructor(cb: ScriptsCallbacks = {}) {
         this.cb = cb;
@@ -131,6 +136,7 @@ export class ScriptsPanel {
         if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null; }
         for (const timer of this.confirmTimers) { clearTimeout(timer); }
         this.confirmTimers.clear();
+        this.setNewMenu(false);
         this.prompt.dispose();
     }
 
@@ -147,10 +153,93 @@ export class ScriptsPanel {
     render(): void {
         const body = this.sections?.body('main');
         if (!body) { return; }
-        body.innerHTML = `<div class="script-list">${this.scriptListHtml()}</div>`;
+        body.innerHTML = `${this.newBarHtml()}<div class="script-list">${this.scriptListHtml()}</div>`;
+        this.wireNewBar(body);
         const list = body.querySelector<HTMLElement>('.script-list');
         if (list) { this.wireScriptList(list); }
         this.renderPermissions();
+    }
+
+    // ── New split button + template chooser ────────────────────────
+
+    /** New split button: primary opens the host template picker; the caret lists templates in place. */
+    private newBarHtml(): string {
+        const options = SCRIPT_TEMPLATES.map(template =>
+            `<button type="button" class="script-new-option" role="menuitem" data-template="${esc(template.id)}"
+                title="${esc(template.description)}">${esc(template.name)}</button>`
+        ).join('');
+        return `
+        <div class="script-new-bar">
+            <span class="script-new-split">
+                <button type="button" id="scripts-new" class="sb-btn sb-btn-secondary script-new-btn"
+                    title="Create a script from a template">\uFF0B New</button>
+                <button type="button" id="scripts-new-menu" class="sb-btn sb-btn-secondary script-new-caret"
+                    aria-haspopup="true" aria-expanded="false" title="Choose a template" aria-label="Choose a template">\u25BE</button>
+            </span>
+            <div class="script-new-popup" role="menu" hidden>${options}</div>
+        </div>`;
+    }
+
+    private wireNewBar(body: HTMLElement): void {
+        body.querySelector('#scripts-new')?.addEventListener('click', () => this.cb.onCreateScript?.());
+        body.querySelector('#scripts-new-menu')?.addEventListener('click', () => this.toggleNewMenu());
+        body.querySelectorAll<HTMLElement>('.script-new-option').forEach(option => {
+            option.addEventListener('click', () => {
+                this.setNewMenu(false);
+                this.cb.onCreateScript?.(option.dataset.template as ScriptTemplateId | undefined);
+            });
+        });
+    }
+
+    private toggleNewMenu(): void {
+        const popup = this._panel?.querySelector<HTMLElement>('.script-new-popup');
+        this.setNewMenu(Boolean(popup?.hidden));
+    }
+
+    private setNewMenu(open: boolean): void {
+        const popup = this._panel?.querySelector<HTMLElement>('.script-new-popup');
+        const caret = this._panel?.querySelector<HTMLElement>('#scripts-new-menu');
+        if (popup) { popup.hidden = !open; }
+        caret?.setAttribute('aria-expanded', String(open));
+        this.syncMenuDocListener(open, popup ?? null, caret ?? null);
+    }
+
+    /** Close the chooser when the user clicks anywhere outside it. */
+    private syncMenuDocListener(open: boolean, popup: HTMLElement | null, caret: HTMLElement | null): void {
+        if (!open) {
+            this.detachMenuDocListener();
+            return;
+        }
+        if (!this.menuListenerReady(popup, caret)) { return; }
+        this.menuDocHandler = this.outsideMenuHandler(popup, caret);
+        document.addEventListener('click', this.menuDocHandler);
+    }
+
+    /** Drop the outside-click listener (no-op when the chooser never opened). */
+    private detachMenuDocListener(): void {
+        if (!this.menuDocHandler) { return; }
+        document.removeEventListener('click', this.menuDocHandler);
+        this.menuDocHandler = null;
+    }
+
+    /** The chooser has both anchors and no listener is attached yet. */
+    private menuListenerReady(popup: HTMLElement | null, caret: HTMLElement | null): popup is HTMLElement {
+        return popup !== null && caret !== null && this.menuDocHandler === null;
+    }
+
+    /** Outside-click close: clicks inside the chooser (or its caret) keep it open. */
+    private outsideMenuHandler(popup: HTMLElement, caret: HTMLElement | null): (event: Event) => void {
+        return event => {
+            if (this.menuContains(event.target, popup, caret)) { return; }
+            this.setNewMenu(false);
+        };
+    }
+
+    /** True when the click landed inside the chooser popup or its caret. */
+    private menuContains(target: EventTarget | null, popup: HTMLElement, caret: HTMLElement | null): boolean {
+        const node = target as Node | null;
+        if (!node) { return false; }
+        return popup.contains(node) || Boolean(caret?.contains(node));
     }
 
     /** Framework header actions: add the bundled examples, then rescan (compact controls, mounted once). */
@@ -204,10 +293,11 @@ export class ScriptsPanel {
         if (!body) { return; }
         let list = body.querySelector<HTMLElement>('.script-list');
         if (!list) {
+            body.innerHTML = this.newBarHtml();
             list = document.createElement('div');
             list.className = 'script-list';
-            body.innerHTML = '';
             body.appendChild(list);
+            this.wireNewBar(body);
         }
         // Grouping/sorting is presentation-only: keep each card's result block
         // (and its run history/event wiring) attached by path across the rebuild.
@@ -352,6 +442,8 @@ export class ScriptsPanel {
         if (this.currentScripts.length === 0) {
             return `<div class="sb-empty script-empty">
         <div>No scripts found in .hexscope/scripts/</div>
+        <button type="button" class="sb-btn sb-btn-secondary script-create" data-create-script
+            title="Create a script from a template">Create script</button>
         <button type="button" class="sb-btn sb-btn-secondary script-add-examples" data-add-examples
             title="Copy the bundled example scripts into .hexscope/scripts/">Add example scripts</button>
     </div>`;
@@ -431,6 +523,9 @@ export class ScriptsPanel {
     private wireScriptList(container: HTMLElement): void {
         container.querySelectorAll<HTMLButtonElement>('[data-add-examples]').forEach(btn => {
             btn.addEventListener('click', () => this.cb.onAddExampleScripts?.());
+        });
+        container.querySelectorAll<HTMLButtonElement>('[data-create-script]').forEach(btn => {
+            btn.addEventListener('click', () => this.cb.onCreateScript?.());
         });
         container.querySelectorAll<HTMLButtonElement>('[data-group-toggle]').forEach(btn => {
             btn.addEventListener('click', () => this.toggleGroup(btn));

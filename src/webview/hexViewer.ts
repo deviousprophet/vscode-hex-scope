@@ -173,6 +173,8 @@ const overlayPanel = new OverlayPanel({
     onRefreshAddresses: () => scheduleInstanceAddressResolution(0),
     onOpenScript: scriptPath => postProviderMessage({ type: 'openScript', scriptPath }),
     onRequestScripts: () => postProviderMessage({ type: 'requestScriptList' }),
+    onCreateScript: role => postProviderMessage({ type: 'createScript', template: role }),
+    onOpenScriptsFolder: () => postProviderMessage({ type: 'openScriptsFolder' }),
 });
 
 /** Persist type-definition mutations from the Overlay panel. */
@@ -448,6 +450,8 @@ const integrityPanel = new IntegrityPanel({
     onScriptCheckRequest: request => postProviderMessage({ type: 'runIntegrityScript', ...request }),
     onOpenScript: scriptPath => postProviderMessage({ type: 'openScript', scriptPath }),
     onRequestScriptList: () => postProviderMessage({ type: 'requestScriptList' }),
+    onCreateScript: role => postProviderMessage({ type: 'createScript', template: role }),
+    onOpenScriptsFolder: () => postProviderMessage({ type: 'openScriptsFolder' }),
     getPendingEdits: () => Array.from(S.edits.entries()),
     getGeneration: () => S.documentGeneration,
 });
@@ -487,6 +491,7 @@ const scriptsPanel = new ScriptsPanel({
     onRevokeAllScriptPermissions: (scope, scriptPath) =>
         postProviderMessage({ type: 'revokeAllScriptPermissions', scope, scriptPath }),
     onAddExampleScripts: () => postProviderMessage({ type: 'addExampleScripts' }),
+    onCreateScript: template => postProviderMessage({ type: 'createScript', template }),
     getSelection: () => currentSelectionRange(),
     getGeneration: () => S.documentGeneration,
 });

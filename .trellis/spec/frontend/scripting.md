@@ -114,6 +114,28 @@ function executeEntry(
     host: ScriptHost,
     options?: { timeoutMs?: number; signal?: AbortSignal; trusted?: boolean; context?: ScriptContext },
 ): Promise<ScriptOutput>;
+
+// Creation templates (src/core/scripting/templates.ts, pure data)
+type ScriptTemplateId = 'action' | 'integrity' | 'address' | 'size';
+interface ScriptTemplate {
+    id: ScriptTemplateId;
+    name: string;          // picker label ("New action script")
+    fileName: string;      // suggested name in .hexscope/scripts/
+    description: string;   // one-line picker description
+    role?: ScriptRole;     // declared @script tag; absent for the plain action
+    body: string;          // complete, type-checked script source
+}
+const SCRIPT_TEMPLATES: readonly ScriptTemplate[];
+function scriptTemplate(id: string | undefined): ScriptTemplate | undefined;
+
+// Creation + manager flows (src/manageScripts.ts, host)
+function validateScriptFileName(value: string): string | null;
+function requestCreateScript(deps: ScriptCreateDeps, templateId?: ScriptTemplateId): Promise<string | null>;
+function createScriptFromTemplate(deps: ScriptCreateDeps, template: ScriptTemplate): Promise<string | null>;
+function buildManagerItems(scripts: readonly ScriptInfo[]): ManagerItem[];
+function runManageScripts(deps: ManageScriptsDeps): Promise<void>;
+function runManagePermissions(deps: ManagePermissionsDeps): Promise<void>;
+function openScriptsFolder(deps: ScriptsFolderDeps): Promise<void>;
 ```
 
 ### 2b. Script-resolved instance addresses and parameter sizes
@@ -191,6 +213,9 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 - **Auto-save**: the webview stages the commit through `stageIntegrityEditTransaction()` (one undoable transaction) and calls `saveEdits()`; a failed save keeps the staged edits and uses the normal save-error path
 - **Revocable permission list**: `scriptPermissions` carries every stored grant `{ scriptPath, capability, scope }` (workspace → session → script, then path; `*` = session-wide) to the Scripts panel; `revokeScriptPermission` removes one entry by scope; `revokeAllScriptPermissions` bulk-revokes one scope class, or, with `scriptPath`, every revocable grant of that script. The panel's expanded **Manage** footer and per-row bulk actions both require a second confirming click
 - Script results collected by the Worker and sent back in the `result` message. The main thread replays results through `host.setResult()` and `host.output()` to maintain compatibility with existing consumers
+- **Creation + manager**: `core/scripting/templates.ts` owns the four creation templates (action / integrity / address / size) as pure strings; each body carries `// @ts-check`, the shipped type reference, the role/`@requires` header, and a working minimal implementation, and is verified against the `examples/tsconfig.json` compiler options and run against a mock host by `scriptingTemplates.test.ts`. `src/manageScripts.ts` owns the host flows: `HexScope: Manage Scripts` (QuickPick over `scanScripts`, Actions first then Providers, then New ×4 / Browse examples… / Add all examples / Manage permissions… / Open scripts folder / Reveal a script in Explorer…; works with no open document and only warns when no root exists), the create flow (`validateScriptFileName` + `promptName` + exclusive `wx` write + open + rescan; trust-gated; never overwrites), the host-side permission center (`listGrants()` → pick → `revokeGrant`), the folder reveal, and the per-script Explorer reveal (second pick over the script rows → `revealInExplorer`). Script rows open the file — the manager never runs scripts (running needs a parsed document).
+- **Selective examples**: `installExampleScripts(catalogRoot, targetRoot, selectedSources?)` filters the manifest by source path (omitted = the bulk catalog); `examplePickerItems(targetRoot)` supplies picker rows with installed state, and the `Browse examples…` QuickPick copies only the checked rows while still skipping existing targets. `runBrowseExampleScripts` refuses untrusted workspaces before opening the picker.
+- **Picker empty states**: the Integrity script picker and the Overlay address/size pickers render **Create … script** and **Open scripts folder** (disabled placeholder when empty) and report `onCreateScript` / `onOpenScriptsFolder`; `hexViewer` posts `createScript` / `openScriptsFolder` and the session routes `createScript` through `requestCreateScript` (session root), then rescans.
 - **Integrity checks**: `src/integrityScriptRunner.ts` runs `getIntegrityValue` then `verifyIntegrity` (two sequenced `executeEntry` calls) over a `VSCodeScriptHost` seeded with the webview's pending edits. A missing export is treated as absent, not an error; `verifyIntegrity` is authoritative, `getIntegrityValue` supplies verbatim fix bytes. The run is read-only (`write` is denied without a prompt), refuses >`MAX_INTEGRITY_EDIT_ENTRIES` pending edits, resolves workspace-relative paths ("Script not found" otherwise), and returns a structured outcome consumed by the webview Integrity panel (`integrityScriptResult`)
 - Results embedded inside the corresponding script card (not a separate output section)
 - Re-running a script replaces its previous result
@@ -261,6 +286,8 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | { type: 'revokeScriptPermission'; scope: ScriptGrantScope; scriptPath: string; capability: ScriptCapabilityGrant }
 | { type: 'revokeAllScriptPermissions'; scope?: ScriptGrantScope; scriptPath?: string }
 | { type: 'addExampleScripts' }
+| { type: 'createScript'; template?: ScriptTemplateId }
+| { type: 'openScriptsFolder' }
 
 // Provider → Webview
 | { type: 'scriptInfo'; scripts: Array<{ name: string; filePath: string; capabilities: string[]; roles: string[]; fingerprint: string; hasRun?: boolean; runExplicit?: boolean; relativePath?: string }>; trusted: boolean }
@@ -421,6 +448,8 @@ Apply & Save / Discard control.
 | D37 | Provider Run control | Structurally absent from provider/unknown cards — never disabled or hidden |
 | D38 | `@entry run` | Explicit override for run entries the source scan cannot recognise |
 | D39 | Permission center | Lists every stored grant with scope chip (`This script`/`This session`/`Workspace`), per-row Revoke, and bulk revoke (per script, per scope) behind Manage with two-step confirm |
+| D40 | Script creation | Pure templates in `core/scripting/templates.ts`; host-side `manageScripts.ts` prompts for a name, writes with `wx` (never overwrites), opens, and rescans. Panel/picker actions report `createScript` over the protocol |
+| D41 | Manager surface | One QuickPick (no second webview): script rows open files; creation, selective/bulk examples, host-side permission revoke, folder reveal, and per-script Explorer reveal sit below. Runs and Show usage stay out (running needs a parsed document; usage metadata is a later task) |
 
 ### 9. Gotchas
 
@@ -553,12 +582,22 @@ The button has a fixed `width: 28px; height: 22px` to prevent layout shift on st
 - Integration: manual test with sample .js/.ts scripts run from sidebar
 - `src/test/core/scriptingExamples.test.ts` - catalog shape, install manifest ↔ catalog parity,
   role tags/capabilities via `scanScripts`, mock-host runs for every example (including the
-  minimal `hello.js`, approval, denial, unmapped ranges, boundary-valid role values), and
-  `hexscope.d.ts` coverage. `npm run check-examples` (`tsc -p examples/tsconfig.json`)
-  type-checks the JavaScript examples against the shipped declaration.
+  minimal `hello.js`, approval, denial, unmapped ranges, boundary-valid role values), selective
+  install (only the selected sources, existing files skipped, unknown sources ignored),
+  `examplePickerItems` installed state, and `hexscope.d.ts` coverage. `npm run check-examples`
+  (`tsc -p examples/tsconfig.json`) type-checks the JavaScript examples against the shipped declaration.
+- `src/test/core/scriptingTemplates.test.ts` - the four templates (ids/file names/roles),
+  header + type reference + export shape, compiler parity with `examples/tsconfig.json`
+  (TypeScript API), `scanScripts` classification, and mock-host runs for every body
+- `src/test/extension/manageScripts.test.ts` - file-name validation, create flow (write/open/
+  summary, duplicate refusal without overwrite, trust/root/invalid-name/cancel refusals),
+  all-four-templates scan, folder reveal (trusted creates, untrusted does not), manager items
+  (ordering/classification/dispatch ids), dispatch (template/script/workspace rows, dismissal),
+  permission flow (empty hint, labels, revoke, dismissal), and command contribution + registration
 - `src/test/extension/addExampleScripts.test.ts` - fresh install, second-run skip, partial
-  install, untrusted/no-workspace refusal, result-message actions, missing catalog file, VSIX
-  packaging rules, command contribution + registration
+  install, selective browse install (checked rows only, cancel/empty installs nothing, skip
+  reporting, untrusted/no-root refusal), untrusted/no-workspace refusal, result-message actions,
+  missing catalog file, VSIX packaging rules, command contribution + registration
 - `VSCodeScriptHost` tests: edit passthrough, unmapped address, totalSize
 
 ### 12. Wrong vs Correct

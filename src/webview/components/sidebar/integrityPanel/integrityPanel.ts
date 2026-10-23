@@ -22,7 +22,7 @@ import {
     type IntegrityCheckKind,
     type IntegrityCheckSet,
 } from '../../../../core/integrity';
-import type { ScriptInfo } from '../../../../core/scripting/types';
+import type { ScriptInfo, ScriptRole } from '../../../../core/scripting/types';
 import { esc, flashCopied } from '../../../utils';
 import { showToast } from '../../toast';
 import {
@@ -124,6 +124,10 @@ export interface IntegrityCallbacks {
     onOpenScript?: (scriptPath: string) => void;
     /** Script picker discovery → host posts requestScriptList. */
     onRequestScriptList?: () => void;
+    /** Empty script picker → host creates the role template. */
+    onCreateScript?: (role: ScriptRole) => void;
+    /** Empty script picker → host reveals `.hexscope/scripts`. */
+    onOpenScriptsFolder?: () => void;
     /** Pending edits (same shape as saveEdits) for a host script run. */
     getPendingEdits?: () => Array<[number, number]>;
     /** Document generation; stale script responses are discarded and re-requested. */
@@ -426,11 +430,26 @@ export class IntegrityPanel {
                         placeholder=".hexscope/scripts/verify-integrity.js" value="${esc(draft.scriptPath)}"
                         autocomplete="off" spellcheck="false">
                 </label>
+                ${this.scriptEmptyActionsHtml()}
                 <div class="integrity-script-hint">${this.scriptPickerHint()}</div>
             </div>`;
     }
 
+    /** Empty picker: a real create action and the folder reveal instead of a dead option. */
+    private scriptEmptyActionsHtml(): string {
+        if (this.availableScripts.length > 0) { return ''; }
+        return `
+                <div class="integrity-script-empty-actions">
+                    <button type="button" class="sb-btn sb-btn-secondary integrity-create-script" data-create-script="integrity">Create integrity script</button>
+                    <button type="button" class="sb-btn sb-btn-secondary integrity-open-folder" data-open-scripts-folder>Open scripts folder</button>
+                </div>`;
+    }
+
     private scriptOptionsHtml(selectedPath: string): string {
+        if (this.availableScripts.length === 0) {
+            // Dead picker: a disabled placeholder plus the create/open actions below it.
+            return '<option value="" disabled selected>\u2014 No integrity scripts found \u2014</option>';
+        }
         const options = ['<option value="">— Select a discovered script —</option>'];
         for (const script of this.availableScripts) {
             const selected = script.relativePath === selectedPath ? ' selected' : '';
@@ -442,7 +461,7 @@ export class IntegrityPanel {
     private scriptPickerHint(): string {
         if (!this.scriptsTrusted) { return 'Workspace is not trusted: script checks will not run.'; }
         if (this.availableScripts.length === 0) {
-            return 'No scripts tagged @script integrity were found. Enter a path to run one anyway.';
+            return 'No scripts tagged @script integrity were found. Create one, or enter a path to run one anyway.';
         }
         return 'Only scripts tagged @script integrity are listed; a path can be typed for unscanned scripts.';
     }
@@ -671,6 +690,13 @@ export class IntegrityPanel {
             const select = event.target as HTMLSelectElement;
             const path = form.querySelector<HTMLInputElement>('[data-draft-control="scriptPath"]');
             if (path && select.value) { path.value = select.value; }
+        });
+        form.querySelector<HTMLElement>('[data-create-script]')?.addEventListener('click', () => {
+            const role = form.querySelector<HTMLElement>('[data-create-script]')?.dataset.createScript as ScriptRole | undefined;
+            if (role) { this.cb.onCreateScript?.(role); }
+        });
+        form.querySelector<HTMLElement>('[data-open-scripts-folder]')?.addEventListener('click', () => {
+            this.cb.onOpenScriptsFolder?.();
         });
         this.syncFormKind(form);
     }

@@ -7,6 +7,7 @@ import {
     PermissionPrompt,
     type ScriptPermissionRequest,
 } from '../../../../../webview/components/sidebar/scriptsPanel/permissionPrompt';
+import type { ScriptTemplateId } from '../../../../../core/scripting/templates';
 
 let currentDom: JSDOM | null = null;
 let currentPanel: ScriptsPanel | null = null;
@@ -24,6 +25,7 @@ type RevokeAll = { scope?: string; scriptPath?: string };
 type Cb = {
     requested: number;
     added: number;
+    created: Array<ScriptTemplateId | undefined>;
     runs: Array<{ path: string; generation: number; selection?: { start: number; end: number } }>;
     cancels: string[];
     opens: string[];
@@ -113,12 +115,13 @@ function installDom(): Harness {
         writable: true,
     });
 
-    const cb: Cb = { requested: 0, added: 0, runs: [], cancels: [], opens: [], decisions: [], revokes: [], revokeAlls: [] };
+    const cb: Cb = { requested: 0, added: 0, created: [], runs: [], cancels: [], opens: [], decisions: [], revokes: [], revokeAlls: [] };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const generation: { value: number } = { value: 0 };
     const panel = new ScriptsPanel({
         onRequestList: () => { cb.requested++; },
         onAddExampleScripts: () => { cb.added++; },
+        onCreateScript: template => { cb.created.push(template); },
         onRunScript: (scriptPath, gen, selectionRange) => {
             cb.runs.push({ path: scriptPath, generation: gen, selection: selectionRange });
         },
@@ -246,12 +249,58 @@ suite('ScriptsPanel mount + render', () => {
         assert.strictEqual(cb.requested, 1);
     });
 
+    test('New split button: primary reports no template, the caret lists the four templates', () => {
+        const primary = document.getElementById('scripts-new')!;
+        const caret = document.getElementById('scripts-new-menu')!;
+        const popup = document.querySelector<HTMLElement>('.script-new-popup')!;
+        assert.ok(primary, 'primary New button exists');
+        assert.ok(caret, 'template caret exists');
+        assert.ok(popup.hidden, 'the template chooser starts closed');
+        assert.strictEqual(caret.getAttribute('aria-expanded'), 'false');
+        assert.ok(primary.classList.contains('sb-btn-secondary'), 'New rides sb-btn-secondary');
+
+        cb.created = [];
+        click(dom, primary);
+        assert.deepStrictEqual(cb.created, [undefined], 'the primary action lets the host pick the template');
+
+        click(dom, caret);
+        assert.strictEqual(popup.hidden, false, 'caret opens the chooser');
+        assert.strictEqual(caret.getAttribute('aria-expanded'), 'true');
+        const options = Array.from(popup.querySelectorAll<HTMLElement>('.script-new-option'));
+        assert.deepStrictEqual(options.map(option => option.dataset.template), ['action', 'integrity', 'address', 'size']);
+        assert.deepStrictEqual(options.map(option => option.textContent?.trim()), [
+            'New action script', 'New integrity check', 'New instance address script', 'New array size script',
+        ]);
+
+        click(dom, caret);
+        assert.ok(popup.hidden, 'the caret toggles the chooser closed');
+
+        click(dom, caret);
+        click(dom, options[2]);
+        assert.deepStrictEqual(cb.created, [undefined, 'address'], 'choosing a template reports it');
+        assert.ok(popup.hidden, 'choosing closes the chooser');
+    });
+
+    test('empty state offers Create script next to Add example scripts', () => {
+        const btn = document.querySelector<HTMLButtonElement>('.script-empty [data-create-script]')!;
+        assert.ok(btn, 'empty-state create button exists');
+        assert.strictEqual(btn.textContent?.trim(), 'Create script');
+        assert.strictEqual(btn.tagName, 'BUTTON', 'a native button is the keyboard entry point');
+        cb.created = [];
+        click(dom, btn);
+        assert.deepStrictEqual(cb.created, [undefined], 'the host asks which template to use');
+        assert.strictEqual(cb.requested, 0, 'creating is not a list refresh');
+        assert.strictEqual(cb.added, 0, 'creating never installs examples');
+    });
+
     test('render is idempotent: re-render keeps a single shell', () => {
         panel.render();
         assert.strictEqual(document.querySelectorAll('#s-scripts').length, 1);
         assert.strictEqual(document.querySelectorAll('#s-scripts .sb-section').length, 1);
         assert.strictEqual(document.querySelectorAll('#scripts-refresh').length, 1);
         assert.strictEqual(document.querySelectorAll('#scripts-add-examples').length, 1);
+        assert.strictEqual(document.querySelectorAll('#scripts-new').length, 1);
+        assert.strictEqual(document.querySelectorAll('.script-new-popup').length, 1);
         assert.strictEqual(document.querySelectorAll('[data-add-examples]').length, 1, 'one empty-state install action');
     });
 });

@@ -40,18 +40,46 @@ function toFsPath(root: string, posixPath: string): string {
     return path.join(root, ...posixPath.split('/'));
 }
 
+/** One catalog row for the selective install picker (source key + current state). */
+export interface ExamplePickerItem {
+    /** Manifest source path (`scripts/hello.js`) — the selection key. */
+    source: string;
+    /** Workspace-relative target path (`.hexscope/scripts/hello.js`). */
+    target: string;
+    /** Basename shown as the picker label. */
+    label: string;
+    /** The target already exists, so the copy will skip it. */
+    installed: boolean;
+}
+
+/** Catalog rows with current-installed state, in catalog order. */
+export function examplePickerItems(targetRoot: string): ExamplePickerItem[] {
+    return EXAMPLE_INSTALL_FILES.map(file => ({
+        source: file.source,
+        target: file.target,
+        label: file.target.split('/').pop() ?? file.target,
+        installed: fs.existsSync(toFsPath(targetRoot, file.target)),
+    }));
+}
+
 /**
  * Copy the catalog into `targetRoot` (copy-only).
  *
+ * `selectedSources` limits the manifest to those source paths (the selective
+ * "Browse examples" flow); omitted = the whole catalog (the bulk action).
  * Existing targets are skipped and never read, replaced, or deleted, so a second
  * run changes nothing. Directories are created only for files actually written.
  * Throws when a bundled catalog file is missing — a packaging bug caught by the
  * catalog test rather than reported as a silent skip.
  */
-export function installExampleScripts(catalogRoot: string, targetRoot: string): ExampleInstallResult {
+export function installExampleScripts(
+    catalogRoot: string,
+    targetRoot: string,
+    selectedSources?: readonly string[],
+): ExampleInstallResult {
     const added: string[] = [];
     const skipped: string[] = [];
-    for (const file of EXAMPLE_INSTALL_FILES) {
+    for (const file of selectedInstallFiles(selectedSources)) {
         const source = toFsPath(catalogRoot, file.source);
         if (!fs.existsSync(source)) { throw new Error(`Example catalog file is missing: ${file.source}`); }
         const target = toFsPath(targetRoot, file.target);
@@ -61,6 +89,13 @@ export function installExampleScripts(catalogRoot: string, targetRoot: string): 
         added.push(file.target);
     }
     return { added, skipped };
+}
+
+/** Manifest subset for a selective install; unknown source paths are ignored. */
+function selectedInstallFiles(selectedSources?: readonly string[]): readonly ExampleInstallFile[] {
+    if (selectedSources === undefined) { return EXAMPLE_INSTALL_FILES; }
+    const selected = new Set(selectedSources);
+    return EXAMPLE_INSTALL_FILES.filter(file => selected.has(file.source));
 }
 
 /** Result message for the command (the docs quote this wording). */
