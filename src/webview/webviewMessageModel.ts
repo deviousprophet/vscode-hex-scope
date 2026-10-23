@@ -85,6 +85,7 @@ const MODEL_APPLIERS: ModelAppliers = {
     scriptPermissionRequest: applyPassiveMessage,
     scriptPermissions: applyPassiveMessage,
     scriptWritesCommit: applyPassiveMessage,
+    scriptSaveFailed: applyPassiveMessage,
     activateScriptsTab: applyPassiveMessage,
     activateProfilePicker: applyPassiveMessage,
 };

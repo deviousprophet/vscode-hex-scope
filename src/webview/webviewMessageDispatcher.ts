@@ -31,6 +31,7 @@ const PROVIDER_MESSAGE_TYPES: readonly ProviderMessageType[] = [
     'scriptPermissionRequest',
     'scriptPermissions',
     'scriptWritesCommit',
+    'scriptSaveFailed',
     'activateScriptsTab',
     'activateProfilePicker',
 ];

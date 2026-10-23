@@ -46,3 +46,8 @@ export async function compileScript(source: string, filePath: string): Promise<s
     if (!c) { throw new Error('TypeScript compiler (esbuild) unavailable. Use .js or run npm install.'); }
     return c(source);
 }
+
+/** Whether the optional TypeScript compiler (esbuild) resolves in this installation. */
+export async function compilerAvailable(): Promise<boolean> {
+    return (await getCompiler()) !== null;
+}

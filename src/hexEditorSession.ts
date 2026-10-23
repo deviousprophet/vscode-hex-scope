@@ -59,12 +59,14 @@ import {
 import { migrateLegacyData } from './hexScopeMigration';
 
 import { scanScripts, execute, scriptFingerprint } from './core/scripting/scriptRunner';
+import { compilerAvailable as scriptingCompilerAvailable } from './core/scripting/scriptCompiler';
 import { VSCodeScriptHost, scriptWritePlan } from './scriptHost';
 import { scriptGrantStoreFor, ScriptPermissionBroker, type ScriptGrantStore } from './scriptPermissions';
 import { resolveIntegrityScriptPath, runIntegrityScript, withRelativeScriptPaths } from './integrityScriptRunner';
 import { runInstanceAddresses, runInstanceParams, withRelativeAddressSources } from './instanceAddressRunner';
-import { addExampleScriptsAt } from './addExampleScripts';
-import { hostCreateDeps, openScriptsFolder, requestCreateScript } from './manageScripts';
+import { addExampleScriptsAt, openScriptingGuide } from './addExampleScripts';
+import { createJsVersion, hostCreateDeps, hostJsVersionDeps, openScriptsFolder, requestCreateScript } from './manageScripts';
+import { createScriptsWatcher } from './scriptWatcher';
 
 function hasParseErrors(result: Pick<ParseResult, 'checksumErrors' | 'malformedLines'>): boolean {
     return result.checksumErrors > 0 || result.malformedLines > 0;
@@ -200,6 +202,11 @@ function parseHexInWorker(
 
 function parseErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Failed to read file.';
+}
+
+/** Save-failure detail for the panel's write summary (raw message, never swallowed). */
+function saveErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
 
 async function readDocumentSource(
@@ -523,6 +530,29 @@ export class HexEditorSession {
                 fingerprint,
             });
             return allow && !disposed && !options.signal?.aborted;
+        };
+
+        /** A script-owned save reports the failure so the panel's write summary flips to `failed`. */
+        const reportScriptSaveFailure = (scriptPath: string | undefined, error: unknown): void => {
+            if (!scriptPath) { return; }
+            void postToWebview(webviewPanel.webview, {
+                type: 'scriptSaveFailed',
+                scriptPath,
+                message: saveErrorMessage(error),
+            });
+        };
+
+        /** Persist a save plan. False when a script-owned write failed and the panel was notified. */
+        const persistSavePlan = async (plan: SplicePlan, scriptPath: string | undefined): Promise<boolean> => {
+            try {
+                await writePlanToFile(document.uri, plan);
+                return true;
+            } catch (error) {
+                // A user-initiated save keeps its existing propagating error path.
+                if (!scriptPath) { throw error; }
+                reportScriptSaveFailure(scriptPath, error);
+                return false;
+            }
         };
 
         webviewPanel.webview.options = { enableScripts: true };
@@ -1214,7 +1244,7 @@ export class HexEditorSession {
                 // ASCII/same-length safe; otherwise fall back to a whole write.
                 // No materialize (every record) and no full reparse.
                 const plan = buildSplicePlan(raw, editMap, format);
-                await writePlanToFile(document.uri, plan);
+                if (!(await persistSavePlan(plan, msg.scriptPath))) { return; }
                 markSelfWrite();
                 raw = plan.newRaw;
                 foldEditsIntoSegments(parseResult.segments, editMap);
@@ -1257,7 +1287,10 @@ export class HexEditorSession {
                 for (const script of scripts) {
                     grants.revokeStaleFingerprint(script.filePath, script.fingerprint);
                 }
-                void postToWebview(webviewPanel.webview, { type: 'scriptInfo', trusted, scripts });
+                // The panel keeps `.ts` Run blocked (with the JS-first action row) when
+                // this installation has no esbuild; a local dev install can run `.ts`.
+                const compilerAvailable = await scriptingCompilerAvailable();
+                void postToWebview(webviewPanel.webview, { type: 'scriptInfo', trusted, scripts, compilerAvailable });
                 postPermissions();
             },
             runScript: msg => {
@@ -1480,6 +1513,22 @@ export class HexEditorSession {
                 const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(scriptPath));
                 await vscode.window.showTextDocument(doc, { preview: true });
             },
+            revealScript: async msg => {
+                const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
+                if (!scriptPath) { return; }
+                await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(scriptPath));
+            },
+            convertScriptToJs: async msg => {
+                // JS-first TypeScript path: copy to the `.js` sibling, then rescan so
+                // the runnable card appears without a manual refresh.
+                const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
+                if (!scriptPath) { return; }
+                const created = await createJsVersion(scriptPath, hostJsVersionDeps());
+                if (created) { await messageHandlers.requestScriptList?.({ type: 'requestScriptList' }); }
+            },
+            openScriptingGuide: async () => {
+                await openScriptingGuide(this._context);
+            },
             cancelScript: async msg => {
                 permissionBroker?.denyPending();
                 currentAbort?.abort();
@@ -1501,6 +1550,14 @@ export class HexEditorSession {
             const type = messageType(msg) as WebviewToProviderMessage['type'] | undefined;
             if (type) { await messageHandlers[type]?.(msg); }
         };
+
+        // ── Live script discovery ─────────────────────────────────────
+        // Edits/create/delete in `.hexscope/scripts` trigger a debounced rescan
+        // that reposts `scriptInfo`; the panel re-renders without a tab switch
+        // and moves existing result areas by path. Disposed with the session.
+        resources.add(createScriptsWatcher(root, () => {
+            messageHandlers.requestScriptList?.({ type: 'requestScriptList' }).catch(() => undefined);
+        }));
 
         resources.add(webviewPanel.onDidChangeViewState(e => {
             if (e.webviewPanel.active) {

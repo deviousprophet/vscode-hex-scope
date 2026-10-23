@@ -32,6 +32,7 @@ export const SCRIPTS_DIR_DISPLAY = EXAMPLE_SCRIPTS_DIR;
 export const UNTRUSTED_CREATE_MESSAGE =
     'HexScope: creating scripts is unavailable in an untrusted workspace. Trust the folder and try again.';
 export const DUPLICATE_NAME_HINT = 'Choose a different name.';
+export const JS_VERSION_MISSING_TARGET = 'HexScope: the TypeScript script no longer exists; the JavaScript version was not created.';
 
 /** Name rules in order; the first matching rule supplies the refusal message. */
 const FILE_NAME_RULES: ReadonlyArray<{ reject: (name: string) => boolean; message: string }> = [
@@ -134,6 +135,77 @@ function writeNewScript(filePath: string, body: string): 'created' | 'exists' | 
 function writeErrorReason(err: unknown): string {
     if ((err as NodeJS.ErrnoException | null)?.code === 'EEXIST') { return 'exists'; }
     return err instanceof Error ? err.message : String(err);
+}
+
+// ── TypeScript → JavaScript version (JS-first decision) ───────────
+// The extension does not bundle esbuild: `.ts` is an advanced local-dev path.
+// "Create JavaScript version" copies the source to a `.js` sibling (header
+// comment, never overwriting, never rewriting the source) so users have a
+// runnable starting point for a manual conversion.
+
+/** Host-side dependencies for creating one `.js` version of a `.ts` script. */
+export interface JsVersionDeps {
+    /** `vscode.workspace.isTrusted`; creation refuses an untrusted workspace. */
+    trusted: boolean;
+    warn: (message: string) => void;
+    info: (message: string) => void;
+    /** Open the created `.js` file in the editor. */
+    openFile: (filePath: string) => Promise<void>;
+}
+
+/** `.js` sibling path for a `.ts` script; null when the input is not a `.ts` file. */
+export function jsVersionPath(scriptPath: string): string | null {
+    return /\.ts$/i.test(scriptPath) ? scriptPath.replace(/\.ts$/i, '.js') : null;
+}
+
+/** New `.js` body: a manual-conversion header plus the untouched source. */
+export function jsVersionBody(sourceName: string, source: string): string {
+    return `// Created from ${sourceName} by HexScope. The TypeScript conversion is manual -\n`
+        + '// review types and imports, then run this .js file (see docs/SCRIPTING.md).\n'
+        + source;
+}
+
+/**
+ * Copy a `.ts` script to its `.js` sibling (exclusive write; the source is
+ * never modified). Returns the written path, or null when the flow refused
+ * (untrusted, missing source, existing target, read/write error).
+ */
+export async function createJsVersion(scriptPath: string, deps: JsVersionDeps): Promise<string | null> {
+    if (!deps.trusted) { deps.warn(UNTRUSTED_CREATE_MESSAGE); return null; }
+    const target = jsVersionPath(scriptPath);
+    if (!target) { return null; }
+    const source = readScriptSource(scriptPath, deps);
+    if (source === null) { return null; }
+    return writeJsVersion(target, scriptPath, source, deps);
+}
+
+/** Exclusive `.js` write + open + report; null (with a warning) when the target exists. */
+async function writeJsVersion(target: string, sourcePath: string, source: string, deps: JsVersionDeps): Promise<string | null> {
+    const written = writeNewScript(target, jsVersionBody(path.basename(sourcePath), source));
+    if (written !== 'created') {
+        deps.warn(jsVersionRefusal(path.basename(target), written));
+        return null;
+    }
+    await deps.openFile(target);
+    deps.info(`HexScope: created ${path.basename(target)} from ${path.basename(sourcePath)}. Review it before running - the conversion is manual.`);
+    return target;
+}
+
+/** Source read with a warn-once refusal (missing file, permissions, encoding). */
+function readScriptSource(scriptPath: string, deps: JsVersionDeps): string | null {
+    try {
+        return fs.readFileSync(scriptPath, 'utf-8');
+    } catch {
+        deps.warn(JS_VERSION_MISSING_TARGET);
+        return null;
+    }
+}
+
+/** Warning for a refused `.js` version: the existing target, else the raw OS error. */
+function jsVersionRefusal(targetName: string, written: string): string {
+    return written === 'exists'
+        ? `HexScope: ${targetName} already exists - the JavaScript version was not created.`
+        : `HexScope: could not create ${targetName}: ${written}`;
 }
 
 /** Reveal the scripts folder, creating it in a trusted workspace so the reveal lands. */
@@ -360,6 +432,16 @@ export function hostCreateDeps(root: string | null): ScriptCreateDeps {
             validateInput: value => validateScriptFileName(value) ?? undefined,
         }),
         pickTemplate: pickTemplateFromQuickPick,
+        openFile: openScriptFile,
+    };
+}
+
+/** Window-backed deps for the panel's "Create JavaScript version" action. */
+export function hostJsVersionDeps(): JsVersionDeps {
+    return {
+        trusted: vscode.workspace.isTrusted,
+        warn: message => { void vscode.window.showWarningMessage(message); },
+        info: message => { void vscode.window.showInformationMessage(message); },
         openFile: openScriptFile,
     };
 }

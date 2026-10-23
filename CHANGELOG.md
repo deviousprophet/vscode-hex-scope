@@ -13,6 +13,10 @@
 - Struct size parameters and per-instance values, including script-supplied array sizes, with editor controls and C preview macros
 - Bundled example scripts, `hexscope.d.ts` IntelliSense types, and a `HexScope: Add Example Scripts` command that copies without overwriting
 - A minimal `hello.js` starter example that shows the required `run(api)` export
+- The Scripts panel gains a compact filter bar (text + `All` / `Actions` / `Providers` chips) and an expandable per-card details row (roles, capabilities, entries, fingerprint, last run, active grants) with Open / Copy path / Reveal / Manage permissions actions
+- Approved script writes show a save summary in the result card: mapped range, byte count, before/after bytes, and `Ctrl+Z` undo guidance, with a distinct failed-save state
+- Live discovery: adding, editing, or deleting a script under `.hexscope/scripts/` refreshes the list automatically (250 ms debounce) while manual Refresh stays
+- JavaScript-first TypeScript path: `.ts` cards add **Open setup guide** and **Create JavaScript version** (writes a `.js` sibling with a conversion header, never overwriting) when the optional esbuild compiler is unavailable
 
 ### Changed
 - Dangerous script calls use one inline approval with scoped choices instead of a modal prompt plus a separate Apply & Save step; approved writes commit as one undoable save
@@ -20,10 +24,13 @@
 - Script cards show capability and role badges, workspace permissions are revocable in the panel, and scripts in subdirectories or `.d.ts` files are ignored
 - Every Scripts card has an open/edit action so the script file can be opened directly from the sidebar
 - Struct instance cards show script-resolved address and size state; resolved values stay transient and are never persisted
+- The script list refreshes when a script file is added, edited, or deleted on disk (short debounce); manual Refresh remains. `.ts` Run is enabled when esbuild resolves (local dev) instead of always blocked
+- Approved script writes report their lifecycle in the result card — `Saving …` then `Saved … · Ctrl+Z to undo` — and a new run keeps the prior summary in its history row
 
 ### Fixed
 - Editing or deleting a script revokes its stored approvals
 - Script-written bytes no longer report as saved before the save completes
+- A failed script save now reports "nothing was saved" with the host error instead of staying at "saving"
 
 ## [3.0.0] - 2026-10-19
 

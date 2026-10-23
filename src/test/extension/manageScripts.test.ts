@@ -6,17 +6,22 @@ import * as vscode from 'vscode';
 import {
     CREATE_SCRIPT_COMMAND,
     DUPLICATE_NAME_HINT,
+    JS_VERSION_MISSING_TARGET,
     MANAGE_SCRIPTS_COMMAND,
     SCRIPTS_DIR_DISPLAY,
     UNTRUSTED_CREATE_MESSAGE,
     buildManagerItems,
+    createJsVersion,
     createScriptFromTemplate,
     duplicateMessage,
+    jsVersionBody,
+    jsVersionPath,
     openScriptsFolder,
     requestCreateScript,
     runManagePermissions,
     runManageScripts,
     validateScriptFileName,
+    type JsVersionDeps,
     type ManagePermissionsDeps,
     type ManageScriptsDeps,
     type ManagerItem,
@@ -516,5 +521,110 @@ suite('manage scripts commands', () => {
         const commands = await vscode.commands.getCommands(true);
         assert.ok(commands.includes(MANAGE_SCRIPTS_COMMAND), 'hexScope.manageScripts is registered');
         assert.ok(commands.includes(CREATE_SCRIPT_COMMAND), 'hexScope.createScript is registered');
+    });
+});
+
+suite('manage scripts TypeScript to JavaScript version', () => {
+
+    type JsCapture = { warnings: string[]; infos: string[]; opened: string[] };
+
+    function makeJsDeps(options: { trusted?: boolean } = {}): { deps: JsVersionDeps; captured: JsCapture } {
+        const captured: JsCapture = { warnings: [], infos: [], opened: [] };
+        const deps: JsVersionDeps = {
+            trusted: options.trusted ?? true,
+            warn: message => { captured.warnings.push(message); },
+            info: message => { captured.infos.push(message); },
+            openFile: async filePath => { captured.opened.push(filePath); },
+        };
+        return { deps, captured };
+    }
+
+    function writeTs(root: string, body: string): string {
+        const dir = path.join(root, SCRIPTS_DIR_DISPLAY);
+        fs.mkdirSync(dir, { recursive: true });
+        const filePath = path.join(dir, 'crc-check.ts');
+        fs.writeFileSync(filePath, body, 'utf-8');
+        return filePath;
+    }
+
+    test('copies the source to a .js sibling with a manual-conversion header and opens it', async () => {
+        const root = tempRoot();
+        try {
+            const source = 'export function run(api) {\n    api.output("hi");\n}\n';
+            const filePath = writeTs(root, source);
+            const { deps, captured } = makeJsDeps();
+            const created = await createJsVersion(filePath, deps);
+
+            const target = filePath.replace(/\.ts$/, '.js');
+            assert.strictEqual(created, target);
+            const body = fs.readFileSync(target, 'utf-8');
+            assert.match(body, /Created from crc-check\.ts by HexScope/);
+            assert.match(body, /conversion is manual/);
+            assert.ok(body.endsWith(source), 'the source is copied untouched after the header');
+            assert.deepStrictEqual(captured.opened, [target], 'the new .js file opens like other creations');
+            assert.match(captured.infos[0], /created crc-check\.js from crc-check\.ts/);
+            assert.strictEqual(fs.readFileSync(filePath, 'utf-8'), source, 'the source is never rewritten');
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('never overwrites an existing .js sibling', async () => {
+        const root = tempRoot();
+        try {
+            const filePath = writeTs(root, 'export function run(api) {}\n');
+            const target = filePath.replace(/\.ts$/, '.js');
+            fs.writeFileSync(target, '// hand-written\n', 'utf-8');
+            const { deps, captured } = makeJsDeps();
+            const created = await createJsVersion(filePath, deps);
+            assert.strictEqual(created, null);
+            assert.strictEqual(fs.readFileSync(target, 'utf-8'), '// hand-written\n', 'existing target untouched');
+            assert.ok(captured.warnings[0]?.includes('already exists'), 'the refusal names the existing file');
+            assert.deepStrictEqual(captured.opened, []);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('refuses an untrusted workspace before touching disk', async () => {
+        const root = tempRoot();
+        try {
+            const filePath = writeTs(root, 'export const run = () => {};\n');
+            const { deps, captured } = makeJsDeps({ trusted: false });
+            assert.strictEqual(await createJsVersion(filePath, deps), null);
+            assert.deepStrictEqual(captured.warnings, [UNTRUSTED_CREATE_MESSAGE]);
+            assert.ok(!fs.existsSync(filePath.replace(/\.ts$/, '.js')));
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('a missing source refuses with the missing-target message', async () => {
+        const root = tempRoot();
+        try {
+            const missing = path.join(root, SCRIPTS_DIR_DISPLAY, 'gone.ts');
+            const { deps, captured } = makeJsDeps();
+            assert.strictEqual(await createJsVersion(missing, deps), null);
+            assert.deepStrictEqual(captured.warnings, [JS_VERSION_MISSING_TARGET]);
+            assert.ok(!fs.existsSync(missing.replace(/\.ts$/, '.js')));
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    test('non-.ts inputs are refused without a write', async () => {
+        assert.strictEqual(jsVersionPath('D:\\ws\\.hexscope\\scripts\\hey.js'), null);
+        assert.strictEqual(jsVersionPath('hey.ts'), 'hey.js');
+        assert.strictEqual(jsVersionPath('HEY.TS'), 'HEY.js');
+        const { deps, captured } = makeJsDeps();
+        assert.strictEqual(await createJsVersion('D:\\ws\\.hexscope\\scripts\\hey.js', deps), null);
+        assert.deepStrictEqual(captured.warnings, []);
+        assert.deepStrictEqual(captured.opened, []);
+    });
+
+    test('jsVersionBody prefixes the header before the untouched source', () => {
+        const body = jsVersionBody('x.ts', 'const a = 1;\n');
+        assert.match(body, /^\/\/ Created from x\.ts by HexScope\./);
+        assert.ok(body.endsWith('const a = 1;\n'));
     });
 });

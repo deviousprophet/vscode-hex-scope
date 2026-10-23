@@ -80,6 +80,21 @@ suite('webview message dispatcher', () => {
         assert.deepStrictEqual(seen, ['perm:4:write:4', 'grants:1', 'commit:a.js:1']);
     });
 
+    test('dispatches the script save-failure notice', () => {
+        let seen = '';
+        const handlers = {
+            ...noOpHandlers(),
+            scriptSaveFailed: msg => { seen = `${msg.scriptPath}:${msg.message}`; },
+        } satisfies ProviderMessageHandlers;
+
+        assert.strictEqual(dispatchProviderMessage({
+            type: 'scriptSaveFailed',
+            scriptPath: 'a.js',
+            message: 'EACCES: permission denied',
+        }, handlers), true);
+        assert.strictEqual(seen, 'a.js:EACCES: permission denied');
+    });
+
     test('dispatches batched instance address results', () => {
         let seen = '';
         const handlers = {
@@ -371,7 +386,8 @@ labels: [],
         });
         const permissions = applyProviderMessageToModel({ type: 'scriptPermissions', grants: [] });
         const commit = applyProviderMessageToModel({ type: 'scriptWritesCommit', scriptPath: 'a.js', writes: [[0, 1]] });
-        for (const update of [request, permissions, commit]) {
+        const saveFailed = applyProviderMessageToModel({ type: 'scriptSaveFailed', scriptPath: 'a.js', message: 'EACCES' });
+        for (const update of [request, permissions, commit, saveFailed]) {
             assert.deepStrictEqual(update.invalidations, {});
         }
     });
@@ -403,6 +419,7 @@ function noOpHandlers(): ProviderMessageHandlers {
         scriptPermissionRequest: () => {},
         scriptPermissions: () => {},
         scriptWritesCommit: () => {},
+        scriptSaveFailed: () => {},
         activateScriptsTab: () => {},
     };
 }

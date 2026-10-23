@@ -492,16 +492,29 @@ const scriptsPanel = new ScriptsPanel({
         postProviderMessage({ type: 'revokeAllScriptPermissions', scope, scriptPath }),
     onAddExampleScripts: () => postProviderMessage({ type: 'addExampleScripts' }),
     onCreateScript: template => postProviderMessage({ type: 'createScript', template }),
+    onCopyPath: scriptPath => postProviderMessage({ type: 'copyText', text: scriptPath, label: 'Script path' }),
+    onRevealScript: scriptPath => postProviderMessage({ type: 'revealScript', scriptPath }),
+    onCreateJsVersion: scriptPath => postProviderMessage({ type: 'convertScriptToJs', scriptPath }),
+    onOpenScriptingGuide: () => postProviderMessage({ type: 'openScriptingGuide' }),
     getSelection: () => currentSelectionRange(),
     getGeneration: () => S.documentGeneration,
 });
 
 /** Commit script-written bytes: one undoable transaction, then auto-save (mapped addresses only). */
-function applyScriptWrites(writes: Array<[number, number]>): void {
+function applyScriptWrites(scriptPath: string, writes: Array<[number, number]>): void {
     const mapped = mappedScriptWrites(writes);
-    if (mapped.length === 0 || stageIntegrityEditTransaction(mapped) === 0) { return; }
-    saveEdits();
+    if (mapped.length === 0) { return; }
+    const before = captureBeforeBytes(mapped);
+    if (stageIntegrityEditTransaction(mapped) === 0) { return; }
+    // Summary first so the result block renders `saving`; savedEdits/scriptSaveFailed flip it.
+    scriptsPanel.showWriteSummary({ scriptPath, writes: mapped, before, status: 'saving' });
+    saveEdits(scriptPath);
     refreshAfterIntegrityEdits();
+}
+
+/** Pre-write bytes at the mapped write addresses (reader values, incl. pending edits). */
+function captureBeforeBytes(writes: Array<[number, number]>): Array<[number, number]> {
+    return writes.map(([addr]) => [addr, getByte(addr) ?? 0] as [number, number]);
 }
 
 function mappedScriptWrites(writes: Array<[number, number]>): Array<[number, number]> {
@@ -775,9 +788,9 @@ function enterEditMode(): void {
     if (S.currentView === 'memory') { memRerender(); }
 }
 
-function saveEdits(): void {
+function saveEdits(scriptPath?: string): void {
     if (S.edits.size === 0) { return; }
-    postProviderMessage({ type: 'saveEdits', edits: Array.from(S.edits.entries()) });
+    postProviderMessage({ type: 'saveEdits', edits: Array.from(S.edits.entries()), ...(scriptPath ? { scriptPath } : {}) });
 }
 
 function cancelEdits(): void {
@@ -1099,6 +1112,7 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     scriptPermissionRequest: handleScriptPermissionRequestMessage,
     scriptPermissions: handleScriptPermissionsMessage,
     scriptWritesCommit: handleScriptWritesCommitMessage,
+    scriptSaveFailed: handleScriptSaveFailedMessage,
     activateScriptsTab: handleActivateScriptsTabMessage,
     activateProfilePicker: profilePicker.handleActivatePicker,
 };
@@ -1250,6 +1264,7 @@ function handleSavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): void 
     clearNibbleBuffer();
     resetRecordPages(msg.generation);
     clearLoadProgress();
+    scriptsPanel.markWritesSaved();
     applyWebviewModelUpdate(applyProviderMessageToModel(msg));
     integrityPanel.notifyDocumentSaved();
     scheduleInstanceAddressResolution();
@@ -1273,7 +1288,7 @@ function handleRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>
 }
 
 function handleScriptInfoMessage(msg: WebviewMessageByType<'scriptInfo'>): void {
-    scriptsPanel.setScripts(msg.scripts, msg.trusted);
+    scriptsPanel.setScripts(msg.scripts, msg.trusted, msg.compilerAvailable === true);
     integrityPanel.setAvailableScripts(msg.scripts, msg.trusted);
     overlayPanel.setScripts(msg.scripts, msg.trusted);
 }
@@ -1302,7 +1317,12 @@ function handleScriptPermissionsMessage(msg: WebviewMessageByType<'scriptPermiss
 }
 
 function handleScriptWritesCommitMessage(msg: WebviewMessageByType<'scriptWritesCommit'>): void {
-    applyScriptWrites(msg.writes);
+    applyScriptWrites(msg.scriptPath, msg.writes);
+}
+
+/** Host could not persist a script-owned save; the write summary flips to `failed`. */
+function handleScriptSaveFailedMessage(msg: WebviewMessageByType<'scriptSaveFailed'>): void {
+    scriptsPanel.markWritesFailed(msg.scriptPath, msg.message);
 }
 
 function handleActivateScriptsTabMessage(_msg: WebviewMessageByType<'activateScriptsTab'>): void {

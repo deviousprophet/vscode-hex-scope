@@ -42,6 +42,35 @@
     line-height: 1.5;
 }
 
+/* Filter bar — text filter + kind chips above the list. Hidden while the empty
+   state shows. Filtering only toggles [hidden] on cards/groups, so result areas,
+   run history, and event wiring all survive. */
+.script-filter-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+    padding: 4px 8px; border-bottom: 1px solid var(--border);
+}
+.script-filter-bar[hidden] { display: none; }
+.script-filter-input {
+    flex: 1 1 120px; min-width: 0;
+    background: rgba(255,255,255,.04); border: 1px solid var(--border);
+    color: var(--fg); font-family: var(--font-ui); font-size: 11px;
+    padding: 2px 6px; border-radius: 3px;
+}
+.script-filter-input:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: 0; }
+.script-kind-chips { display: inline-flex; gap: 2px; }
+.script-kind-chip {
+    background: none; border: 1px solid var(--border); border-radius: 3px;
+    color: var(--addr-fg); font-family: var(--font-ui); font-size: 10px;
+    padding: 2px 6px; line-height: 1.4; cursor: pointer;
+}
+.script-kind-chip:hover { color: var(--fg); }
+.script-kind-chip.active { color: var(--fg); background: rgba(255,255,255,.08); }
+.script-kind-chip:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: 1px; }
+.script-no-match { font-size: 11px; color: var(--addr-fg); padding: 8px; }
+.script-no-match[hidden] { display: none; }
+.script-group[hidden] { display: none; }
+.script-card[hidden] { display: none; }
+
 /* Group headers — Actions first, then Providers. Collapse is presentation-only:
    the body stays in the DOM, so result areas and run history survive. */
 .script-group + .script-group { border-top: 1px solid var(--border); }
@@ -232,6 +261,51 @@
 .script-new-option:hover { background: rgba(255,255,255,.08); }
 .script-perm-option:focus-visible,
 .script-new-option:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: 1px; }
+
+/* Details chevron — compact card-level toggle for the expandable details row. */
+.script-details-toggle {
+    background: none; border: none; color: var(--addr-fg); cursor: pointer;
+    font-size: 10px; line-height: 1; padding: 0 2px; flex-shrink: 0;
+}
+.script-details-toggle:hover { color: var(--fg); }
+.script-details-toggle:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: 1px; }
+.script-details-toggle[aria-expanded="true"] { transform: rotate(180deg); }
+
+/* Expandable details row — roles, capabilities, entries, fingerprint, last run,
+   grants, and the card actions. Derived data; nothing persisted. */
+.script-details {
+    border-top: 1px dashed var(--border); padding: 6px 10px;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.script-details[hidden] { display: none; }
+.script-details-grid {
+    display: grid; grid-template-columns: 88px 1fr; gap: 2px 8px;
+    font-size: 10px; align-items: baseline;
+}
+.script-details-label { color: var(--addr-fg); text-transform: uppercase; letter-spacing: .03em; }
+.script-details-value {
+    color: var(--fg); font-family: var(--font-editor); word-break: break-all;
+}
+.script-details-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.script-details-btn.sb-btn { font-size: 10px; padding: 1px 8px; line-height: 1.5; }
+
+/* TypeScript action row — replaces the silent disabled-Run dead end for `.ts`
+   scripts when the host reports no esbuild. */
+.script-ts-help {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    padding: 4px 10px 6px; font-size: 10px; color: var(--addr-fg);
+}
+.script-ts-note { flex: 1 1 140px; min-width: 0; }
+.script-ts-btn.sb-btn { font-size: 10px; padding: 1px 6px; line-height: 1.5; flex-shrink: 0; }
+
+/* Write summary — the script-write lifecycle line (saving → saved/failed). */
+.script-write-summary {
+    font-size: 10px; padding: 3px 8px; margin-bottom: 4px;
+    color: var(--info-fg, #4fc3f7); font-family: var(--font-editor);
+    word-break: break-all;
+}
+.script-write-summary-saved { color: var(--ok); }
+.script-write-summary-failed { color: var(--err); }
 
 /* Error type header variants */
 .script-output-hdr-err { color: var(--err); background: rgba(241,76,76,.08); }

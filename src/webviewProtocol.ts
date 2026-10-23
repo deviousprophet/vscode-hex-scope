@@ -119,8 +119,9 @@ export type ProviderToWebviewMessage =
         canQuickRepair: boolean;
     }
     | { type: 'repairComplete'; generation: number; parseResult: WireParseResult }
-    | { type: 'scriptInfo'; trusted: boolean; scripts: ScriptInfo[] }
+    | { type: 'scriptInfo'; trusted: boolean; scripts: ScriptInfo[]; compilerAvailable?: boolean }
     | { type: 'scriptResult'; scriptPath: string; result: { results: Array<{ label: string; value: string }>; log: string[] } | null; error: string; errorType?: 'compile' | 'runtime' | 'timeout' | 'cancel' | 'contract'; pendingWriteCount: number; discardedWriteCount?: number }
+    | { type: 'scriptSaveFailed'; scriptPath: string; message: string }
     | {
         type: 'integrityScriptResult';
         requestId: number;
@@ -184,7 +185,7 @@ export type WebviewToProviderMessage =
     | { type: 'deleteProfile' }
     | { type: 'updateLabelVisibility'; id: string; hidden: boolean }
     | { type: 'reorderLabel'; id: string; dir: number }
-    | { type: 'saveEdits'; edits: Array<[number, number]> }
+    | { type: 'saveEdits'; edits: Array<[number, number]>; scriptPath?: string }
     | { type: 'repairAndReload' }
     | { type: 'closePanel' }
     | { type: 'viewInNormalEditor' }
@@ -207,6 +208,9 @@ export type WebviewToProviderMessage =
         entries: InstanceParamRequestEntry[];
     }
     | { type: 'openScript'; scriptPath: string }
+    | { type: 'revealScript'; scriptPath: string }
+    | { type: 'convertScriptToJs'; scriptPath: string }
+    | { type: 'openScriptingGuide' }
     | {
         type: 'runIntegrityScript';
         requestId: number;

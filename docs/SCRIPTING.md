@@ -19,7 +19,7 @@ your-workspace/
         └── update-checksums.ts
 ```
 
-All scripts live under `.hexscope/scripts/` relative to the workspace root. Both `.ts` and `.js` files are supported. Scripts in subdirectories are not scanned, and `.d.ts` files are never treated as runnable — `types/hexscope.d.ts` holds shared declarations.
+All scripts live under `.hexscope/scripts/` relative to the workspace root. Both `.ts` and `.js` files are supported; JavaScript is the supported path for installed extensions (see [TypeScript support](#typescript-support)). Scripts in subdirectories are not scanned, and `.d.ts` files are never treated as runnable — `types/hexscope.d.ts` holds shared declarations.
 
 ## Getting started
 
@@ -30,7 +30,7 @@ All scripts live under `.hexscope/scripts/` relative to the workspace root. Both
 5. The sidebar groups scripts into **Actions** and **Providers**. Action cards have **Run**; provider cards have **Open** and a job chip (`Instance address`, `Array size`, `Integrity check`)
 6. Click **Run** — output and results appear below the script list
 
-The script list refreshes when you switch to the Scripts tab. If no scripts appear, verify the `.hexscope/scripts/` path is correct and your workspace root is set in VS Code.
+The script list refreshes when you switch to the Scripts tab, from the header refresh action, and automatically when a script file is added, edited, or deleted in `.hexscope/scripts/` (short debounce, no tab switch needed). If no scripts appear, verify the `.hexscope/scripts/` path is correct and your workspace root is set in VS Code.
 
 ## Create a script
 
@@ -90,6 +90,22 @@ targets are still skipped without being read or replaced.
 Every example starts with `/// <reference path="./types/hexscope.d.ts" />`, so
 editor IntelliSense works in the repository and in an installed workspace. The catalog
 is type-checked in CI (`npm run check-examples`), so it cannot drift from the API.
+
+## Find, filter, and inspect scripts
+
+- The compact filter bar above the list combines a text filter (matches script name or
+  path) with kind chips (`All`, `Actions`, `Providers`). Filtering only hides cards:
+  embedded results, run history, the Permissions section, and the **＋ New** button all
+  stay intact, and a group with no visible cards disappears. A one-line **No scripts
+  match the filter** state appears when nothing matches.
+- Each card's chevron expands a details row: roles, declared capabilities, the entries
+  the runner invokes (`run`, `getAddress`, `getSize`, `getIntegrityValue`,
+  `verifyIntegrity`), the short fingerprint (full value on hover), the last run (time and
+  terminal state), and the number of active grants. Its actions are **Open**,
+  **Copy path**, **Reveal**, and **Manage permissions** (expands the Permissions section;
+  shown only when the script has a grant).
+- The status dot stays the glance signal: green after a successful run, red after an
+  error, with the last-run time in its tooltip.
 
 ## Script structure
 
@@ -602,12 +618,16 @@ Rules:
 
 - Approved `write` bytes are staged during the run and committed **once** when the script
   finishes without error: the viewer stages one edit transaction and saves immediately.
+- The result card shows a save summary line: the mapped range, the byte count, and the
+  before/after bytes (for a large range, the first/last byte plus the count). While the
+  save is in flight it reads **Saving …**, then flips to **Saved … Ctrl+Z to undo**.
+- A save that fails is a distinct state: the line reports **Save failed — nothing was
+  saved** with the host error, and the staged bytes stay pending (a retry save still works).
 - A run that errors, times out, or is cancelled discards its staged writes and reports
   "nothing was saved".
 - <kbd>Ctrl</kbd>+<kbd>Z</kbd> after a script run restores the pre-run bytes (dirty), and
   <kbd>Ctrl</kbd>+<kbd>S</kbd> saves them again.
-- The result card shows an informational byte count ("written and saved" or "discarded").
-  There is no Apply/Discard control.
+- There is no Apply/Discard control.
 
 ## Examples
 
@@ -709,9 +729,23 @@ export async function run(api) {
 
 ## TypeScript support
 
-If esbuild is available (installed in the extension's `node_modules`), `.ts` files are compiled automatically at runtime. If esbuild is not available, an error is shown suggesting you save as `.js` instead.
+JavaScript is the supported path for extensions installed from the marketplace. The
+extension does **not** bundle a TypeScript compiler: `.ts` runs only when `esbuild`
+resolves (for example in a local development checkout with `npm install`). The Scripts
+panel reports the decision on the card itself:
 
-For the VS Code extension installed from the marketplace, esbuild may not be bundled. In that case, write scripts in plain JavaScript (`.js`). TypeScript can be used when developing the extension locally, or by configuring your own build step.
+- With esbuild available, `.ts` cards run normally.
+- Without it, the Run button stays disabled and the card shows a **TypeScript needs
+  esbuild, which is not bundled** row with two actions:
+  - **Open setup guide** — this guide,
+  - **Create JavaScript version** — writes a `.js` sibling (for example `crc-check.ts` →
+    `crc-check.js`) that starts with a header comment and then the untouched source.
+    It never overwrites an existing file and never modifies the `.ts` source; review the
+    types and imports manually, then run the `.js` copy. Like the other creation flows,
+    it requires a trusted workspace and opens the new file.
+
+An alternative is your own build step: compile `.ts` to `.js` next to the source (or wire
+a watcher) so the worker always runs plain JavaScript.
 
 ## Security model
 

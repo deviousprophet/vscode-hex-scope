@@ -3,7 +3,7 @@
   "name": "script-feedback-scale",
   "title": "Improve script feedback and scale",
   "description": "Show write summaries and undo guidance, add script details/search/filtering, refresh on file changes, and resolve TypeScript support.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "frontend",
   "package": null,

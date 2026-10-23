@@ -2,7 +2,11 @@ import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import '../../../cssImportHook';
 
-import { ScriptsPanel, type ScriptInfo } from '../../../../../webview/components/sidebar/scriptsPanel/scriptsPanel';
+import {
+    ScriptsPanel,
+    type ScriptInfo,
+    type ScriptWriteSummary,
+} from '../../../../../webview/components/sidebar/scriptsPanel/scriptsPanel';
 import {
     PermissionPrompt,
     type ScriptPermissionRequest,
@@ -32,6 +36,10 @@ type Cb = {
     decisions: Decision[];
     revokes: Array<[string, string, string]>;
     revokeAlls: RevokeAll[];
+    copies: string[];
+    reveals: string[];
+    jsVersions: string[];
+    guides: number;
 };
 
 type Harness = {
@@ -103,6 +111,17 @@ function permissionRequest(overrides: Partial<ScriptPermissionRequest> = {}): Sc
     return { ...PERMISSION_REQUEST, ...overrides };
 }
 
+/** Saving-state write summary for card A; override writes/before/status per test. */
+function writeSummary(overrides: Partial<ScriptWriteSummary> = {}): ScriptWriteSummary {
+    return {
+        scriptPath: A,
+        writes: [[0x1000, 0xDE], [0x1001, 0xAD]],
+        before: [[0x1000, 0xAA], [0x1001, 0xBB]],
+        status: 'saving',
+        ...overrides,
+    };
+}
+
 function installDom(): Harness {
     const dom = new JSDOM('<!doctype html><html><body><div id="host"></div></body></html>', { url: 'https://hexscope.test/' });
     const g = globalThis as unknown as Globalish;
@@ -115,7 +134,10 @@ function installDom(): Harness {
         writable: true,
     });
 
-    const cb: Cb = { requested: 0, added: 0, created: [], runs: [], cancels: [], opens: [], decisions: [], revokes: [], revokeAlls: [] };
+    const cb: Cb = {
+        requested: 0, added: 0, created: [], runs: [], cancels: [], opens: [], decisions: [], revokes: [], revokeAlls: [],
+        copies: [], reveals: [], jsVersions: [], guides: 0,
+    };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const generation: { value: number } = { value: 0 };
     const panel = new ScriptsPanel({
@@ -132,6 +154,10 @@ function installDom(): Harness {
         },
         onRevokeScriptPermission: (scope, path, capability) => { cb.revokes.push([scope, path, capability]); },
         onRevokeAllScriptPermissions: (scope, scriptPath) => { cb.revokeAlls.push({ scope, scriptPath }); },
+        onCopyPath: path => { cb.copies.push(path); },
+        onRevealScript: path => { cb.reveals.push(path); },
+        onCreateJsVersion: path => { cb.jsVersions.push(path); },
+        onOpenScriptingGuide: () => { cb.guides++; },
         getSelection: () => sel.value,
         getGeneration: () => generation.value,
     });
@@ -755,7 +781,11 @@ suite('ScriptsPanel permission prompt', () => {
         panel.showPermissionRequest(permissionRequest());
         const prompt = cardFor(A).querySelector('.script-perm')!;
         assert.ok(prompt, 'prompt lives inside the script card');
-        assert.ok(prompt.previousElementSibling?.classList.contains('script-card-info'), 'above the result area');
+        const area = cardFor(A).querySelector('.script-result-area')!;
+        assert.ok(
+            prompt.compareDocumentPosition(area) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+            'above the result area',
+        );
         assert.match(prompt.querySelector('.script-perm-title')!.textContent!, /crc-check\.js/);
         assert.match(prompt.querySelector('.script-perm-title')!.textContent!, /write bytes/);
         assert.strictEqual(prompt.querySelector('.script-perm-detail')!.textContent, 'Write 2 bytes at 0x8000000');
@@ -1204,5 +1234,362 @@ suite('ScriptsPanel setTabActive lazy init', () => {
         assert.strictEqual(document.querySelectorAll('.script-card').length, 3);
         panel.setTabActive(true);
         assert.strictEqual(cb.requested, 1);
+    });
+});
+
+suite('ScriptsPanel write summary', () => {
+    let dom: JSDOM;
+    let panel: ScriptsPanel;
+
+    setup(() => {
+        const harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        currentDom = dom;
+        panel.setScripts(SCRIPTS, true);
+    });
+
+    teardown(cleanupDom);
+
+    test('saving then saved shows range, bytes, before/after, and Ctrl+Z guidance', () => {
+        panel.showWriteSummary(writeSummary());
+        panel.showResult(A, [], [], '', undefined, 2);
+        const line = cardFor(A).querySelector<HTMLElement>('.script-write-summary')!;
+        assert.ok(line.classList.contains('script-write-summary-saving'));
+        assert.match(line.textContent!, /Saving 2 byte\(s\) at 0x1000\u20130x1001/);
+        assert.match(line.textContent!, /before AA BB/);
+        assert.match(line.textContent!, /after DE AD/);
+        assert.strictEqual(cardFor(A).querySelector('.script-output-writes'), null, 'the summary owns the writes notice');
+
+        panel.markWritesSaved();
+        const saved = cardFor(A).querySelector<HTMLElement>('.script-write-summary')!;
+        assert.ok(saved.classList.contains('script-write-summary-saved'));
+        assert.match(saved.textContent!, /Saved 2 byte\(s\) at 0x1000\u20130x1001/);
+        assert.match(saved.textContent!, /Ctrl\+Z to undo/);
+    });
+
+    test('failed save is a distinct state, not "saving"', () => {
+        panel.showWriteSummary(writeSummary());
+        panel.showResult(A, [], [], '', undefined, 2);
+        panel.markWritesFailed(A, 'EACCES: permission denied');
+        const line = cardFor(A).querySelector<HTMLElement>('.script-write-summary')!;
+        assert.ok(line.classList.contains('script-write-summary-failed'));
+        assert.ok(!line.classList.contains('script-write-summary-saving'));
+        assert.match(line.textContent!, /failed/);
+        assert.match(line.textContent!, /nothing was saved/);
+        assert.match(line.textContent!, /EACCES: permission denied/);
+        assert.ok(!/Ctrl\+Z/.test(line.textContent!), 'no undo guidance for a failed save');
+    });
+
+    test('a failure for another script path leaves the pending summary alone', () => {
+        panel.showWriteSummary(writeSummary());
+        panel.showResult(A, [], [], '', undefined, 2);
+        panel.markWritesFailed(B, 'boom');
+        assert.ok(cardFor(A).querySelector('.script-write-summary-saving'));
+        assert.ok(!/boom/.test(cardFor(A).textContent!), 'foreign failure stays out of the card');
+    });
+
+    test('a large range shows first/last byte instead of the full before/after', () => {
+        const writes = Array.from({ length: 12 }, (_, i) => [0x1000 + i, i + 1] as [number, number]);
+        const before = writes.map(([addr]) => [addr, 0] as [number, number]);
+        panel.showWriteSummary(writeSummary({ writes, before }));
+        panel.showResult(A, [], [], '', undefined, 12);
+        const line = cardFor(A).querySelector<HTMLElement>('.script-write-summary')!;
+        assert.match(line.textContent!, /Saving 12 byte\(s\) at 0x1000\u20130x100b/);
+        assert.match(line.textContent!, /before 00 \u2026 00/);
+        assert.match(line.textContent!, /after 01 \u2026 0C/);
+    });
+
+    test('a new run consumes the summary; the prior line survives in run history', () => {
+        panel.showWriteSummary(writeSummary({ status: 'saved' }));
+        panel.showResult(A, [], [], '', undefined, 2);
+        startRun(dom, A);
+        panel.showResult(A, [], [], 'boom', 'runtime', 0, 2);
+        const latest = cardFor(A).querySelector('.script-output-block:not(.script-run-row)')!;
+        assert.strictEqual(latest.querySelector('.script-write-summary'), null, 'no stale save line on the new result');
+        assert.match(latest.querySelector('.script-output-writes')!.textContent!, /discarded/);
+        assert.ok(cardFor(A).querySelector('.script-run-row .script-write-summary'), 'history snapshot keeps the saved line');
+    });
+
+    test('clear results drops the summary with the card results', () => {
+        panel.showWriteSummary(writeSummary({ status: 'saved' }));
+        panel.showResult(A, [], [], '', undefined, 2);
+        click(dom, cardFor(A).querySelector('[data-clear]'));
+        assert.strictEqual(cardFor(A).querySelector('.script-write-summary'), null);
+        assert.strictEqual(cardFor(A).querySelector('.script-result-area')!.childElementCount, 0);
+    });
+
+    test('a summary without a result area renders nothing (no crash)', () => {
+        panel.showWriteSummary(writeSummary({ scriptPath: 'D:\\sample\\missing.js' }));
+        assert.strictEqual(document.querySelectorAll('.script-write-summary').length, 0);
+    });
+});
+
+suite('ScriptsPanel details row', () => {
+    let dom: JSDOM;
+    let panel: ScriptsPanel;
+    let cb: Cb;
+
+    setup(() => {
+        const harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        cb = harness.cb;
+        currentDom = dom;
+        panel.setScripts(SCRIPTS, true);
+    });
+
+    teardown(cleanupDom);
+
+    test('chevron toggles the details row and the state survives a rescan', () => {
+        const toggle = cardFor(A).querySelector<HTMLElement>('[data-details-toggle]')!;
+        const details = cardFor(A).querySelector<HTMLElement>('.script-details')!;
+        assert.ok(details.hidden, 'collapsed by default');
+        assert.strictEqual(toggle.getAttribute('aria-expanded'), 'false');
+        click(dom, toggle);
+        assert.ok(!details.hidden);
+        assert.strictEqual(toggle.getAttribute('aria-expanded'), 'true');
+
+        panel.setScripts(SCRIPTS, true); // rescan rebuilds the list
+        const fresh = cardFor(A).querySelector<HTMLElement>('.script-details')!;
+        assert.ok(!fresh.hidden, 'expanded state survives a rescan');
+        assert.strictEqual(cardFor(A).querySelector<HTMLElement>('[data-details-toggle]')!.getAttribute('aria-expanded'), 'true');
+    });
+
+    test('details render roles, capabilities, entries, fingerprint, last run, and grants', () => {
+        panel.setScripts([{ ...SCRIPTS[0], capabilities: ['write', 'exec'], roles: ['address'] }], true);
+        panel.showResult(A, [], [], 'slow', 'timeout', 0);
+        panel.setPermissionGrants([{ scriptPath: A, capability: 'write', scope: 'script' }]);
+        const values = [...cardFor(A).querySelectorAll('.script-details-value')].map(el => el.textContent);
+        assert.deepStrictEqual(values.slice(0, 4), [
+            'Instance address',
+            'write, exec',
+            'run, getAddress',
+            'fp-1',
+        ]);
+        assert.match(values[4]!, /^\d{2}:\d{2} · Timeout$/, 'last run shows time + terminal state');
+        assert.strictEqual(values[5], '1', 'active grants count includes the script grant');
+        assert.strictEqual(cardFor(A).querySelectorAll('.script-details-value').length, 6, 'usages row omitted until honest metadata exists');
+    });
+
+    test('unknown scripts report no entries and an unsafe fingerprint stays escaped', () => {
+        panel.setScripts([{ ...UNKNOWN, fingerprint: '<b>x</b>' }], true);
+        const card = cardFor(UNKNOWN.filePath);
+        const values = [...card.querySelectorAll('.script-details-value')].map(el => el.textContent);
+        assert.strictEqual(values[0], 'None', 'no roles');
+        assert.strictEqual(values[1], 'None', 'no capabilities');
+        assert.strictEqual(values[2], 'None detected', 'no entries');
+        assert.strictEqual(values[3], '<b>x</b>', 'fingerprint text, not markup');
+        assert.strictEqual(card.querySelectorAll('b').length, 0, 'escaped');
+        assert.strictEqual(values[4], 'Not run yet');
+    });
+
+    test('details actions report open, copy path, and reveal for the card', () => {
+        click(dom, cardFor(A).querySelector('[data-details-open]'));
+        click(dom, cardFor(A).querySelector('[data-details-copy]'));
+        click(dom, cardFor(A).querySelector('[data-details-reveal]'));
+        assert.deepStrictEqual(cb.opens, [A]);
+        assert.deepStrictEqual(cb.copies, [A]);
+        assert.deepStrictEqual(cb.reveals, [A]);
+        assert.deepStrictEqual(cb.runs, [], 'details actions never run the script');
+    });
+
+    test('Manage permissions appears only with grants and expands the Permissions section', () => {
+        assert.ok(cardFor(A).querySelector<HTMLElement>('[data-details-manage]')!.hidden, 'no grants → no manage action');
+        panel.setPermissionGrants([{ scriptPath: A, capability: 'write', scope: 'script' }]);
+        const manage = cardFor(A).querySelector<HTMLElement>('[data-details-manage]')!;
+        assert.ok(!manage.hidden, 'grant exists → manage action visible');
+        const section = document.querySelector<HTMLElement>('.script-perms-section')!;
+        assert.ok(!section.classList.contains('expanded'));
+        click(dom, manage);
+        assert.ok(section.classList.contains('expanded'), 'expands the bulk-revoke section');
+    });
+
+    test('session-wide grants count for every card', () => {
+        panel.setPermissionGrants([{ scriptPath: '*', capability: '*', scope: 'session' }]);
+        const grantsOf = (path: string): string | undefined =>
+            cardFor(path).querySelector<HTMLElement>('[data-details-grants]')?.textContent ?? undefined;
+        assert.strictEqual(grantsOf(A), '1');
+        assert.strictEqual(grantsOf(B), '1');
+    });
+});
+
+suite('ScriptsPanel filter bar', () => {
+    let dom: JSDOM;
+    let panel: ScriptsPanel;
+    let cb: Cb;
+
+    setup(() => {
+        const harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        cb = harness.cb;
+        currentDom = dom;
+    });
+
+    teardown(cleanupDom);
+
+    function bar(): HTMLElement {
+        return document.querySelector<HTMLElement>('.script-filter-bar')!;
+    }
+
+    function typeFilter(value: string): void {
+        const input = document.querySelector<HTMLInputElement>('.script-filter-input')!;
+        input.value = value;
+        input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    }
+
+    function visibleCards(): string[] {
+        return [...document.querySelectorAll<HTMLElement>('.script-card:not([hidden])')].map(card => card.dataset.path!);
+    }
+
+    test('the bar is hidden in the empty state and appears with scripts', () => {
+        assert.ok(bar().hidden, 'no filter affordance without scripts');
+        panel.setScripts(SCRIPTS, true);
+        assert.ok(!bar().hidden);
+        panel.setScripts([], true);
+        assert.ok(bar().hidden, 'hidden again with the empty state');
+    });
+
+    test('text filter hides non-matching cards, keeps results, and "No matches" appears', () => {
+        panel.setScripts(SCRIPTS, true);
+        panel.showResult(A, [{ label: 'kept', value: '1' }], [], '', undefined, 0);
+        typeFilter('hello');
+        assert.deepStrictEqual(visibleCards(), [B]);
+        assert.strictEqual(cardFor(A).hidden, true);
+        assert.ok(cardFor(A).querySelector('.script-output-block'), 'result DOM survives hiding');
+        typeFilter('zzz');
+        assert.deepStrictEqual(visibleCards(), []);
+        const noMatch = document.querySelector<HTMLElement>('.script-no-match')!;
+        assert.ok(!noMatch.hidden, 'no-match state shows');
+        assert.strictEqual(noMatch.textContent, 'No scripts match the filter');
+        typeFilter('');
+        assert.ok(noMatch.hidden);
+        assert.strictEqual(visibleCards().length, 3);
+    });
+
+    test('kind chips narrow to a group; All restores the full list', () => {
+        panel.setScripts(EXAMPLES, true); // includes a follow-pointer provider
+        const providersChip = document.querySelector<HTMLElement>('[data-kind-filter="providers"]')!;
+        const actionsChip = document.querySelector<HTMLElement>('[data-kind-filter="actions"]')!;
+        click(dom, providersChip);
+        assert.strictEqual(providersChip.getAttribute('aria-pressed'), 'true');
+        assert.strictEqual(actionsChip.getAttribute('aria-pressed'), 'false');
+        assert.deepStrictEqual(visibleCards(), [
+            'D:\\sample\\array-size-from-header.js',
+            'D:\\sample\\follow-pointer.js',
+            'D:\\sample\\verify-integrity.js',
+        ]);
+        assert.ok(cardFor('D:\\sample\\hello.js').hidden, 'action card hidden');
+        const actionsGroup = document.querySelector<HTMLElement>('.script-group[data-group="actions"]')!;
+        const providersGroup = document.querySelector<HTMLElement>('.script-group[data-group="providers"]')!;
+        assert.ok(actionsGroup.hidden, 'empty group hides');
+        assert.ok(!providersGroup.hidden);
+
+        click(dom, actionsChip);
+        assert.ok(cardFor('D:\\sample\\follow-pointer.js').hidden);
+        assert.ok(!cardFor('D:\\sample\\hello.js').hidden);
+        assert.ok(!actionsGroup.hidden);
+        assert.ok(providersGroup.hidden);
+
+        click(dom, document.querySelector<HTMLElement>('[data-kind-filter="all"]')!);
+        assert.strictEqual(visibleCards().length, 6);
+    });
+
+    test('filter stays applied across a rescan and run history survives it', () => {
+        panel.setScripts(SCRIPTS, true);
+        panel.showResult(A, [], ['first'], '', undefined, 0);
+        panel.showResult(A, [], ['second'], '', undefined, 0); // collapses run #1 into history
+        typeFilter('hello');
+        panel.setScripts([...SCRIPTS].reverse(), true); // rescan with a different order
+        assert.strictEqual(cardFor(A).hidden, true, 'filter re-applied after rebuild');
+        assert.deepStrictEqual(visibleCards(), [B]);
+        const area = cardFor(A).querySelector('.script-result-area')!;
+        assert.strictEqual(area.querySelectorAll('.script-run-row').length, 1, 'run history survives the filtered rescan');
+        assert.strictEqual(area.querySelector('.script-output-log')?.textContent, 'second');
+        assert.strictEqual(cb.runs.length, 0, 'filtering never runs anything');
+    });
+});
+
+suite('ScriptsPanel TypeScript path', () => {
+    let dom: JSDOM;
+    let panel: ScriptsPanel;
+    let cb: Cb;
+
+    setup(() => {
+        const harness = installDom();
+        dom = harness.dom;
+        panel = harness.panel;
+        cb = harness.cb;
+        currentDom = dom;
+    });
+
+    teardown(cleanupDom);
+
+    test('.ts without esbuild keeps Run disabled and offers the action row', () => {
+        panel.setScripts(SCRIPTS, true); // compilerAvailable defaults to false
+        const btn = runBtn('D:\\sample\\crc-check.ts');
+        assert.ok(btn.classList.contains('disabled-ts'));
+        const help = cardFor('D:\\sample\\crc-check.ts').querySelector<HTMLElement>('.script-ts-help')!;
+        assert.ok(help, 'actionable row replaces the silent dead end');
+        click(dom, help.querySelector('[data-ts-guide]'));
+        assert.strictEqual(cb.guides, 1, 'setup guide action is wired');
+        click(dom, help.querySelector('[data-ts-convert]'));
+        assert.deepStrictEqual(cb.jsVersions, ['D:\\sample\\crc-check.ts'], 'create-JS action reports the path');
+        assert.strictEqual(cardFor(A).querySelector('.script-ts-help'), null, '.js cards get no TS row');
+    });
+
+    test('an available compiler enables .ts Run and hides the action row', () => {
+        panel.setScripts(SCRIPTS, true, true);
+        const btn = runBtn('D:\\sample\\crc-check.ts');
+        assert.ok(!btn.classList.contains('disabled-ts'));
+        assert.strictEqual(btn.disabled, false);
+        assert.strictEqual(cardFor('D:\\sample\\crc-check.ts').querySelector('.script-ts-help'), null);
+        click(dom, btn);
+        assert.deepStrictEqual(cb.runs.map(run => run.path), ['D:\\sample\\crc-check.ts']);
+    });
+
+    test('untrusted workspaces keep disabled-trust and no TypeScript action row', () => {
+        panel.setScripts(SCRIPTS, false);
+        const btn = runBtn('D:\\sample\\crc-check.ts');
+        assert.ok(btn.classList.contains('disabled-trust'));
+        assert.ok(!btn.classList.contains('disabled-ts'));
+        assert.strictEqual(cardFor('D:\\sample\\crc-check.ts').querySelector('.script-ts-help'), null);
+    });
+});
+
+suite('ScriptsPanel last run', () => {
+    let panel: ScriptsPanel;
+
+    setup(() => {
+        const harness = installDom();
+        panel = harness.panel;
+        currentDom = harness.dom;
+        panel.setScripts(SCRIPTS, true);
+    });
+
+    teardown(cleanupDom);
+
+    test('status tooltip and details row show time + terminal state', () => {
+        panel.showResult(A, [], [], '', undefined, 0);
+        const dot = cardFor(A).querySelector<HTMLElement>('.sb-status-dot')!;
+        assert.match(dot.title, /^Last run succeeded · \d{2}:\d{2}$/);
+        const cell = cardFor(A).querySelector<HTMLElement>('[data-details-last-run]')!;
+        assert.match(cell.textContent!, /^\d{2}:\d{2} · Succeeded$/);
+
+        panel.showResult(A, [], [], 'late', 'timeout', 0);
+        assert.match(dot.title, /^Last run errored · \d{2}:\d{2}$/, 'tooltip follows the newest terminal state');
+        assert.match(cell.textContent!, /^\d{2}:\d{2} · Timeout$/);
+    });
+
+    test('cancelled and contract runs report their own terminal states', () => {
+        panel.showResult(A, [], [], 'cancelled', 'cancel', 0);
+        assert.match(cardFor(A).querySelector<HTMLElement>('[data-details-last-run]')!.textContent!, / · Cancelled$/);
+        panel.showResult(A, [], [], 'bad value', 'contract', 0);
+        assert.match(cardFor(A).querySelector<HTMLElement>('[data-details-last-run]')!.textContent!, / · Contract error$/);
+    });
+
+    test('an untouched script reports "Not run yet"', () => {
+        assert.strictEqual(cardFor(B).querySelector<HTMLElement>('[data-details-last-run]')!.textContent, 'Not run yet');
     });
 });

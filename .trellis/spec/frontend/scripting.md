@@ -201,7 +201,7 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 - API calls from user scripts use synchronous RPC via `Atomics.wait`+`SharedArrayBuffer` — the Worker posts a `{ type: 'api', id, method, args }` message, blocks with `Atomics.wait`, and the main thread responds via `Atomics.notify`
 - Cross-realm Promise check: sandbox-created Promises are not `instanceof` the host's `Promise`. Use duck-type check (`typeof result.then === 'function'`) instead
 - `.ts` files compiled with dynamic `import('esbuild')` — no mtime caching, compile every run
-- `.ts` shown in UI with disabled Run button + "requires esbuild" tooltip when compiler unavailable
+- **JS-first TypeScript decision**: `.ts` is an advanced local-dev path. `compilerAvailable()` (scriptCompiler.ts) mirrors the optional esbuild resolve into `scriptInfo.compilerAvailable` on every rescan; the panel keeps `.ts` Run disabled (`.disabled-ts` + action row) when unavailable and runs `.ts` normally when available. The action row's **Create JavaScript version** copies the file to its `.js` sibling with a manual-conversion header (`createJsVersion`/`jsVersionBody` in manageScripts.ts): exclusive `wx` write, never overwrites, never rewrites the source, trust-gated, opens the result, rescan. **Open setup guide** posts `openScriptingGuide` → `docs/SCRIPTING.md`
 - Timeout kills Worker via `worker.terminate()` after 30s (configurable per call). Also uses `setTimeout` directly (not Promise-based) to avoid Electron microtask edge cases
 - **Inline approval, no modal**: `VSCodeScriptHost.confirm(type, detail)` is unchanged, but the session implementation checks the grant store first and otherwise posts `scriptPermissionRequest` to the webview. There is no `vscode.window.showWarningMessage` for script permissions
 - **Grant key**: absolute script path + the script file's fingerprint (mtime from `scriptFingerprint()` / `scanScripts`) + capability. `check` matches an exact entry or a same-fingerprint `*`
@@ -210,7 +210,10 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 - **Fingerprint revocation**: `runScript` and `requestScriptList` call `revokeStaleFingerprint()`; `revokeAllForScript()` removes every path-scoped entry (not the session wildcard)
 - **Approval timeout / denial**: an unanswered prompt denies after 120 s; panel disposal, cancel, and a replacement prompt deny the stale request; unknown `requestId` responses are ignored
 - **Commit on success**: on a clean run the session posts `scriptWritesCommit` with the staged `[address, value]` pairs. On error/timeout/cancel it posts nothing and reports `discardedWriteCount`
-- **Auto-save**: the webview stages the commit through `stageIntegrityEditTransaction()` (one undoable transaction) and calls `saveEdits()`; a failed save keeps the staged edits and uses the normal save-error path
+- **Auto-save**: the webview stages the commit through `stageIntegrityEditTransaction()` (one undoable transaction), captures the before bytes from the reader, records a `saving` write summary, and calls `saveEdits(scriptPath)`. `savedEdits` flips the summary to `saved`; a save failure posts `scriptSaveFailed { scriptPath, message }` and the summary flips to `failed` (never a silent "saving"). A failed save keeps the staged edits so a retry save still works
+- **Live discovery**: the session watches `.hexscope/scripts/*.{js,ts}` (non-recursive `createFileSystemWatcher`, `ScriptRescanDebounce` 250 ms trailing) and re-runs the same rescan + `scriptInfo` post as `requestScriptList`; non-script and `.d.ts` events are ignored, the watcher is added to the session's disposables, and manual Refresh stays
+- **Write summary**: the webview owns `ScriptWriteSummary { scriptPath, writes, before, status, error? }`. `showResult` renders the summary line when a summary matches the path (replacing the plain writes notice); `markWritesSaved`/`markWritesFailed` flip it in place, and a new run consumes the summary (the run-history snapshot keeps the old line)
+- **Panel actions**: details **Copy path** posts `copyText`; **Reveal** posts `revealScript` (host resolves the path to the root and runs `revealInExplorer`); **Manage permissions** is panel-local (expands the Permissions section) and only renders for a card with an active grant
 - **Revocable permission list**: `scriptPermissions` carries every stored grant `{ scriptPath, capability, scope }` (workspace → session → script, then path; `*` = session-wide) to the Scripts panel; `revokeScriptPermission` removes one entry by scope; `revokeAllScriptPermissions` bulk-revokes one scope class, or, with `scriptPath`, every revocable grant of that script. The panel's expanded **Manage** footer and per-row bulk actions both require a second confirming click
 - Script results collected by the Worker and sent back in the `result` message. The main thread replays results through `host.setResult()` and `host.output()` to maintain compatibility with existing consumers
 - **Creation + manager**: `core/scripting/templates.ts` owns the four creation templates (action / integrity / address / size) as pure strings; each body carries `// @ts-check`, the shipped type reference, the role/`@requires` header, and a working minimal implementation, and is verified against the `examples/tsconfig.json` compiler options and run against a mock host by `scriptingTemplates.test.ts`. `src/manageScripts.ts` owns the host flows: `HexScope: Manage Scripts` (QuickPick over `scanScripts`, Actions first then Providers, then New ×4 / Browse examples… / Add all examples / Manage permissions… / Open scripts folder / Reveal a script in Explorer…; works with no open document and only warns when no root exists), the create flow (`validateScriptFileName` + `promptName` + exclusive `wx` write + open + rescan; trust-gated; never overwrites), the host-side permission center (`listGrants()` → pick → `revokeGrant`), the folder reveal, and the per-script Explorer reveal (second pick over the script rows → `revealInExplorer`). Script rows open the file — the manager never runs scripts (running needs a parsed document).
@@ -232,7 +235,9 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | Condition | Result |
 |---|---|
 | Script file not found | `ScriptOutput.error` set, logs the error |
-| .ts but esbuild unavailable | Error: "Use .js or install esbuild" |
+| .ts but esbuild unavailable | Host compile errors "Use .js or install esbuild"; the panel never offers Run — the card shows the action row (Open setup guide / Create JavaScript version) |
+| `.ts` + `compilerAvailable: true` | Run enabled like a `.js` script; no action row |
+| `.ts` action-row conversion | `createJsVersion` writes a `.js` sibling with a conversion header; never overwrites an existing `.js`; untrusted workspace warns and writes nothing |
 | Script exports no `run` function | Error: "Script must export a 'run' function" (host/command path only; the panel never offers Run for a known provider) |
 | Role-only script in the panel | Provider card: Open + job chip, no Run control |
 | Script with role + `run` | Both card: Run/Cancel + job chip, listed under Actions |
@@ -252,9 +257,13 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | `workspace` scope requested for `exec` | Not offered; a granted request is downgraded to `session` |
 | Grant exists for path + fingerprint + capability | `confirm` resolves `true` without prompting |
 | Script file edited (fingerprint changed) | `revokeStaleFingerprint` drops its grants; next call prompts |
-| Approved writes + clean run | `scriptWritesCommit` posted; webview stages one transaction + saves |
+| Approved writes + clean run | `scriptWritesCommit` posted; webview stages one transaction + summary line, then saves |
 | Approved writes + error/timeout/cancel | No commit; staged bytes discarded; `discardedWriteCount` > 0 |
-| Script save fails | Staged edits stay; the normal save-error path reports it |
+| Script save fails | `scriptSaveFailed { scriptPath, message }` posted; the summary flips to `failed`; staged edits stay so a retry save works |
+| Save success for a non-script save | `savedEdits` with no pending script summary is a no-op (no write-failure message without `scriptPath`) |
+| Script added/edited/deleted in `.hexscope/scripts/` | Watcher event (js/ts only) → 250 ms debounce → rescan + `scriptInfo` post; result areas move by path |
+| `.d.ts` / non-script file event | Ignored (no rescan) |
+| Session disposed | Watcher + debounce timer disposed with the session |
 | Address out of range | `readBytes` returns empty `Uint8Array` |
 | `host.stale` is true after confirm | `hex.write` returns `false` without writing |
 | Missing `.hexscope/scripts/` dir | `scanScripts` returns `[]` (no error) |
@@ -288,9 +297,13 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | { type: 'addExampleScripts' }
 | { type: 'createScript'; template?: ScriptTemplateId }
 | { type: 'openScriptsFolder' }
+| { type: 'revealScript'; scriptPath: string }
+| { type: 'convertScriptToJs'; scriptPath: string }
+| { type: 'openScriptingGuide' }
+| { type: 'saveEdits'; edits: Array<[number, number]>; scriptPath?: string }  // scriptPath marks a script-owned save for failure correlation
 
 // Provider → Webview
-| { type: 'scriptInfo'; scripts: Array<{ name: string; filePath: string; capabilities: string[]; roles: string[]; fingerprint: string; hasRun?: boolean; runExplicit?: boolean; relativePath?: string }>; trusted: boolean }
+| { type: 'scriptInfo'; scripts: Array<{ name: string; filePath: string; capabilities: string[]; roles: string[]; fingerprint: string; hasRun?: boolean; runExplicit?: boolean; relativePath?: string }>; trusted: boolean; compilerAvailable?: boolean }
 | { type: 'scriptResult'; scriptPath: string; result: ScriptOutput | null; error: string; errorType?: ScriptErrorType; pendingWriteCount: number; discardedWriteCount?: number }
 | { type: 'instanceParamsResolved'; requestId: number; generation: number; stale?: boolean; results: InstanceParamResult[] }
 | { type: 'instanceAddressesResolved'; requestId: number; generation: number; stale?: boolean; results: InstanceAddressResult[] }
@@ -298,6 +311,7 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | { type: 'scriptPermissionRequest'; requestId: number; capability: ScriptCapability; detail: string; scriptPath: string; scriptName: string; fingerprint: string; scopes: ScriptPermissionScope[] }
 | { type: 'scriptPermissions'; grants: ScriptGrantView[] }
 | { type: 'scriptWritesCommit'; scriptPath: string; writes: Array<[number, number]> }
+| { type: 'scriptSaveFailed'; scriptPath: string; message: string }
 | { type: 'activateScriptsTab' }
 ```
 
@@ -324,14 +338,17 @@ PROVIDERS (3)                       ← group button, count, aria-expanded
 
 | Element | Details |
 |---------|---------|
+| Filter bar | Above the groups: text input (name/path) + kind chips (`All`/`Actions`/`Providers`), hidden in the empty state. Hide/show only — never re-renders, so results/history survive; empty groups hide; a `.script-no-match` line shows when nothing matches |
 | Group header | Native button, label + count, caret rotates when open, `aria-expanded`; collapse is CSS-only so result areas survive |
 | Filename | Left-aligned, truncated with ellipsis, file path in tooltip |
 | Extension badge | `.js` or `.ts`, small pill, uppercase |
-| Status dot | Actions/both only: ● green (last run succeeded), ● red (last run errored), ● gray (never run). Providers/unknown have no run status |
+| Status dot | Actions/both only: ● green (last run succeeded), ● red (last run errored), ● gray (never run). Providers/unknown have no run status. Tooltip carries the last-run time |
 | Role chip | Job language (`Instance address`, `Array size`, `Integrity check`), raw role in `data-role`; also shown on a both-kind card |
 | Unknown marker | Warning glyph + `Inspect exports` hint; Open is the only action |
+| Details chevron | `.script-details-toggle` toggling `.script-details` (roles, capabilities, entries, fingerprint, last run, active grants + Open / Copy path / Reveal / Manage permissions). Expanded state is session-local and survives rescans |
+| TS action row | `.script-ts-help` on trusted `.ts` cards when `compilerAvailable` is false: Open setup guide + Create JavaScript version |
 | Run/Cancel button | `.script-run-btn` exists only on action/both cards, right-aligned, fixed-width slot |
-| Result area | Embedded below card-info on runnable cards only |
+| Result area | Embedded below the details row on runnable cards only |
 
 #### Button state machine
 
@@ -383,9 +400,11 @@ Scripts (3)  [↻]
 
 ```
 No scripts found in .hexscope/scripts/
+[Create script]  [Add example scripts]
 ```
 
-Plain text with the path shown so the user knows where to create files.
+The path tells the user where to create files; **Create script** reports `onCreateScript()`
+(the host asks which template) and **Add example scripts** reports `onAddExampleScripts`.
 
 #### Output streaming
 
@@ -394,16 +413,27 @@ Plain text with the path shown so the user knows where to create files.
 - Lines appended to the running script's result log
 - Alternating row backgrounds for readability
 
-#### Write notice
+#### Write summary
 
 ```
-💾 3 byte(s) written and saved
+💾 Saving 4 byte(s) at 0x8000000–0x8000003 · before AA BB 01 02 · after DE AD 03 04
+💾 Saved 4 byte(s) at 0x8000000–0x8000003 · before AA BB 01 02 · after DE AD 03 04 · Ctrl+Z to undo
+💾 Write of 4 byte(s) at 0x8000000–0x8000003 failed — nothing was saved: EACCES: permission denied
+```
+
+Rendered inside the result block (first line of the body) whenever a `ScriptWriteSummary`
+matches the card's path; ranges longer than 8 bytes show the first/last byte only
+(`before 00 … 05`). A new run consumes the summary (the run-history snapshot keeps the
+line), and **Clear results** drops it.
+
+#### Plain write notice
+
+```
 💾 3 byte(s) written, discarded — nothing was saved
 ```
 
-Shown inside the result block when `pendingWriteCount > 0` (clean run, auto-saved) or
-`discardedWriteCount > 0` (error/timeout/cancel). Informational only — there is no
-Apply & Save / Discard control.
+Shown instead of the summary when no summary matched: a failed/timeout/cancelled run with
+staged writes. Informational only — there is no Apply & Save / Discard control.
 
 ### 8. Design decisions
 
@@ -414,11 +444,11 @@ Apply & Save / Discard control.
 | D3 | TS compilation cache | No mtime cache — compile every run |
 | D4 | Output streaming | Real-time first 100 calls, then debounced batch |
 | D5 | Batch flush method | `setTimeout(flush, 0)` debounce |
-| D6 | TS file when esbuild missing | Show with disabled Run button + tooltip |
+| D6 | TS file when esbuild missing | JS-first: Run stays disabled, but the card adds an actionable row (Open setup guide / Create JavaScript version). With esbuild available, `.ts` runs normally |
 | D7 | Cancellation mechanism | `worker.terminate()` via `AbortController` |
 | D8 | Cancel result behavior | Keep previous results; partial + banner if no prior run |
 | D9 | Script ordering | Actions group first (alphabetical), then Providers (alphabetical); collapsible groups |
-| D10 | List refresh | On tab activation + manual Refresh button |
+| D10 | List refresh | On tab activation, manual Refresh, and the `.hexscope/scripts` watcher (250 ms debounce) |
 | D11 | Result persistence | In-memory (DOM), survives tab switches, not page reload |
 | D12 | Run history | One result per card, replaced on re-run |
 | D13 | Result collapse | Auto-expand on new result, then collapsible via header click |
@@ -450,6 +480,13 @@ Apply & Save / Discard control.
 | D39 | Permission center | Lists every stored grant with scope chip (`This script`/`This session`/`Workspace`), per-row Revoke, and bulk revoke (per script, per scope) behind Manage with two-step confirm |
 | D40 | Script creation | Pure templates in `core/scripting/templates.ts`; host-side `manageScripts.ts` prompts for a name, writes with `wx` (never overwrites), opens, and rescans. Panel/picker actions report `createScript` over the protocol |
 | D41 | Manager surface | One QuickPick (no second webview): script rows open files; creation, selective/bulk examples, host-side permission revoke, folder reveal, and per-script Explorer reveal sit below. Runs and Show usage stay out (running needs a parsed document; usage metadata is a later task) |
+| D42 | Write outcome | Webview-owned `ScriptWriteSummary` (range, bytes, before/after, status); `savedEdits`/`scriptSaveFailed` flip it; failed save keeps the staged edits |
+| D43 | Large write ranges | Full before/after up to 8 bytes, then first/last byte only (`WRITE_PREVIEW_MAX`) |
+| D44 | List filtering | Hide/show only (cards + empty groups + a no-match line), never re-renders, so results/history/permissions survive; state is session-local |
+| D45 | Details surface | Expandable per-card row with derived data only (no persistence); usages stay omitted until honest metadata exists (integration-polish task) |
+| D46 | Last run | Per-path `{ at, state }` in panel-local memory; details row + status tooltip, dot stays the glance signal |
+| D47 | Live discovery | `createFileSystemWatcher` on `.hexscope/scripts/*.{js,ts}` (non-recursive), 250 ms trailing debounce (`ScriptRescanDebounce`), disposed with the session |
+| D48 | JS version | Copy to the `.js` sibling with a conversion header, exclusive `wx` write, never rewrites the source, trust-gated, then rescan |
 
 ### 9. Gotchas
 
@@ -575,10 +612,16 @@ The button has a fixed `width: 28px; height: 22px` to prevent layout shift on st
   editor sessions + root isolation + host-restart simulation, `exec` workspace downgrade, response validation
 - `src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts` - prompt DOM (scope
   options and lifetime labels, Escape, focus return, one-at-a-time, result/cancel close), Permissions
-  list (scope chips, session-wide `All scripts`, per-row revoke, Manage/bulk two-step confirm), writes
-  notice, action/provider/both/unknown cards, no `.script-run-btn` on providers/unknown,
-  group order/counts/collapse, result-area preservation across regrouping
-- Protocol tests: new message types tested in `webviewMessageModel.test.ts`
+  list (scope chips, session-wide `All scripts`, per-row revoke, Manage/bulk two-step confirm),
+  write summary (saving/saved/failed states, large-range truncation, history snapshot, clear),
+  details row (toggle + rescan persistence, roles/caps/entries/fingerprint/last run/grants,
+  escaping, actions, manage visibility), filter bar (hide/show preservation, group hiding,
+  no-match, chips, rescan survival), TypeScript row (disabled vs compiler-available vs untrusted),
+  last-run tooltip + details, writes notice, action/provider/both/unknown cards, no
+  `.script-run-btn` on providers/unknown, group order/counts/collapse, result-area preservation
+  across regrouping
+- Protocol tests: new message types tested in `webviewMessageModel.test.ts` (including
+  `scriptSaveFailed` dispatch + passive model coverage)
 - Integration: manual test with sample .js/.ts scripts run from sidebar
 - `src/test/core/scriptingExamples.test.ts` - catalog shape, install manifest ↔ catalog parity,
   role tags/capabilities via `scanScripts`, mock-host runs for every example (including the
@@ -591,9 +634,14 @@ The button has a fixed `width: 28px; height: 22px` to prevent layout shift on st
   (TypeScript API), `scanScripts` classification, and mock-host runs for every body
 - `src/test/extension/manageScripts.test.ts` - file-name validation, create flow (write/open/
   summary, duplicate refusal without overwrite, trust/root/invalid-name/cancel refusals),
+  JS-version flow (`createJsVersion` sibling + header, `jsVersionPath`/`jsVersionBody`, never
+  overwrites, untrusted/missing-source refusals, source untouched),
   all-four-templates scan, folder reveal (trusted creates, untrusted does not), manager items
   (ordering/classification/dispatch ids), dispatch (template/script/workspace rows, dismissal),
   permission flow (empty hint, labels, revoke, dismissal), and command contribution + registration
+- `src/test/extension/scriptWatcher.test.ts` - debounce coalescing + dispose cancel,
+  js/ts-only filtering (`.d.ts`/non-scripts ignored), create/change/delete coalescing, dispose
+  unsubscribes listeners and disposes the underlying watcher
 - `src/test/extension/addExampleScripts.test.ts` - fresh install, second-run skip, partial
   install, selective browse install (checked rows only, cancel/empty installs nothing, skip
   reporting, untrusted/no-root refusal), untrusted/no-workspace refusal, result-message actions,

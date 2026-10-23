@@ -177,7 +177,8 @@ function parentDirectory(filePath: string | null): string | null {
     return filePath ? path.dirname(filePath) : null;
 }
 
-async function openScriptingGuide(context: vscode.ExtensionContext): Promise<void> {
+/** Open the bundled scripting guide (shared by the install result actions and the Scripts panel). */
+export async function openScriptingGuide(context: vscode.ExtensionContext): Promise<void> {
     const guide = context.asAbsolutePath(path.join('docs', 'SCRIPTING.md'));
     try {
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(guide));
