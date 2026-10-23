@@ -2,9 +2,9 @@
 
 ## Scope / Trigger
 
-Owns `src/webview/components/sidebar/scriptsPanel/scriptsPanel.ts` + `scriptsPanel.css` + `permissionPrompt.ts`: the sidebar Scripts panel — toolbar (title/count/refresh), Actions/Providers groups (collapsible, counted, session-local collapse state), script cards (action/provider/both/unknown, name/ext/role chips + capability badges/status dot/run-cancel button state machine), the inline per-command permission prompt, the revocable workspace Permissions list, and embedded result areas (output streaming with realtime-first-100 + debounced batching, collapse/expand, error-type headers, writes notice). The component owns all panel markup and UI state (`currentScripts`, `trusted`, `scriptStatus`, `permissionGrants`, `runningPath`, `pendingTimer`, `collapsedGroups`, output batching state, `initialized`). It never reads/writes the `S` global and never posts provider messages: the list/run/cancel/decision/revoke requests exit via callbacks, and selection/generation snapshots go through injected accessors.
+Owns `src/webview/components/sidebar/scriptsPanel/scriptsPanel.ts` + `scriptsPanel.css` + `permissionPrompt.ts`: the sidebar Scripts panel — toolbar (title/count/refresh), Actions/Providers groups (collapsible, counted, session-local collapse state), script cards (action/provider/both/unknown, name/ext/role chips + capability badges/status dot/run-cancel button state machine), the inline per-command permission prompt, the revocable Permissions list (script/session/workspace grants with scope chips, per-row revoke, and bulk revoke behind **Manage**), and embedded result areas (output streaming with realtime-first-100 + debounced batching, collapse/expand, error-type headers, writes notice). The component owns all panel markup and UI state (`currentScripts`, `trusted`, `scriptStatus`, `permissionGrants`, `permissionsExpanded`, `runningPath`, `pendingTimer`, `confirmTimers`, `collapsedGroups`, output batching state, `initialized`). It never reads/writes the `S` global and never posts provider messages: the list/run/cancel/decision/revoke requests exit via callbacks, and selection/generation snapshots go through injected accessors.
 
-Host (`hexViewer.ts`) owns: `S` state, `S.documentGeneration`, `currentSelectionRange()`, and `postProviderMessage` for `requestScriptList`/`runScript`/`cancelScript`/`scriptPermissionResponse`/`revokeScriptPermission`; host message handlers fan into component setters. Permission *state* (grants) lives in the extension host (`src/scriptPermissions.ts`); the panel only renders the list it is given.
+Host (`hexViewer.ts`) owns: `S` state, `S.documentGeneration`, `currentSelectionRange()`, and `postProviderMessage` for `requestScriptList`/`runScript`/`cancelScript`/`scriptPermissionResponse`/`revokeScriptPermission`/`revokeAllScriptPermissions`; host message handlers fan into component setters. Permission *state* (grants) lives in the extension host (`src/scriptPermissions.ts`, workspace-root-keyed registry); the panel only renders the host-sorted list it is given.
 
 ## Layout
 
@@ -36,8 +36,10 @@ interface ScriptInfo {
 
 type ScriptCapabilityGrant = 'write' | 'exec' | 'fetch' | '*';
 type ScriptPermissionScope = 'once' | 'script' | 'session' | 'workspace';
+type ScriptGrantScope = 'script' | 'session' | 'workspace';
 
-interface ScriptWorkspaceGrant { scriptPath: string; capability: ScriptCapabilityGrant }
+/** One stored grant as shown in the Permissions section (`*` path = session-wide). */
+interface ScriptGrantView { scriptPath: string; capability: ScriptCapabilityGrant; scope: ScriptGrantScope }
 
 interface ScriptsCallbacks {
     onRequestList?: () => void;                                   // host posts { type: 'requestScriptList' }
@@ -45,7 +47,8 @@ interface ScriptsCallbacks {
     onCancelScript?: (scriptPath: string) => void;                // host posts cancelScript
     onOpenScript?: (scriptPath: string) => void;                  // host posts openScript
     onScriptPermissionDecision?: (requestId: number, decision: 'allow' | 'deny', scope: ScriptPermissionScope, capability: ScriptCapabilityGrant) => void;  // host posts scriptPermissionResponse
-    onRevokeScriptPermission?: (scriptPath: string, capability: ScriptCapabilityGrant) => void;  // host posts revokeScriptPermission
+    onRevokeScriptPermission?: (scope: ScriptGrantScope, scriptPath: string, capability: ScriptCapabilityGrant) => void;  // host posts revokeScriptPermission
+    onRevokeAllScriptPermissions?: (scope?: ScriptGrantScope, scriptPath?: string) => void;  // host posts revokeAllScriptPermissions
     onAddExampleScripts?: () => void;                             // host posts { type: 'addExampleScripts' }
     getSelection?: () => { start: number; end: number } | null;   // was currentSelectionRange
     getGeneration?: () => number;                                 // was S.documentGeneration
@@ -57,7 +60,7 @@ class ScriptsPanel {
     render(): void;
     setScripts(scripts: ScriptInfo[], trusted: boolean): void;
     showPermissionRequest(request: ScriptPermissionRequest): void;
-    setPermissionGrants(grants: ScriptWorkspaceGrant[]): void;
+    setPermissionGrants(grants: ScriptGrantView[]): void;
     showResult(scriptPath, results, log, error, errorType, pendingWriteCount, discardedWriteCount?: number): void;
     appendOutput(scriptPath: string, text: string): void;
     setTabActive(active: boolean): void;
@@ -77,13 +80,13 @@ The prompt's auto-close timer mirrors `SCRIPT_PERMISSION_TIMEOUT_MS` from `webvi
 
 ## Rules
 
-- Component holds only UI/transient state (`currentScripts`, `trusted`, `scriptStatus` Map, `permissionGrants`, `runningPath`, `pendingTimer`, output batch state, `initialized`, `collapsedGroups`). Persistent/domain state lives in the host.
+- Component holds only UI/transient state (`currentScripts`, `trusted`, `scriptStatus` Map, `permissionGrants`, `permissionsExpanded`, `runningPath`, `pendingTimer`, `confirmTimers`, output batch state, `initialized`, `collapsedGroups`). Persistent/domain state lives in the host.
 - Reads no `S`, writes no `S`; data pushed via setters; actions report via callbacks. `getSelection`/`getGeneration` are injected pull accessors (host passes `currentSelectionRange()`, `S.documentGeneration`) so selection/generation stay host-owned — the component must NOT import `memory/selection` or `state.ts`.
 - Run/cancel/open/list/decision/revoke requests report via callbacks; the component never calls `postProviderMessage`.
 - `setTabActive(true)` is the lazy-init gate: first activation fires `onRequestList` (once); `initialized` is never reset.
-- Markup ids/classes: `#s-scripts`, `scripts-refresh`, `scripts-add-examples`, `.script-toolbar`, `.script-group`/`.script-group-hdr`/`.script-group-label`/`.script-group-count`/`.script-group-body` (`data-group="actions"|"providers"`, `data-group-toggle`, `aria-expanded`), `.script-card` (`data-kind`), `.script-open-btn`, `.script-run-btn`, `.script-result-area`, `.script-output-block`/`-hdr`/`-log`, `.script-ext`, `.sb-status-dot`, `.script-role` (`data-role` raw, visible job label), `.script-cap`, `.script-warn`, `.script-inspect-hint`, `.script-empty`/`.script-add-examples`. Permission surfaces: `.script-perm` (prompt, `data-perm-allow`/`data-perm-menu`/`data-perm-deny`/`.script-perm-option[data-scope][data-grant]`), `.script-perms-section`/`.script-perm-row`/`[data-revoke]`. Run history adds `.script-run-row`/`.script-run-hdr` and `.script-clear`. All CSS moved verbatim from `styles/sidebar.css`; new permission, grouping, empty-state, and unknown-script rules live in `scriptsPanel.css`.
+- Markup ids/classes: `#s-scripts`, `scripts-refresh`, `scripts-add-examples`, `.script-toolbar`, `.script-group`/`.script-group-hdr`/`.script-group-label`/`.script-group-count`/`.script-group-body` (`data-group="actions"|"providers"`, `data-group-toggle`, `aria-expanded`), `.script-card` (`data-kind`), `.script-open-btn`, `.script-run-btn`, `.script-result-area`, `.script-output-block`/`-hdr`/`-log`, `.script-ext`, `.sb-status-dot`, `.script-role` (`data-role` raw, visible job label), `.script-cap`, `.script-warn`, `.script-inspect-hint`, `.script-empty`/`.script-add-examples`. Permission surfaces: `.script-perm` (prompt, `data-perm-allow`/`data-perm-menu`/`data-perm-deny`/`.script-perm-option[data-scope][data-grant]`), `.script-perms-section` (`data-perms-manage`, `.expanded` reveals `.script-perms-bulk`)/`.script-perm-row` (`data-scope`)/`.script-perm-scope`/`[data-revoke]`/`[data-revoke-all]`/`[data-revoke-all-workspace]`/`[data-revoke-all-session]`/`.script-perms-hint`; armed bulk buttons carry `.confirm` + text `Confirm?`. Run history adds `.script-run-row`/`.script-run-hdr` and `.script-clear`. All CSS moved verbatim from `styles/sidebar.css`; new permission, grouping, empty-state, and unknown-script rules live in `scriptsPanel.css`.
 - Untrusted text escaped with `esc()`; CSS-attribute paths escaped with `cssEscape` (Windows backslashes — scripting.md §9.1). The prompt component matches cards by iterating `.script-card` and comparing `dataset.path`, avoiding attribute selectors entirely.
-- Pure helpers (`cssEscape`, `extLabel`, `fileName`, `grantLabel`, `btnTitle`/`btnClass`/`scriptBtnAttrs`, `writesBlockHtml`, `roleLabel`, `hasRunEntry`, `scriptKind`, `roleBadgesHtml`, `unknownHintHtml`, `cardLeadHtml`) stay module-level and DOM-free; `capabilityPhrase`/`scopeOptions` live in `permissionPrompt.ts`.
+- Pure helpers (`cssEscape`, `extLabel`, `fileName`, `grantLabel`, `scopeLabel`, `scopeTitle`, `grantFromRow`, `btnTitle`/`btnClass`/`scriptBtnAttrs`, `writesBlockHtml`, `roleLabel`, `hasRunEntry`, `scriptKind`, `roleBadgesHtml`, `unknownHintHtml`, `cardLeadHtml`) stay module-level and DOM-free; `capabilityPhrase`/`scopeOptions` live in `permissionPrompt.ts`.
 
 ## Behaviour
 
@@ -95,8 +98,8 @@ The prompt's auto-close timer mirrors `SCRIPT_PERMISSION_TIMEOUT_MS` from `webvi
 - Provider and unknown cards have no `.script-result-area` and no status dot: their state lives in the destination panels (Integrity / Overlay).
 - Button state machine: ▶ play → ⟳ spinner (200 ms pending) → ⏹ stop (click to cancel) → ▶ play on any terminal state. Clicking the running button cancels during pending; while one script runs, every other card's run button carries the real `disabled` attribute (out of tab order; tooltip "A script is already running"; native disabled swallows clicks). `.ts` cards get `disabled-ts` (esbuild tooltip); untrusted workspace cards get `disabled-trust` ("Workspace not trusted") and neither is click-wired.
 - **No pre-run capability gate.** Clicking Run always starts the run (`onRunScript`); the first dangerous command inside the run opens the inline prompt.
-- Permission prompt: one at a time, inserted inside the card above `.script-result-area`. Title names the script + capability phrase, detail shows the host-provided string (address/byte count, command, or host). Primary "Allow once"; "More options" expands a menu with the scopes the request offers (`script`/`session`/`workspace`, each for the requested capability and for all capabilities; `workspace` is never offered for `exec`). Deny is a separate button. Escape denies. Focus starts on "Allow once", moves to the first option when the menu opens, and returns to the card's Run button on close. `showResult` and cancel close an open prompt (denying it). A new request replaces the prompt and denies the stale `requestId`; a missing card denies immediately.
-- Workspace Permissions list: `setPermissionGrants()` renders `.script-perms-section` above `.script-list` (basename + capability label, `Revoke` per row). `Revoke` reports `onRevokeScriptPermission`. An empty list removes the section. The list re-renders in place, so existing result areas are untouched.
+- Permission prompt: one at a time, inserted inside the card above `.script-result-area`. Title names the script + capability phrase, detail shows the host-provided string (address/byte count, command, or host). Primary "Allow once"; "More options" expands a menu with the scopes the request offers (`script`/`session`/`workspace`, each for the requested capability and for all capabilities; `workspace` is never offered for `exec`), with labels naming the real lifetime ("for this script, until VS Code restarts" / "for every script, until VS Code restarts" / "for this script in this workspace, across restarts"). Deny is a separate button. Escape denies. Focus starts on "Allow once", moves to the first option when the menu opens, and returns to the card's Run button on close. `showResult` and cancel close an open prompt (denying it). A new request replaces the prompt and denies the stale `requestId`; a missing card denies immediately.
+- Permissions list: `setPermissionGrants()` renders `.script-perms-section` above `.script-list` with one row per stored grant — scope chip (`This script` / `This session` / `Workspace`), basename (`All scripts` for a session-wide entry), capability label, and `Revoke` (`onRevokeScriptPermission` with the row's scope). Rows render in host `listGrants()` order (workspace → session → script, then path). A script with 2+ non-session grants gets a per-row `All` bulk action (keeps session-wide grants) and the **Manage** button expands `.script-perms-bulk` with `Revoke all workspace` / `Revoke all session`; every bulk action is a two-step confirm (first click arms and relabels to `Confirm?`, second click reports `onRevokeAllScriptPermissions`). An empty list removes the section. The list re-renders in place, so existing result areas are untouched.
 - Rescans (`setScripts`) rebuild the grouped list but move each non-empty `.script-result-area` to the matching card by `data-path`, so result blocks and run history survive regrouping/sorting.
 - Run history (per script, session-only): the latest result block stays expanded on top; each completed run collapses into a one-line row `run #N · HH:MM ✓/✕` (`.script-run-row`, `.script-run-hdr`), newest first, capped at `HISTORY_CAP` (5) per card. A new run snapshots the prior result block into history before streaming starts. A `✕` clear button on the latest block header empties the card's results and resets its status dot.
 - Run payload: `onRunScript(path, getGeneration(), getSelection() ?? undefined)`.
@@ -141,19 +144,23 @@ The prompt's auto-close timer mirrors `SCRIPT_PERMISSION_TIMEOUT_MS` from `webvi
 | Re-run | Prior result block collapsed into one-line history row (capped at 5); latest stays expanded on top |
 | Clean run with writes | "N byte(s) written and saved", no buttons |
 | Failed run with writes | "N byte(s) written, discarded — nothing was saved" |
-| Permissions list | Rows with basename + capability; Revoke reports callback; empty list removes section |
+| Permissions list | Rows with scope chip + basename/`All scripts` + capability; Revoke reports scope/path/capability; empty list removes section |
+| Manage click | Toggles `.expanded` + `aria-expanded`; reveals bulk revoke controls; no revoke fires |
+| Bulk revoke (workspace/session/per-script) | First click arms (`.confirm`, `Confirm?`); second click reports `onRevokeAllScriptPermissions`; per-scope or per-script payload |
+| Session-wide grant row | Name shows `All scripts` (never the raw `*`); per-script `All` is not offered |
+| Grant list order | Rendered in host order (workspace → session → script, then path); the panel does not re-sort |
 | Unmounted render / setScripts | No-op (guards `sections?.body`) |
 | `setTabActive` before first activation | No list request until first `true`; request fires exactly once |
 
 ## Tests Required
 
-`src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts`: mount/render (toolbar + empty state + install action + idempotent), refresh → `onRequestList`, empty-state/header install → `onAddExampleScripts`, `setScripts` (cards: name/ext/role chips with job labels + `data-role`, capability badges, status dots, no count badge, trusted vs untrusted disabled, `.ts` `disabled-ts`, open action reports the path and stays enabled), script kinds (action/provider/both/unknown actions, provider/unknown render no `.script-run-btn`, legacy-payload fallback), grouping (Actions before Providers, counts, alphabetical order with `hello.js` first, empty groups, collapse/expand + `aria-expanded`, result-area preservation across collapse and rescan), run/cancel state machine (payload shape with generation/selection, play→spinner→stop→play, cancel during pending, other run button truly disabled, no pre-run prompt), permission prompt (render inside the card, Allow once payload, scope menu options incl. no `workspace` for exec, `*` breadth, Escape/Deny, one-at-a-time replace, close on result/cancel, unknown path deny, focus return), Permissions list (rows, revoke callback, empty removal, result areas preserved), run history (latest-top collapse, expand, no stream pollution, clear, 5-row cap), `showResult` (headers, results rows, log, writes notices, auto-expand + collapse toggle, escaping, unknown-path no-op), `appendOutput` (realtime + first-100-then-batched flush, escaping, no-run no-op), `setTabActive` lazy-init gate. Existing `webviewMessageModel.test.ts` protocol rows + `webview.test.ts` pass unchanged (parity gate).
+`src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts`: mount/render (toolbar + empty state + install action + idempotent), refresh → `onRequestList`, empty-state/header install → `onAddExampleScripts`, `setScripts` (cards: name/ext/role chips with job labels + `data-role`, capability badges, status dots, no count badge, trusted vs untrusted disabled, `.ts` `disabled-ts`, open action reports the path and stays enabled), script kinds (action/provider/both/unknown actions, provider/unknown render no `.script-run-btn`, legacy-payload fallback), grouping (Actions before Providers, counts, alphabetical order with `hello.js` first, empty groups, collapse/expand + `aria-expanded`, result-area preservation across collapse and rescan), run/cancel state machine (payload shape with generation/selection, play→spinner→stop→play, cancel during pending, other run button truly disabled, no pre-run prompt), permission prompt (render inside the card, Allow once payload, scope menu options with lifetime labels incl. no `workspace` for exec, `*` breadth, Escape/Deny, one-at-a-time replace, close on result/cancel, unknown path deny, focus return), Permissions list (scope chips + host order, `All scripts` for session-wide rows, per-row revoke payloads, Manage expansion, per-script/workspace/session bulk two-step confirm, empty removal, result areas preserved), run history (latest-top collapse, expand, no stream pollution, clear, 5-row cap), `showResult` (headers, results rows, log, writes notices, auto-expand + collapse toggle, escaping, unknown-path no-op), `appendOutput` (realtime + first-100-then-batched flush, escaping, no-run no-op), `setTabActive` lazy-init gate. Existing `webviewMessageModel.test.ts` protocol rows + `webview.test.ts` pass unchanged (parity gate).
 
 ## Anti-patterns
 
 - `ScriptsPanel.ts` importing `S`, `state.ts`, `postProviderMessage`, `memory/selection`, `render/registry`, or `memory/memoryData`.
 - Component calling `currentSelectionRange()` / reading `S.documentGeneration` directly (must use `getSelection`/`getGeneration`).
-- Component posting `requestScriptList`/`runScript`/`cancelScript`/`scriptPermissionResponse`/`revokeScriptPermission` (must use callbacks).
+- Component posting `requestScriptList`/`runScript`/`cancelScript`/`scriptPermissionResponse`/`revokeScriptPermission`/`revokeAllScriptPermissions` (must use callbacks).
 - Host calling stale `renderScripts`/`activateScripts`/`updateScriptList`/`updateScriptResult`/`updateScriptOutput` module functions.
 - Re-introducing a pre-run capability gate or any second confirmation path (the per-command prompt is the only ask).
 - Rendering a Run control for a provider/unknown card (it must not exist in the markup, not merely be disabled).
@@ -161,5 +168,7 @@ The prompt's auto-close timer mirrors `SCRIPT_PERMISSION_TIMEOUT_MS` from `webvi
 - Hardcoding catalog filenames for ordering: the list sorts by name, which keeps the shipped action examples in catalog order.
 - Re-introducing Apply & Save / Discard controls (writes commit automatically on success).
 - Storing grants in the panel (host owns them; the panel only renders `scriptPermissions`).
+- Firing a bulk revoke on the first click, or re-sorting the grant list inside the panel (the host `listGrants()` order is canonical).
 - Weakening `webviewMessageModel.test.ts` script protocol assertions during the extraction (parity gate).
+- Wording a permission lifetime as "the editor closes": both in-memory scopes end at host exit, so their labels say "until VS Code restarts" — "editor" reads as the hex editor panel, which grants now survive.
 - Adding `.script-*` rules to `styles/` (they live in `scriptsPanel.css`).

@@ -45,19 +45,21 @@ function capabilityPhrase(capability: ScriptCapability): string {
     return 'make a network request';
 }
 
-/** Scope choices offered for one request (workspace is never offered for exec). */
+/** Scope choices offered for one request (workspace is never offered for exec).
+ *  Labels state the real lifetime: script/session grants live in memory until
+ *  the host exits; workspace grants persist across restarts. */
 function scopeOptions(request: ScriptPermissionRequest): ScopeOption[] {
     const cap = request.capability;
     const options: ScopeOption[] = [
-        { scope: 'script', grant: cap, label: `Allow ${cap} in this script` },
-        { scope: 'script', grant: '*', label: 'Allow all capabilities in this script' },
-        { scope: 'session', grant: cap, label: `Allow ${cap} for every script this session` },
-        { scope: 'session', grant: '*', label: 'Allow all capabilities this session' },
+        { scope: 'script', grant: cap, label: `Allow ${cap} for this script, until VS Code restarts` },
+        { scope: 'script', grant: '*', label: 'Allow all capabilities for this script, until VS Code restarts' },
+        { scope: 'session', grant: cap, label: `Allow ${cap} for every script, until VS Code restarts` },
+        { scope: 'session', grant: '*', label: 'Allow all capabilities for every script, until VS Code restarts' },
     ];
     if (request.scopes.includes('workspace')) {
         options.push(
-            { scope: 'workspace', grant: cap, label: `Always allow ${cap} in this workspace` },
-            { scope: 'workspace', grant: '*', label: 'Always allow all non-exec capabilities in this workspace' },
+            { scope: 'workspace', grant: cap, label: `Always allow ${cap} for this script in this workspace, across restarts` },
+            { scope: 'workspace', grant: '*', label: 'Always allow all non-exec capabilities in this workspace, across restarts' },
         );
     }
     return options.filter(option => request.scopes.includes(option.scope));

@@ -36,10 +36,14 @@ export type ScriptCapability = 'write' | 'exec' | 'fetch';
 export type ScriptCapabilityGrant = ScriptCapability | '*';
 /** Approval lifetime chosen in the inline prompt. */
 export type ScriptPermissionScope = 'once' | 'script' | 'session' | 'workspace';
-/** One persisted workspace grant as shown in the panel's Permissions section. */
-export interface ScriptWorkspaceGrant {
+/** Lifetime of a stored grant (prompt scope without `once`). */
+export type ScriptGrantScope = 'script' | 'session' | 'workspace';
+/** One stored grant as shown in the panel's Permissions section. */
+export interface ScriptGrantView {
+    /** Absolute script path, or `*` for a session-wide grant. */
     scriptPath: string;
     capability: ScriptCapabilityGrant;
+    scope: ScriptGrantScope;
 }
 
 /** One instance address resolved by its `@script address` script. */
@@ -154,7 +158,7 @@ export type ProviderToWebviewMessage =
         fingerprint: string;
         scopes: ScriptPermissionScope[];
     }
-    | { type: 'scriptPermissions'; grants: ScriptWorkspaceGrant[] }
+    | { type: 'scriptPermissions'; grants: ScriptGrantView[] }
     | { type: 'scriptWritesCommit'; scriptPath: string; writes: Array<[number, number]> }
     | { type: 'activateScriptsTab' }
     | { type: 'activateProfilePicker' };
@@ -225,7 +229,8 @@ export type WebviewToProviderMessage =
         /** Grant breadth; omitted = the requested capability. `*` = all non-exec. */
         capability?: ScriptCapabilityGrant;
     }
-    | { type: 'revokeScriptPermission'; scriptPath: string; capability: ScriptCapabilityGrant }
+    | { type: 'revokeScriptPermission'; scope: ScriptGrantScope; scriptPath: string; capability: ScriptCapabilityGrant }
+    | { type: 'revokeAllScriptPermissions'; scope?: ScriptGrantScope; scriptPath?: string }
     | { type: 'addExampleScripts' };
 
 export function messageType(message: unknown): string | undefined {

@@ -13,6 +13,10 @@
 //   - `workspace` persisted in `workspaceState` (never settings), survives restart
 //   - `once`      never stored
 //
+// Stores are keyed by workspace root and live as long as the extension host
+// (`scriptGrantStoreFor`), so closing and reopening an editor keeps its
+// session grants; only the host exiting resets them.
+//
 // `exec` never reaches workspace scope (downgraded to `session`), and a
 // workspace `*` grant covers every non-exec capability only.
 
@@ -22,8 +26,9 @@ import {
     type ProviderToWebviewMessage,
     type ScriptCapability,
     type ScriptCapabilityGrant,
+    type ScriptGrantScope,
+    type ScriptGrantView,
     type ScriptPermissionScope,
-    type ScriptWorkspaceGrant,
 } from './webviewProtocol';
 
 /** Subset of `vscode.Memento` the store needs (structural so tests stay host-free). */
@@ -48,9 +53,9 @@ const STORE_VERSION = 1;
 /** Synthetic path key for a session-wide grant. */
 const ANY_SCRIPT = '*';
 
-/** Case-fold Windows paths so the same file scanned twice always matches. */
-function scriptKey(scriptPath: string): string {
-    const resolved = path.resolve(scriptPath);
+/** Case-fold Windows paths so the same file or root always maps to one key. */
+function pathKey(value: string): string {
+    const resolved = path.resolve(value);
     return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
@@ -74,7 +79,7 @@ function normalizeStored(value: unknown): GrantEntry[] {
 
 /** Exact path + fingerprint match, plus same-fingerprint `*` breadth. */
 function entryMatches(entry: GrantEntry, key: string, fingerprint: string, capability: ScriptCapability): boolean {
-    const entryKey = entry.scriptPath === ANY_SCRIPT ? ANY_SCRIPT : scriptKey(entry.scriptPath);
+    const entryKey = entry.scriptPath === ANY_SCRIPT ? ANY_SCRIPT : pathKey(entry.scriptPath);
     if (entryKey !== ANY_SCRIPT) {
         if (entryKey !== key || entry.fingerprint !== fingerprint) { return false; }
         return entry.capability === capability || entry.capability === '*';
@@ -84,13 +89,13 @@ function entryMatches(entry: GrantEntry, key: string, fingerprint: string, capab
 
 /** Workspace entries are always script-scoped; `*` excludes `exec`. */
 function workspaceEntryMatches(entry: GrantEntry, key: string, fingerprint: string, capability: ScriptCapability): boolean {
-    if (scriptKey(entry.scriptPath) !== key || entry.fingerprint !== fingerprint) { return false; }
+    if (pathKey(entry.scriptPath) !== key || entry.fingerprint !== fingerprint) { return false; }
     if (entry.capability === capability) { return true; }
     return entry.capability === '*' && capability !== 'exec';
 }
 
 function sameEntry(a: GrantEntry, b: GrantEntry): boolean {
-    return scriptKey(a.scriptPath) === scriptKey(b.scriptPath)
+    return pathKey(a.scriptPath) === pathKey(b.scriptPath)
         && a.fingerprint === b.fingerprint
         && a.capability === b.capability;
 }
@@ -111,7 +116,7 @@ export class ScriptGrantStore {
 
     /** True when an earlier approval covers this call. */
     check(scriptPath: string, fingerprint: string, capability: ScriptCapability): boolean {
-        const key = scriptKey(scriptPath);
+        const key = pathKey(scriptPath);
         if (this.sessionEntries.some(e => entryMatches(e, key, fingerprint, capability))) { return true; }
         return this.workspaceEntries.some(e => workspaceEntryMatches(e, key, fingerprint, capability));
     }
@@ -134,13 +139,30 @@ export class ScriptGrantStore {
         pushUnique(this.sessionEntries, entry);
     }
 
-    /** Drop every session + workspace grant for one script (file changed or deleted). */
-    revokeScript(scriptPath: string): void {
-        const key = scriptKey(scriptPath);
+    /** Drop every session + workspace grant for one script (file changed, deleted, or bulk revoke). Keeps session-wide grants. */
+    revokeAllForScript(scriptPath: string): void {
+        const key = pathKey(scriptPath);
         const before = this.workspaceEntries.length;
-        this.sessionEntries = this.sessionEntries.filter(e => e.scriptPath === ANY_SCRIPT || scriptKey(e.scriptPath) !== key);
-        this.workspaceEntries = this.workspaceEntries.filter(e => scriptKey(e.scriptPath) !== key);
+        this.sessionEntries = this.sessionEntries.filter(e => e.scriptPath === ANY_SCRIPT || pathKey(e.scriptPath) !== key);
+        this.workspaceEntries = this.workspaceEntries.filter(e => pathKey(e.scriptPath) !== key);
         if (this.workspaceEntries.length !== before) { this.persist(); }
+    }
+
+    /**
+     * Bulk revoke. No scope clears everything; otherwise one scope class:
+     * `workspace` = persisted entries, `session` = session-wide, `script` = path-scoped.
+     */
+    revokeAll(scope?: ScriptGrantScope): void {
+        if (scope !== 'workspace') {
+            this.sessionEntries = this.sessionEntries.filter(e => !sessionEntryInScope(e, scope));
+        }
+        if (scope === undefined || scope === 'workspace') { this.clearWorkspace(); }
+    }
+
+    private clearWorkspace(): void {
+        if (this.workspaceEntries.length === 0) { return; }
+        this.workspaceEntries = [];
+        this.persist();
     }
 
     /**
@@ -149,14 +171,14 @@ export class ScriptGrantStore {
      * Returns true when anything was removed.
      */
     revokeMissing(activePaths: readonly string[]): boolean {
-        const active = new Set(activePaths.map(scriptKey));
+        const active = new Set(activePaths.map(pathKey));
         const missing = new Set<string>();
         for (const entry of [...this.sessionEntries, ...this.workspaceEntries]) {
-            if (entry.scriptPath !== ANY_SCRIPT && !active.has(scriptKey(entry.scriptPath))) {
+            if (entry.scriptPath !== ANY_SCRIPT && !active.has(pathKey(entry.scriptPath))) {
                 missing.add(entry.scriptPath);
             }
         }
-        for (const scriptPath of missing) { this.revokeScript(scriptPath); }
+        for (const scriptPath of missing) { this.revokeAllForScript(scriptPath); }
         return missing.size > 0;
     }
 
@@ -165,9 +187,9 @@ export class ScriptGrantStore {
      * Returns true when something was removed (the panel list needs a refresh).
      */
     revokeStaleFingerprint(scriptPath: string, fingerprint: string): boolean {
-        const key = scriptKey(scriptPath);
+        const key = pathKey(scriptPath);
         const stale = (e: GrantEntry): boolean => e.scriptPath !== ANY_SCRIPT
-            && scriptKey(e.scriptPath) === key
+            && pathKey(e.scriptPath) === key
             && e.fingerprint !== fingerprint;
         const sessionBefore = this.sessionEntries.length;
         const workspaceBefore = this.workspaceEntries.length;
@@ -179,17 +201,36 @@ export class ScriptGrantStore {
         return changed;
     }
 
-    /** Persisted grants for the panel's revocable Permissions list. */
-    listWorkspaceGrants(): ScriptWorkspaceGrant[] {
-        return this.workspaceEntries.map(e => ({ scriptPath: e.scriptPath, capability: e.capability }));
+    /** Every stored grant for the panel's revocable Permissions list, workspace → session → script, then path. */
+    listGrants(): ScriptGrantView[] {
+        const views = this.workspaceEntries.map(entry => grantView(entry, 'workspace'));
+        for (const entry of this.sessionEntries) {
+            views.push(grantView(entry, entry.scriptPath === ANY_SCRIPT ? 'session' : 'script'));
+        }
+        return views.sort(compareGrants);
+    }
+
+    /** Revoke one listed grant (per-row Revoke action). */
+    revokeGrant(scope: ScriptGrantScope, scriptPath: string, capability: ScriptCapabilityGrant): void {
+        if (scope === 'workspace') { this.revokeWorkspaceGrant(scriptPath, capability); return; }
+        if (scope === 'session') {
+            this.sessionEntries = this.sessionEntries.filter(
+                e => !(e.scriptPath === ANY_SCRIPT && e.capability === capability),
+            );
+            return;
+        }
+        const key = pathKey(scriptPath);
+        this.sessionEntries = this.sessionEntries.filter(
+            e => !(e.scriptPath !== ANY_SCRIPT && pathKey(e.scriptPath) === key && e.capability === capability),
+        );
     }
 
     /** Revoke one persisted entry (panel action). */
-    revokeWorkspaceGrant(scriptPath: string, capability: ScriptCapabilityGrant): void {
-        const key = scriptKey(scriptPath);
+    private revokeWorkspaceGrant(scriptPath: string, capability: ScriptCapabilityGrant): void {
+        const key = pathKey(scriptPath);
         const before = this.workspaceEntries.length;
         this.workspaceEntries = this.workspaceEntries.filter(
-            e => !(scriptKey(e.scriptPath) === key && e.capability === capability),
+            e => !(pathKey(e.scriptPath) === key && e.capability === capability),
         );
         if (this.workspaceEntries.length !== before) { this.persist(); }
     }
@@ -198,6 +239,48 @@ export class ScriptGrantStore {
         const payload: StoredGrants = { version: STORE_VERSION, grants: this.workspaceEntries };
         void this.state.update(SCRIPT_GRANTS_KEY, payload);
     }
+}
+
+/** Render order for the grant list: persisted workspace grants first, then session-wide, then per-script. */
+const SCOPE_ORDER: Record<ScriptGrantScope, number> = { workspace: 0, session: 1, script: 2 };
+
+function grantView(entry: GrantEntry, scope: ScriptGrantScope): ScriptGrantView {
+    return { scriptPath: entry.scriptPath, capability: entry.capability, scope };
+}
+
+function compareGrants(a: ScriptGrantView, b: ScriptGrantView): number {
+    return SCOPE_ORDER[a.scope] - SCOPE_ORDER[b.scope]
+        || a.scriptPath.localeCompare(b.scriptPath)
+        || a.capability.localeCompare(b.capability);
+}
+
+/** True when a bulk revoke limited to `scope` should drop this session entry. */
+function sessionEntryInScope(entry: GrantEntry, scope?: ScriptGrantScope): boolean {
+    if (scope === 'script') { return entry.scriptPath !== ANY_SCRIPT; }
+    if (scope === 'session') { return entry.scriptPath === ANY_SCRIPT; }
+    return true;
+}
+
+/** Host-lifetime stores, one per workspace root: editor close/reopen keeps grants, host exit drops them. */
+const stores = new Map<string, ScriptGrantStore>();
+
+/**
+ * Workspace-root-keyed grant store factory. `restore`/`close`/document changes
+ * reuse the same store for a root; only the extension host exiting resets it.
+ */
+export function scriptGrantStoreFor(root: string, state: GrantMemento): ScriptGrantStore {
+    const key = pathKey(root);
+    let store = stores.get(key);
+    if (!store) {
+        store = new ScriptGrantStore(state);
+        stores.set(key, store);
+    }
+    return store;
+}
+
+/** Test seam: simulate an extension-host restart (drops every in-memory store). */
+export function resetScriptGrantStores(): void {
+    stores.clear();
 }
 
 /** Scopes the inline prompt may offer for a capability (`exec` never persists). */

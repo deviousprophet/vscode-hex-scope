@@ -15,7 +15,7 @@ Make every permission label true and every active grant visible and revocable.
 - Add revoke-all for a script and revoke-all for the workspace; confirm destructive bulk revokes.
 - Prompt labels must name the real lifetime and consequence:
   - once
-  - this script, until the editor closes
+  - this script, until VS Code restarts
   - every script, until VS Code restarts
   - this script, in this workspace, across restarts
 - `exec` remains session-only and never persists.
@@ -48,3 +48,6 @@ None.
 
 - The store key is the workspace root; out-of-workspace documents share the document-directory
   root as today.
+- Both in-memory scopes end at host exit, so their labels both read "until VS Code restarts".
+  The planning draft said "until the editor closes" for script scope, which reads as the hex
+  editor panel — grants now survive that — so execution corrected the copy.

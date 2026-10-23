@@ -151,25 +151,40 @@
 }
 .script-clear:hover { color: var(--fg); }
 
-/* Workspace permissions section — persisted grants, revocable per entry.
-   Rendered above the script list and re-rendered in place (result areas
-   never rebuild). */
+/* Permission list — every stored grant (script/session/workspace), revocable
+   per row, with bulk actions behind Manage. Rendered above the script list and
+   re-rendered in place (result areas never rebuild). */
 .script-perms-section {
     border-bottom: 1px solid var(--border);
     padding: 6px 8px; font-size: 11px;
     background: rgba(255,255,255,.02);
 }
 .script-perms-title {
+    display: flex; align-items: center; gap: 6px;
     font-size: 10px; font-weight: 600; color: var(--addr-fg);
     text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px;
 }
+.script-perms-manage.sb-btn { padding: 0 6px; line-height: 1.5; margin-left: auto; text-transform: none; }
 .script-perm-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.script-perm-scope {
+    flex: none; font-size: 9px; text-transform: uppercase; letter-spacing: .03em;
+    color: var(--addr-fg); border: 1px solid var(--border); border-radius: 3px;
+    padding: 0 4px; white-space: nowrap;
+}
 .script-perm-name {
     flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-family: var(--font-editor); font-size: 11px;
 }
 .script-perm-ability { font-size: 10px; color: #e6a23c; text-transform: uppercase; }
 .script-perm-revoke.sb-btn { padding: 1px 8px; line-height: 1.4; }
+.script-perm-all.sb-btn { padding: 1px 8px; line-height: 1.4; }
+.script-perms-bulk { display: none; flex-direction: column; gap: 4px; margin-top: 6px; }
+.script-perms-section.expanded .script-perms-bulk { display: flex; }
+.script-perms-hint { font-size: 10px; color: var(--addr-fg); opacity: .8; line-height: 1.4; }
+.script-perm-bulk-btn.sb-btn { text-align: left; }
+.script-perm-revoke.confirm, .script-perm-all.confirm, .script-perm-bulk-btn.confirm {
+    border-color: var(--err); color: var(--err);
+}
 
 /* Inline per-command approval prompt — inside the script card, above results. */
 .script-perm {

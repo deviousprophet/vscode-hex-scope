@@ -8,7 +8,9 @@ import * as assert from 'assert';
 import {
     acceptedGrant,
     offeredScopes,
+    resetScriptGrantStores,
     SCRIPT_GRANTS_KEY,
+    scriptGrantStoreFor,
     ScriptGrantStore,
     ScriptPermissionBroker,
     type GrantMemento,
@@ -40,7 +42,7 @@ suite('ScriptGrantStore scopes', () => {
         const store = newStore();
         store.grant('once', SCRIPT, 'fp1', 'write');
         assert.strictEqual(store.check(SCRIPT, 'fp1', 'write'), false);
-        assert.deepStrictEqual(store.listWorkspaceGrants(), []);
+        assert.deepStrictEqual(store.listGrants(), []);
     });
 
     test('script scope covers this file + capability only, and dies on fingerprint change', () => {
@@ -74,7 +76,7 @@ suite('ScriptGrantStore scopes', () => {
         const store = newStore();
         store.grant('script', SCRIPT, 'fp1', 'write');
         store.grant('script', SCRIPT, 'fp1', 'write');
-        store.revokeScript(SCRIPT);
+        store.revokeAllForScript(SCRIPT);
         assert.strictEqual(store.check(SCRIPT, 'fp1', 'write'), false);
     });
 });
@@ -85,7 +87,7 @@ suite('ScriptGrantStore workspace persistence', () => {
         const store = newStore(memento);
         store.grant('workspace', SCRIPT, 'fp1', 'write');
         assert.strictEqual(store.check(SCRIPT, 'fp1', 'write'), true);
-        assert.deepStrictEqual(store.listWorkspaceGrants(), [{ scriptPath: SCRIPT, capability: 'write' }]);
+        assert.deepStrictEqual(store.listGrants(), [{ scriptPath: SCRIPT, capability: 'write', scope: 'workspace' }]);
 
         const restarted = newStore(memento);
         assert.strictEqual(restarted.check(SCRIPT, 'fp1', 'write'), true, 'reloaded from workspaceState');
@@ -106,31 +108,61 @@ suite('ScriptGrantStore workspace persistence', () => {
         store.grant('workspace', SCRIPT, 'fp1', 'exec');
         assert.strictEqual(store.check(SCRIPT, 'fp1', 'exec'), true, 'session-scoped for this script');
         assert.strictEqual(store.check(OTHER, 'fp2', 'exec'), false, 'never broader than the script');
-        assert.deepStrictEqual(store.listWorkspaceGrants(), []);
+        assert.deepStrictEqual(store.listGrants(), [{ scriptPath: SCRIPT, capability: 'exec', scope: 'script' }]);
         assert.strictEqual(memento.get(SCRIPT_GRANTS_KEY), undefined, 'nothing written');
     });
 
-    test('revokeWorkspaceGrant removes one entry and persists the removal', () => {
+    test('revokeGrant removes one entry per scope and persists workspace removals', () => {
         const memento = new FakeMemento();
         const store = newStore(memento);
         store.grant('workspace', SCRIPT, 'fp1', 'write');
         store.grant('workspace', SCRIPT, 'fp1', 'fetch');
-        store.revokeWorkspaceGrant(SCRIPT, 'write');
-        assert.deepStrictEqual(store.listWorkspaceGrants(), [{ scriptPath: SCRIPT, capability: 'fetch' }]);
+        store.grant('script', OTHER, 'fp2', 'write');
+        store.grant('session', OTHER, 'fp2', 'exec');
+        store.revokeGrant('workspace', SCRIPT, 'write');
+        assert.deepStrictEqual(store.listGrants(), [
+            { scriptPath: SCRIPT, capability: 'fetch', scope: 'workspace' },
+            { scriptPath: '*', capability: 'exec', scope: 'session' },
+            { scriptPath: OTHER, capability: 'write', scope: 'script' },
+        ]);
         assert.strictEqual(store.check(SCRIPT, 'fp1', 'write'), false);
         assert.strictEqual(newStore(memento).check(SCRIPT, 'fp1', 'write'), false, 'removal persisted');
+
+        store.revokeGrant('script', OTHER, 'write');
+        assert.strictEqual(store.check(OTHER, 'fp2', 'write'), false, 'script-scoped entry removed');
+        store.revokeGrant('session', '*', 'exec');
+        assert.strictEqual(store.check(OTHER, 'fp2', 'exec'), false, 'session-wide entry removed');
+        store.revokeGrant('session', '*', 'exec');
+        assert.strictEqual(store.check(OTHER, 'fp2', 'exec'), false, 'idempotent');
     });
 
-    test('revokeScript drops session and workspace grants but keeps session-wide ones', () => {
+    test('revokeAllForScript drops session and workspace grants but keeps session-wide ones', () => {
         const store = newStore();
         store.grant('script', SCRIPT, 'fp1', 'write');
         store.grant('workspace', SCRIPT, 'fp1', 'fetch');
         store.grant('session', SCRIPT, 'fp1', 'exec');
-        store.revokeScript(SCRIPT);
+        store.revokeAllForScript(SCRIPT);
         assert.strictEqual(store.check(SCRIPT, 'fp1', 'write'), false);
         assert.strictEqual(store.check(SCRIPT, 'fp1', 'fetch'), false);
         assert.strictEqual(store.check(SCRIPT, 'fp1', 'exec'), true, 'session-wide grant is not path-scoped');
-        assert.deepStrictEqual(store.listWorkspaceGrants(), []);
+        assert.deepStrictEqual(store.listGrants(), [{ scriptPath: '*', capability: 'exec', scope: 'session' }]);
+    });
+
+    test('revokeAll clears one scope class, or everything without a scope', () => {
+        const store = newStore();
+        store.grant('script', SCRIPT, 'fp1', 'write');
+        store.grant('session', SCRIPT, 'fp1', 'exec');
+        store.grant('workspace', OTHER, 'fp2', 'fetch');
+        store.revokeAll('session');
+        assert.deepStrictEqual(store.listGrants(), [
+            { scriptPath: OTHER, capability: 'fetch', scope: 'workspace' },
+            { scriptPath: SCRIPT, capability: 'write', scope: 'script' },
+        ]);
+        store.revokeAll('workspace');
+        assert.deepStrictEqual(store.listGrants(), [{ scriptPath: SCRIPT, capability: 'write', scope: 'script' }]);
+        store.revokeAll();
+        assert.deepStrictEqual(store.listGrants(), []);
+        assert.deepStrictEqual(newStore().listGrants(), [], 'already empty');
     });
 
     test('revokeStaleFingerprint reports and removes edited-script grants', () => {
@@ -162,7 +194,48 @@ suite('ScriptGrantStore workspace persistence', () => {
 
     test('corrupt stored payloads are ignored', () => {
         const memento = new FakeMemento(new Map([[SCRIPT_GRANTS_KEY, { version: 1, grants: [{ nope: true }] }]]));
-        assert.deepStrictEqual(newStore(memento).listWorkspaceGrants(), []);
+        assert.deepStrictEqual(newStore(memento).listGrants(), []);
+    });
+});
+
+suite('ScriptGrantStore registry (host lifetime, workspace-root keyed)', () => {
+    teardown(resetScriptGrantStores);
+
+    test('the same root reuses one store across editor sessions (close/reopen keeps grants)', () => {
+        const memento = new FakeMemento();
+        const first = scriptGrantStoreFor('D:\\ws', memento);
+        first.grant('session', SCRIPT, 'fp1', 'write');
+        first.grant('script', SCRIPT, 'fp1', 'exec');
+        const reopened = scriptGrantStoreFor('D:\\ws', memento);
+        assert.strictEqual(reopened, first, 'one store per workspace root');
+        assert.strictEqual(reopened.check(OTHER, 'fpX', 'write'), true, 'session grant survives editor close');
+        assert.strictEqual(reopened.check(SCRIPT, 'fp1', 'exec'), true, 'script grant survives editor close');
+    });
+
+    test('different roots do not share grants', () => {
+        const memento = new FakeMemento();
+        const a = scriptGrantStoreFor('D:\\ws-a', memento);
+        const b = scriptGrantStoreFor('D:\\ws-b', memento);
+        a.grant('script', SCRIPT, 'fp1', 'write');
+        a.grant('workspace', SCRIPT, 'fp1', 'fetch');
+        assert.strictEqual(b.check(SCRIPT, 'fp1', 'write'), false);
+        assert.notStrictEqual(a, b);
+    });
+
+    test('a host restart drops session grants but keeps workspace grants', () => {
+        const memento = new FakeMemento();
+        const store = scriptGrantStoreFor('D:\\ws', memento);
+        store.grant('session', OTHER, 'fp1', 'exec');
+        store.grant('script', SCRIPT, 'fp1', 'write');
+        store.grant('workspace', SCRIPT, 'fp1', 'fetch');
+        resetScriptGrantStores(); // extension host exit
+        const restarted = scriptGrantStoreFor('D:\\ws', memento);
+        assert.strictEqual(restarted.check(OTHER, 'fp1', 'exec'), false, 'session grant is gone');
+        assert.strictEqual(restarted.check(SCRIPT, 'fp1', 'write'), false, 'script grant is gone');
+        assert.strictEqual(restarted.check(SCRIPT, 'fp1', 'fetch'), true, 'workspace grant survives');
+        assert.deepStrictEqual(restarted.listGrants(), [
+            { scriptPath: SCRIPT, capability: 'fetch', scope: 'workspace' },
+        ]);
     });
 });
 
@@ -258,7 +331,7 @@ suite('ScriptPermissionBroker', () => {
         const first = broker.confirm(REQUEST);
         broker.respond({ requestId: 1, decision: 'allow', scope: 'workspace' });
         assert.strictEqual(await first, true);
-        assert.deepStrictEqual(store.listWorkspaceGrants(), [{ scriptPath: SCRIPT, capability: 'write' }]);
+        assert.deepStrictEqual(store.listGrants(), [{ scriptPath: SCRIPT, capability: 'write', scope: 'workspace' }]);
 
         assert.strictEqual(await broker.confirm(REQUEST), true);
         assert.strictEqual(posted.length, 1, 'no second prompt');

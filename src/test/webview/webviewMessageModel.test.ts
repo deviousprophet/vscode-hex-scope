@@ -70,7 +70,7 @@ suite('webview message dispatcher', () => {
         }, handlers), true);
         assert.strictEqual(dispatchProviderMessage({
             type: 'scriptPermissions',
-            grants: [{ scriptPath: 'a.js', capability: 'write' }],
+            grants: [{ scriptPath: 'a.js', capability: 'write', scope: 'workspace' }],
         }, handlers), true);
         assert.strictEqual(dispatchProviderMessage({
             type: 'scriptWritesCommit',

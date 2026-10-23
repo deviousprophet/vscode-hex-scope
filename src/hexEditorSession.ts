@@ -60,7 +60,7 @@ import { migrateLegacyData } from './hexScopeMigration';
 
 import { scanScripts, execute, scriptFingerprint } from './core/scripting/scriptRunner';
 import { VSCodeScriptHost, scriptWritePlan } from './scriptHost';
-import { ScriptGrantStore, ScriptPermissionBroker } from './scriptPermissions';
+import { scriptGrantStoreFor, ScriptPermissionBroker, type ScriptGrantStore } from './scriptPermissions';
 import { resolveIntegrityScriptPath, runIntegrityScript, withRelativeScriptPaths } from './integrityScriptRunner';
 import { runInstanceAddresses, runInstanceParams, withRelativeAddressSources } from './instanceAddressRunner';
 import { addExampleScriptsAt } from './addExampleScripts';
@@ -449,16 +449,6 @@ export class HexEditorSession {
         private readonly _context: vscode.ExtensionContext,
     ) {}
 
-    private _scriptGrants: ScriptGrantStore | null = null;
-
-    /** Host-lifetime grant store: session grants live in memory, workspace grants persist. */
-    private scriptGrants(): ScriptGrantStore {
-        if (!this._scriptGrants) {
-            this._scriptGrants = new ScriptGrantStore(this._context.workspaceState);
-        }
-        return this._scriptGrants;
-    }
-
     async resolveCustomEditor(
         document: vscode.CustomDocument,
         webviewPanel: vscode.WebviewPanel,
@@ -488,11 +478,11 @@ export class HexEditorSession {
         const resources = new DisposableStore();
         resources.add(token.onCancellationRequested(() => activeLoad?.abort()));
 
-        /** Post the revocable workspace-grant list for the panel's Permissions section. */
+        /** Post the revocable grant list (script + session + workspace) for the panel's Permissions section. */
         const postPermissions = (): void => {
             void postToWebview(webviewPanel.webview, {
                 type: 'scriptPermissions',
-                grants: this.scriptGrants().listWorkspaceGrants(),
+                grants: grantStore().listGrants(),
             });
         };
 
@@ -500,7 +490,7 @@ export class HexEditorSession {
         const permissionBrokerFor = (): ScriptPermissionBroker => {
             if (!permissionBroker) {
                 permissionBroker = new ScriptPermissionBroker(
-                    this.scriptGrants(),
+                    grantStore(),
                     request => void postToWebview(webviewPanel.webview, request),
                     SCRIPT_PERMISSION_TIMEOUT_MS,
                 );
@@ -522,7 +512,7 @@ export class HexEditorSession {
             if (disposed || options.signal?.aborted) { return false; }
             if (options.readOnly && type === 'write') { return false; }
             const fingerprint = scriptFingerprint(scriptPath);
-            const grants = this.scriptGrants();
+            const grants = grantStore();
             if (grants.revokeStaleFingerprint(scriptPath, fingerprint)) { postPermissions(); }
             const allow = await permissionBrokerFor().confirm({
                 capability: type,
@@ -601,6 +591,8 @@ export class HexEditorSession {
         // binding key into bindings.json.
         const root = resolveHexScopeRoot(document.uri);
         const relPath = perFileRelativePath(root, document.uri);
+        /** Host-lifetime, workspace-root-keyed grant store (session grants survive editor close/reopen). */
+        const grantStore = (): ScriptGrantStore => scriptGrantStoreFor(root, this._context.workspaceState);
 
         let registryStore: JsonStore<ProfileRecord[]> | null = null;
         let typePoolStore: JsonStore<TypeDef[]> | null = null;
@@ -1258,7 +1250,7 @@ export class HexEditorSession {
                     ...script,
                     relativePath: path.relative(root, script.filePath).split(path.sep).join('/'),
                 }));
-                const grants = this.scriptGrants();
+                const grants = grantStore();
                 if (grants.revokeMissing(scripts.map(script => script.filePath))) { postPermissions(); }
                 // Edited scripts lose their approvals; the list refreshes with them.
                 for (const script of scripts) {
@@ -1305,7 +1297,15 @@ export class HexEditorSession {
                 postPermissions();
             },
             revokeScriptPermission: async msg => {
-                this.scriptGrants().revokeWorkspaceGrant(msg.scriptPath, msg.capability);
+                // Tolerant default for pre-scope payloads: older webviews only ever
+                // listed (and revoked) workspace grants.
+                grantStore().revokeGrant(msg.scope ?? 'workspace', msg.scriptPath, msg.capability);
+                postPermissions();
+            },
+            revokeAllScriptPermissions: async msg => {
+                const grants = grantStore();
+                if (msg.scriptPath) { grants.revokeAllForScript(msg.scriptPath); }
+                else { grants.revokeAll(msg.scope); }
                 postPermissions();
             },
             addExampleScripts: async () => {

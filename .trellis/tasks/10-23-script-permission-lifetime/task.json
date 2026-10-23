@@ -3,7 +3,7 @@
   "name": "script-permission-lifetime",
   "title": "Fix script permission lifetime and visibility",
   "description": "Make session grants last for the workspace session and expose script, session, and workspace grants in one revocable permission center.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "frontend",
   "package": null,

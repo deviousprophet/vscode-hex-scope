@@ -12,6 +12,7 @@
 
 ### Changed
 - Dangerous script calls use one inline approval with scoped choices instead of a modal prompt plus a separate Apply & Save step; approved writes commit as one undoable save
+- Session-scoped script approvals now last for the workspace session: closing and reopening a file keeps them, and the panel's Permissions section lists every script, session, and workspace grant with per-row and bulk revoke
 - Script cards show capability and role badges, workspace permissions are revocable in the panel, and scripts in subdirectories or `.d.ts` files are ignored
 - Every Scripts card has an open/edit action so the script file can be opened directly from the sidebar
 - Struct instance cards show script-resolved address and size state; resolved values stay transient and are never persisted

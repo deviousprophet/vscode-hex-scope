@@ -79,7 +79,7 @@ Prompt copy must state the actual lifetime. The option values remain `once`/`scr
 
 - `revokeStaleFingerprint` stays, now on the registry store.
 - `revokeMissing` stays.
-- `revokeScript` on delete.
+- `revokeAllForScript` on delete.
 - Session-wide grants intentionally survive per-script edits; the permission center explains
   this in a hint.
 

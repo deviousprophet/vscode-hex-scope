@@ -1,19 +1,21 @@
 /** Scripts Panel — self-contained sidebar panel for the script runner.
 Owns the full `#s-scripts` shell: framework section header (title/count/refresh
 action), script cards (name/ext/capability badges/status dot/run-cancel state
-machine), the inline per-command permission prompt, the revocable workspace
-permission list, and embedded result areas (output streaming with batching,
-collapse/expand, error-type headers, writes notice). Data is pushed via setters;
-actions report via callbacks. This module never imports the S global, never posts
-provider messages, and never touches the render registry. */
+machine), the inline per-command permission prompt, the revocable permission
+list (script + session + workspace grants), and embedded result areas (output
+streaming with batching, collapse/expand, error-type headers, writes notice).
+Data is pushed via setters; actions report via callbacks. This module never
+imports the S global, never posts provider messages, and never touches the
+render registry. */
 
 import { esc } from '../../../utils';
 import { fileName } from '../../../../core/pathName';
 import type { ScriptInfo } from '../../../../core/scripting/types';
 import type {
     ScriptCapabilityGrant,
+    ScriptGrantScope,
+    ScriptGrantView,
     ScriptPermissionScope,
-    ScriptWorkspaceGrant,
 } from '../../../../webviewProtocol';
 import { SidebarSections } from '../sidebar';
 import { PermissionPrompt, type ScriptPermissionRequest } from './permissionPrompt';
@@ -37,8 +39,10 @@ export interface ScriptsCallbacks {
         scope: ScriptPermissionScope,
         capability: ScriptCapabilityGrant,
     ) => void;
-    /** Revoke one persisted workspace grant: host posts revokeScriptPermission. */
-    onRevokeScriptPermission?: (scriptPath: string, capability: ScriptCapabilityGrant) => void;
+    /** Revoke one grant: host posts revokeScriptPermission with its scope. */
+    onRevokeScriptPermission?: (scope: ScriptGrantScope, scriptPath: string, capability: ScriptCapabilityGrant) => void;
+    /** Bulk revoke: one script (scriptPath) or one scope class (workspace/session); host posts revokeAllScriptPermissions. */
+    onRevokeAllScriptPermissions?: (scope?: ScriptGrantScope, scriptPath?: string) => void;
     /** Copy the bundled example catalog: host posts addExampleScripts (or runs the command). */
     onAddExampleScripts?: () => void;
     /** Selection snapshot for the run payload (was currentSelectionRange). */
@@ -60,6 +64,8 @@ type RunRecord = { num: number; at: string; ok: boolean; errCls: string; bodyHtm
 const BATCH_THRESHOLD = 100;
 /** Max collapsed run rows kept per script card; older rows dropped (design: cap 5 + clear affordance). */
 const HISTORY_CAP = 5;
+/** Armed bulk-revoke buttons disarm after this long without a confirming click. */
+const CONFIRM_RESET_MS = 4000;
 
 const ERROR_HEADERS: Record<string, { icon: string; label: string; cssClass: string }> = {
     compile: { icon: '&#9888;', label: 'Compile Error', cssClass: ' script-output-hdr-err-compile' },
@@ -87,8 +93,12 @@ export class ScriptsPanel {
     private readonly runHistory = new Map<string, RunRecord[]>();
     /** Per-script completed-run counter for stable "run #n" labels. */
     private readonly runCounter = new Map<string, number>();
-    /** Persisted workspace grants shown in the Permissions section (host-owned). */
-    private permissionGrants: ScriptWorkspaceGrant[] = [];
+    /** Every stored grant (script + session + workspace) shown in the Permissions section (host-owned). */
+    private permissionGrants: ScriptGrantView[] = [];
+    /** Session-local expanded state of the Permissions section (reveals bulk revoke actions). */
+    private permissionsExpanded = false;
+    /** Armed two-step confirm timers; cleared on dispose so no callback touches a dead DOM. */
+    private readonly confirmTimers = new Set<ReturnType<typeof setTimeout>>();
     /** Session-local group collapse state (Actions / Providers); presentation only. */
     private readonly collapsedGroups = new Set<ScriptGroupKey>();
     /** Inline per-command approval surface (one prompt at a time). */
@@ -119,6 +129,8 @@ export class ScriptsPanel {
     dispose(): void {
         if (this.pendingTimer) { clearTimeout(this.pendingTimer); this.pendingTimer = null; }
         if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null; }
+        for (const timer of this.confirmTimers) { clearTimeout(timer); }
+        this.confirmTimers.clear();
         this.prompt.dispose();
     }
 
@@ -175,8 +187,8 @@ export class ScriptsPanel {
         this.prompt.show(request);
     }
 
-    /** Persisted workspace grants for the revocable Permissions section. */
-    setPermissionGrants(grants: ScriptWorkspaceGrant[]): void {
+    /** Every stored grant for the revocable Permissions section (host-owned list). */
+    setPermissionGrants(grants: ScriptGrantView[]): void {
         this.permissionGrants = Array.isArray(grants) ? grants : [];
         this.renderPermissions();
     }
@@ -730,20 +742,49 @@ export class ScriptsPanel {
         this.updateStatusDot(path);
     }
 
-    // ── Workspace permission list (revocable) ───────────────────────
+    // ── Permission list (revocable: script, session, workspace) ─────
 
     private permissionsHtml(): string {
         if (this.permissionGrants.length === 0) { return ''; }
-        const rows = this.permissionGrants.map(grant => `
-            <div class="script-perm-row" data-path="${esc(grant.scriptPath)}" data-cap="${esc(grant.capability)}">
-                <span class="script-perm-name" title="${esc(grant.scriptPath)}">${esc(fileName({ fsPath: grant.scriptPath }))}</span>
-                <span class="script-perm-ability">${esc(grantLabel(grant.capability))}</span>
-                <button type="button" class="sb-btn sb-btn-secondary script-perm-revoke" data-revoke
-                    title="Revoke this permission" aria-label="Revoke ${esc(grantLabel(grant.capability))} for ${esc(fileName({ fsPath: grant.scriptPath }))}">Revoke</button>
-            </div>`).join('');
-        return `<div class="script-perms-section">
-            <div class="script-perms-title">Permissions</div>${rows}
+        const rows = this.permissionGrants.map(grant => this.permissionRowHtml(grant)).join('');
+        return `<div class="script-perms-section${this.permissionsExpanded ? ' expanded' : ''}">
+            <div class="script-perms-title">
+                <span>Permissions</span>
+                <button type="button" class="sb-btn sb-btn-secondary script-perms-manage" data-perms-manage
+                    aria-expanded="${this.permissionsExpanded}" title="Show bulk revoke actions">Manage</button>
+            </div>${rows}
+            <div class="script-perms-bulk">
+                <div class="script-perms-hint">Script grants drop when the file changes or is deleted; session-wide grants last until VS Code restarts.</div>
+                <button type="button" class="sb-btn sb-btn-secondary script-perm-bulk-btn" data-revoke-all-workspace
+                    title="Revoke every workspace grant">Revoke all workspace</button>
+                <button type="button" class="sb-btn sb-btn-secondary script-perm-bulk-btn" data-revoke-all-session
+                    title="Revoke every session-wide grant">Revoke all session</button>
+            </div>
         </div>`;
+    }
+
+    /** One grant row: scope chip, script (or "All scripts"), capability, Revoke, and per-script bulk All. */
+    private permissionRowHtml(grant: ScriptGrantView): string {
+        const sessionWide = grant.scope === 'session';
+        const name = sessionWide ? 'All scripts' : fileName({ fsPath: grant.scriptPath });
+        const ability = grantLabel(grant.capability);
+        const bulk = this.revocableForScript(grant) ? `
+                <button type="button" class="sb-btn sb-btn-secondary script-perm-all" data-revoke-all
+                    title="Revoke every permission for this script" aria-label="Revoke all permissions for ${esc(name)}">All</button>` : '';
+        return `
+            <div class="script-perm-row" data-path="${esc(grant.scriptPath)}" data-cap="${esc(grant.capability)}" data-scope="${esc(grant.scope)}">
+                <span class="script-perm-scope" title="${esc(scopeTitle(grant.scope))}">${esc(scopeLabel(grant.scope))}</span>
+                <span class="script-perm-name" title="${esc(sessionWide ? 'All scripts' : grant.scriptPath)}">${esc(name)}</span>
+                <span class="script-perm-ability">${esc(ability)}</span>
+                <button type="button" class="sb-btn sb-btn-secondary script-perm-revoke" data-revoke
+                    title="Revoke this permission" aria-label="Revoke ${esc(ability)} for ${esc(name)}">Revoke</button>${bulk}
+            </div>`;
+    }
+
+    /** Per-row "All" only matters when the script has 2+ non-session grants (revokes script + workspace). */
+    private revocableForScript(grant: ScriptGrantView): boolean {
+        if (grant.scope === 'session') { return false; }
+        return this.permissionGrants.filter(g => g.scope !== 'session' && g.scriptPath === grant.scriptPath).length > 1;
     }
 
     /** Re-render the Permissions section in place (never touches result areas). */
@@ -756,14 +797,68 @@ export class ScriptsPanel {
         const list = body.querySelector('.script-list');
         if (!list) { return; }
         list.insertAdjacentHTML('beforebegin', sectionHtml);
-        body.querySelectorAll<HTMLElement>('.script-perm-row [data-revoke]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const row = btn.closest<HTMLElement>('.script-perm-row');
-                const path = row?.dataset.path;
-                const capability = row?.dataset.cap as ScriptCapabilityGrant | undefined;
-                if (!path || !capability) { return; }
-                this.cb.onRevokeScriptPermission?.(path, capability);
-            });
+        this.wirePermissions(body);
+    }
+
+    private wirePermissions(body: HTMLElement): void {
+        const section = body.querySelector<HTMLElement>('.script-perms-section');
+        if (!section) { return; }
+        section.querySelectorAll<HTMLElement>('[data-perms-manage]').forEach(btn => {
+            btn.addEventListener('click', () => this.togglePermissionsExpanded(section, btn));
+        });
+        section.querySelectorAll<HTMLElement>('.script-perm-row').forEach(row => this.wirePermissionRow(row));
+        section.querySelectorAll<HTMLElement>('[data-revoke-all]').forEach(btn => {
+            const scriptPath = btn.closest<HTMLElement>('.script-perm-row')?.dataset.path;
+            if (scriptPath) { this.wireConfirm(btn, 'All', () => this.cb.onRevokeAllScriptPermissions?.(undefined, scriptPath)); }
+        });
+        section.querySelectorAll<HTMLElement>('[data-revoke-all-workspace]').forEach(btn => {
+            this.wireConfirm(btn, 'Revoke all workspace', () => this.cb.onRevokeAllScriptPermissions?.('workspace'));
+        });
+        section.querySelectorAll<HTMLElement>('[data-revoke-all-session]').forEach(btn => {
+            this.wireConfirm(btn, 'Revoke all session', () => this.cb.onRevokeAllScriptPermissions?.('session'));
+        });
+    }
+
+    /** "Manage" toggles the bulk-revoke footer without rebuilding the section. */
+    private togglePermissionsExpanded(section: HTMLElement, btn: HTMLElement): void {
+        const expanded = !section.classList.contains('expanded');
+        section.classList.toggle('expanded', expanded);
+        this.permissionsExpanded = expanded;
+        btn.setAttribute('aria-expanded', String(expanded));
+    }
+
+    private wirePermissionRow(row: HTMLElement): void {
+        const grant = grantFromRow(row.dataset);
+        if (!grant) { return; }
+        row.querySelector<HTMLElement>('[data-revoke]')?.addEventListener('click', () => this.revokeGrant(grant));
+    }
+
+    private revokeGrant(grant: ScriptGrantView): void {
+        this.cb.onRevokeScriptPermission?.(grant.scope, grant.scriptPath, grant.capability);
+    }
+
+    /** Two-step confirm: the first click arms the button, the second click revokes. */
+    private wireConfirm(btn: HTMLElement, label: string, onConfirm: () => void): void {
+        let armed = false;
+        const reset = (): void => {
+            armed = false;
+            btn.classList.remove('confirm');
+            btn.textContent = label;
+        };
+        btn.addEventListener('click', () => {
+            if (!armed) {
+                armed = true;
+                btn.classList.add('confirm');
+                btn.textContent = 'Confirm?';
+                const timer = setTimeout(() => {
+                    this.confirmTimers.delete(timer);
+                    if (btn.isConnected) { reset(); }
+                }, CONFIRM_RESET_MS);
+                this.confirmTimers.add(timer);
+                return;
+            }
+            reset();
+            onConfirm();
         });
     }
 }
@@ -856,9 +951,30 @@ function extLabel(name: string): string {
     return idx > 0 ? name.slice(idx + 1) : '';
 }
 
-/** Permission label for the workspace grant list. */
+/** Permission label for a grant row. */
 function grantLabel(capability: ScriptCapabilityGrant): string {
     return capability === '*' ? 'all non-exec' : capability;
+}
+
+/** User-facing scope chip for a grant row (prompt wording mirrors these lifetimes). */
+function scopeLabel(scope: ScriptGrantScope): string {
+    if (scope === 'workspace') { return 'Workspace'; }
+    if (scope === 'session') { return 'This session'; }
+    return 'This script';
+}
+
+/** Permission row dataset → grant view; null when a required attribute is missing. */
+function grantFromRow(data: DOMStringMap): ScriptGrantView | null {
+    const { path, cap, scope } = data;
+    if (!path || !cap || !scope) { return null; }
+    return { scriptPath: path, capability: cap as ScriptCapabilityGrant, scope: scope as ScriptGrantScope };
+}
+
+/** Lifetime tooltip for a scope chip. */
+function scopeTitle(scope: ScriptGrantScope): string {
+    if (scope === 'workspace') { return 'This script in this workspace — persists across restarts'; }
+    if (scope === 'session') { return 'Every script — until VS Code restarts'; }
+    return 'This script — until VS Code restarts or the script changes';
 }
 
 function btnTitle(noTrust: boolean, extTs: boolean): string {

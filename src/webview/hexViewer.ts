@@ -482,8 +482,10 @@ const scriptsPanel = new ScriptsPanel({
     onOpenScript: scriptPath => postProviderMessage({ type: 'openScript', scriptPath }),
     onScriptPermissionDecision: (requestId, decision, scope, capability) =>
         postProviderMessage({ type: 'scriptPermissionResponse', requestId, decision, scope, capability }),
-    onRevokeScriptPermission: (scriptPath, capability) =>
-        postProviderMessage({ type: 'revokeScriptPermission', scriptPath, capability }),
+    onRevokeScriptPermission: (scope, scriptPath, capability) =>
+        postProviderMessage({ type: 'revokeScriptPermission', scope, scriptPath, capability }),
+    onRevokeAllScriptPermissions: (scope, scriptPath) =>
+        postProviderMessage({ type: 'revokeAllScriptPermissions', scope, scriptPath }),
     onAddExampleScripts: () => postProviderMessage({ type: 'addExampleScripts' }),
     getSelection: () => currentSelectionRange(),
     getGeneration: () => S.documentGeneration,

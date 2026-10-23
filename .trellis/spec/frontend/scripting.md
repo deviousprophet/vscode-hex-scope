@@ -52,17 +52,24 @@ interface ScriptContext {
 type ScriptCapability = 'write' | 'exec' | 'fetch';
 type ScriptCapabilityGrant = ScriptCapability | '*';
 type ScriptPermissionScope = 'once' | 'script' | 'session' | 'workspace';
+type ScriptGrantScope = 'script' | 'session' | 'workspace';   // stored grant lifetime (no `once`)
+interface ScriptGrantView { scriptPath: string; capability: ScriptCapabilityGrant; scope: ScriptGrantScope }
 
 // Grant store (src/scriptPermissions.ts, host-owned)
 class ScriptGrantStore {
     constructor(state: GrantMemento);                      // workspaceState subset
     check(scriptPath: string, fingerprint: string, capability: ScriptCapability): boolean;
     grant(scope: ScriptPermissionScope, scriptPath: string, fingerprint: string, capability: ScriptCapabilityGrant): void;
-    revokeScript(scriptPath: string): void;
+    revokeAllForScript(scriptPath: string): void;          // session + workspace, keeps session-wide
+    revokeMissing(activePaths: readonly string[]): boolean; // scripts deleted since the last scan
     revokeStaleFingerprint(scriptPath: string, fingerprint: string): boolean;
-    listWorkspaceGrants(): ScriptWorkspaceGrant[];
-    revokeWorkspaceGrant(scriptPath: string, capability: ScriptCapabilityGrant): void;
+    listGrants(): ScriptGrantView[];                       // workspace → session → script, then path
+    revokeGrant(scope: ScriptGrantScope, scriptPath: string, capability: ScriptCapabilityGrant): void;
+    revokeAll(scope?: ScriptGrantScope): void;             // no scope = everything
 }
+// One store per workspace root, host lifetime; editor close/reopen keeps grants.
+function scriptGrantStoreFor(root: string, state: GrantMemento): ScriptGrantStore;
+function resetScriptGrantStores(): void;                   // test seam: simulate an extension-host restart
 function offeredScopes(capability: ScriptCapability): ScriptPermissionScope[];
 function acceptedGrant(
     capability: ScriptCapability,
@@ -176,13 +183,13 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 - Timeout kills Worker via `worker.terminate()` after 30s (configurable per call). Also uses `setTimeout` directly (not Promise-based) to avoid Electron microtask edge cases
 - **Inline approval, no modal**: `VSCodeScriptHost.confirm(type, detail)` is unchanged, but the session implementation checks the grant store first and otherwise posts `scriptPermissionRequest` to the webview. There is no `vscode.window.showWarningMessage` for script permissions
 - **Grant key**: absolute script path + the script file's fingerprint (mtime from `scriptFingerprint()` / `scanScripts`) + capability. `check` matches an exact entry or a same-fingerprint `*`
-- **Grant lifetimes**: `once` is never stored; `script` and `session` are in-memory on the `HexEditorSession` grant store (host lifetime); `workspace` persists in `context.workspaceState` under one versioned key. A `session` grant is a wildcard across scripts/fingerprints; a `script` grant is path+fingerprint scoped
+- **Grant lifetimes**: `once` is never stored; `script` and `session` are in-memory on a workspace-root-keyed registry store with host lifetime (`scriptGrantStoreFor`), so closing/reopening an editor keeps them and only the extension host exiting resets them; `workspace` persists in `context.workspaceState` under one versioned key. A `session` grant is a wildcard across scripts/fingerprints; a `script` grant is path+fingerprint scoped
 - **`exec` never persists**: `grant('workspace', …, 'exec')` downgrades to `session`, and `offeredScopes('exec')` omits `workspace`. A workspace `*` grant covers `write`/`fetch` only
-- **Fingerprint revocation**: `runScript` and `requestScriptList` call `revokeStaleFingerprint()`; `revokeScript()` removes every path-scoped entry (not the session wildcard)
+- **Fingerprint revocation**: `runScript` and `requestScriptList` call `revokeStaleFingerprint()`; `revokeAllForScript()` removes every path-scoped entry (not the session wildcard)
 - **Approval timeout / denial**: an unanswered prompt denies after 120 s; panel disposal, cancel, and a replacement prompt deny the stale request; unknown `requestId` responses are ignored
 - **Commit on success**: on a clean run the session posts `scriptWritesCommit` with the staged `[address, value]` pairs. On error/timeout/cancel it posts nothing and reports `discardedWriteCount`
 - **Auto-save**: the webview stages the commit through `stageIntegrityEditTransaction()` (one undoable transaction) and calls `saveEdits()`; a failed save keeps the staged edits and uses the normal save-error path
-- **Revocable workspace list**: `scriptPermissions` carries `{ scriptPath, capability }` entries to the Scripts panel; `revokeScriptPermission` removes one entry
+- **Revocable permission list**: `scriptPermissions` carries every stored grant `{ scriptPath, capability, scope }` (workspace → session → script, then path; `*` = session-wide) to the Scripts panel; `revokeScriptPermission` removes one entry by scope; `revokeAllScriptPermissions` bulk-revokes one scope class, or, with `scriptPath`, every revocable grant of that script. The panel's expanded **Manage** footer and per-row bulk actions both require a second confirming click
 - Script results collected by the Worker and sent back in the `result` message. The main thread replays results through `host.setResult()` and `host.output()` to maintain compatibility with existing consumers
 - **Integrity checks**: `src/integrityScriptRunner.ts` runs `getIntegrityValue` then `verifyIntegrity` (two sequenced `executeEntry` calls) over a `VSCodeScriptHost` seeded with the webview's pending edits. A missing export is treated as absent, not an error; `verifyIntegrity` is authoritative, `getIntegrityValue` supplies verbatim fix bytes. The run is read-only (`write` is denied without a prompt), refuses >`MAX_INTEGRITY_EDIT_ENTRIES` pending edits, resolves workspace-relative paths ("Script not found" otherwise), and returns a structured outcome consumed by the webview Integrity panel (`integrityScriptResult`)
 - Results embedded inside the corresponding script card (not a separate output section)
@@ -215,6 +222,7 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | User denies a prompt | `write` returns `false`, `exec`/`fetch` return `null`; no write, no save |
 | Prompt unanswered for 120 s / panel disposed / run cancelled | Denies; the call returns `false`/`null` |
 | Response for an unknown or replaced `requestId` | Ignored by the host |
+| `revokeScriptPermission` without `scope` (pre-scope payload) | Treated as `workspace` — the only scope that message could revoke before scopes existed |
 | Response scope not offered, or capability mismatch | Denied (`acceptedGrant` → null) |
 | `workspace` scope requested for `exec` | Not offered; a granted request is downgraded to `session` |
 | Grant exists for path + fingerprint + capability | `confirm` resolves `true` without prompting |
@@ -236,7 +244,7 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 - Base: user writes CRC verify script, clicks Run in sidebar, sees CRC32 result under the card
 - Good: script calls `api.hex.write`, one inline prompt names the address/byte count, the user picks "Allow once", bytes save when the run ends, Ctrl+Z restores them
 - Good: script uses `exec()` to call external tool, user clicks Allow once in the prompt
-- Good: user chooses "Always allow write in this workspace", the entry appears under Permissions and can be revoked
+- Good: user chooses "Always allow write for this script in this workspace, across restarts", the entry appears under Permissions with a `Workspace` chip and can be revoked (per row or in bulk)
 - Bad: script attempts `require('fs')` — sandbox throws, error displayed under card
 - Bad: TypeScript syntax error — compile failure, error shown under card
 - Bad: Windows file path with backslashes — `querySelector` CSS selector must escape them (the prompt component matches cards by `data-path`, avoiding selectors)
@@ -250,7 +258,8 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | { type: 'resolveInstanceParams'; requestId: number; generation: number; edits: Array<[number, number]>; entries: InstanceParamRequestEntry[] }
 | { type: 'resolveInstanceAddresses'; requestId: number; generation: number; edits: Array<[number, number]>; entries: InstanceAddressRequestEntry[] }
 | { type: 'scriptPermissionResponse'; requestId: number; decision: 'allow' | 'deny'; scope: ScriptPermissionScope; capability?: ScriptCapabilityGrant }
-| { type: 'revokeScriptPermission'; scriptPath: string; capability: ScriptCapabilityGrant }
+| { type: 'revokeScriptPermission'; scope: ScriptGrantScope; scriptPath: string; capability: ScriptCapabilityGrant }
+| { type: 'revokeAllScriptPermissions'; scope?: ScriptGrantScope; scriptPath?: string }
 | { type: 'addExampleScripts' }
 
 // Provider → Webview
@@ -260,7 +269,7 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | { type: 'instanceAddressesResolved'; requestId: number; generation: number; stale?: boolean; results: InstanceAddressResult[] }
 | { type: 'scriptOutput'; scriptPath: string; text: string }
 | { type: 'scriptPermissionRequest'; requestId: number; capability: ScriptCapability; detail: string; scriptPath: string; scriptName: string; fingerprint: string; scopes: ScriptPermissionScope[] }
-| { type: 'scriptPermissions'; grants: Array<{ scriptPath: string; capability: ScriptCapabilityGrant }> }
+| { type: 'scriptPermissions'; grants: ScriptGrantView[] }
 | { type: 'scriptWritesCommit'; scriptPath: string; writes: Array<[number, number]> }
 | { type: 'activateScriptsTab' }
 ```
@@ -402,7 +411,7 @@ Apply & Save / Discard control.
 | D27 | Support files | `.d.ts` skipped and scanning never descends into subdirectories |
 | D28 | Dangerous-call approval | One inline prompt owned by the Scripts panel; no modal `showWarningMessage` |
 | D29 | Grant identity | scriptPath + fingerprint + capability (plus `*` breadth); edit revokes |
-| D30 | Grant lifetimes | `script`/`session` in memory (host lifetime), `workspace` in `workspaceState`, `once` not stored |
+| D30 | Grant lifetimes | `script`/`session` in memory on a workspace-root-keyed registry (host lifetime, survives editor close/reopen), `workspace` in `workspaceState`, `once` not stored |
 | D31 | `exec` persistence | Never workspace-scoped; downgraded to `session`, workspace options not offered |
 | D32 | Approval timeout | 120 s, then deny; dispose/cancel/replacement also deny |
 | D33 | Write commit | Staged during the run, committed on clean completion via `scriptWritesCommit` |
@@ -411,6 +420,7 @@ Apply & Save / Discard control.
 | D36 | Script classification | Scan-time `hasRun` + roles → action/provider/both/unknown; no execution during scan |
 | D37 | Provider Run control | Structurally absent from provider/unknown cards — never disabled or hidden |
 | D38 | `@entry run` | Explicit override for run entries the source scan cannot recognise |
+| D39 | Permission center | Lists every stored grant with scope chip (`This script`/`This session`/`Workspace`), per-row Revoke, and bulk revoke (per script, per scope) behind Manage with two-step confirm |
 
 ### 9. Gotchas
 
@@ -532,9 +542,11 @@ The button has a fixed `width: 28px; height: 22px` to prevent layout shift on st
   detection for every accepted export form, comment-stripped false positives, `@entry run`
 - `src/test/extension/instanceAddressRunner.test.ts`: batched `getAddress` / `getSize` context/document size, edits overlay, invalid/oversized values, partial failure isolation, missing script/export, untrusted block, batch bound, workspace-relative address and parameter sources
 - `src/test/core/scriptPermissions.test.ts` - scope matrix, `*` breadth, fingerprint invalidation,
-  workspace persistence + revocation, `exec` workspace downgrade, response validation
+  all-scope listing + ordering, single/bulk revocation, workspace persistence, registry reuse across
+  editor sessions + root isolation + host-restart simulation, `exec` workspace downgrade, response validation
 - `src/test/webview/components/sidebar/scriptsPanel/scriptsPanel.test.ts` - prompt DOM (scope
-  options, Escape, focus return, one-at-a-time, result/cancel close), Permissions list, writes
+  options and lifetime labels, Escape, focus return, one-at-a-time, result/cancel close), Permissions
+  list (scope chips, session-wide `All scripts`, per-row revoke, Manage/bulk two-step confirm), writes
   notice, action/provider/both/unknown cards, no `.script-run-btn` on providers/unknown,
   group order/counts/collapse, result-area preservation across regrouping
 - Protocol tests: new message types tested in `webviewMessageModel.test.ts`

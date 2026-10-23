@@ -19,6 +19,7 @@ type Globalish = {
 };
 
 type Decision = { requestId: number; decision: string; scope: string; capability?: string };
+type RevokeAll = { scope?: string; scriptPath?: string };
 
 type Cb = {
     requested: number;
@@ -27,7 +28,8 @@ type Cb = {
     cancels: string[];
     opens: string[];
     decisions: Decision[];
-    revokes: Array<[string, string]>;
+    revokes: Array<[string, string, string]>;
+    revokeAlls: RevokeAll[];
 };
 
 type Harness = {
@@ -111,7 +113,7 @@ function installDom(): Harness {
         writable: true,
     });
 
-    const cb: Cb = { requested: 0, added: 0, runs: [], cancels: [], opens: [], decisions: [], revokes: [] };
+    const cb: Cb = { requested: 0, added: 0, runs: [], cancels: [], opens: [], decisions: [], revokes: [], revokeAlls: [] };
     const sel: { value: { start: number; end: number } | null } = { value: null };
     const generation: { value: number } = { value: 0 };
     const panel = new ScriptsPanel({
@@ -125,7 +127,8 @@ function installDom(): Harness {
         onScriptPermissionDecision: (requestId, decision, scope, capability) => {
             cb.decisions.push({ requestId, decision, scope, capability });
         },
-        onRevokeScriptPermission: (path, capability) => { cb.revokes.push([path, capability]); },
+        onRevokeScriptPermission: (scope, path, capability) => { cb.revokes.push([scope, path, capability]); },
+        onRevokeAllScriptPermissions: (scope, scriptPath) => { cb.revokeAlls.push({ scope, scriptPath }); },
         getSelection: () => sel.value,
         getGeneration: () => generation.value,
     });
@@ -734,7 +737,9 @@ suite('ScriptsPanel permission prompt', () => {
         assert.deepStrictEqual(options.map(o => o.dataset.scope), [
             'script', 'script', 'session', 'session', 'workspace', 'workspace',
         ]);
-        assert.match(options[0].textContent!, /Allow write in this script/);
+        assert.match(options[0].textContent!, /Allow write for this script, until VS Code restarts/);
+        assert.match(options[3].textContent!, /Allow all capabilities for every script, until VS Code restarts/);
+        assert.match(options[4].textContent!, /Always allow write for this script in this workspace, across restarts/);
         assert.match(options[5].textContent!, /all non-exec capabilities in this workspace/);
 
         click(dom, options[0]);
@@ -814,7 +819,7 @@ suite('ScriptsPanel permission prompt', () => {
     });
 });
 
-suite('ScriptsPanel workspace permissions list', () => {
+suite('ScriptsPanel permissions list (script, session, workspace)', () => {
     let dom: JSDOM;
     let panel: ScriptsPanel;
     let cb: Cb;
@@ -830,27 +835,87 @@ suite('ScriptsPanel workspace permissions list', () => {
 
     teardown(cleanupDom);
 
-    test('renders revocable workspace grants above the script list', () => {
+    test('renders every stored grant above the script list in host-sorted order', () => {
+        // The host sends `listGrants()` order (workspace → session → script, then path).
         panel.setPermissionGrants([
-            { scriptPath: A, capability: 'write' },
-            { scriptPath: 'D:\\sample\\tools\\sign.js', capability: '*' },
+            { scriptPath: 'D:\\sample\\tools\\sign.js', capability: '*', scope: 'workspace' },
+            { scriptPath: '*', capability: 'exec', scope: 'session' },
+            { scriptPath: A, capability: 'write', scope: 'script' },
         ]);
         const section = document.querySelector('.script-perms-section')!;
         assert.ok(section, 'permissions section rendered');
         assert.match(section.querySelector('.script-perms-title')!.textContent!, /Permissions/);
-        assert.strictEqual(section.querySelectorAll('.script-perm-row').length, 2);
         const rows = [...section.querySelectorAll<HTMLElement>('.script-perm-row')];
-        assert.strictEqual(rows[0].querySelector('.script-perm-name')!.textContent, 'crc-check.js');
-        assert.strictEqual(rows[1].querySelector('.script-perm-name')!.textContent, 'sign.js');
-        assert.strictEqual(rows[1].querySelector('.script-perm-ability')!.textContent, 'all non-exec');
+        assert.strictEqual(rows.length, 3);
+        assert.deepStrictEqual(rows.map(r => r.dataset.scope), ['workspace', 'session', 'script']);
+        assert.deepStrictEqual(
+            rows.map(r => r.querySelector('.script-perm-scope')!.textContent),
+            ['Workspace', 'This session', 'This script'],
+        );
+        assert.strictEqual(rows[0].querySelector('.script-perm-name')!.textContent, 'sign.js');
+        assert.strictEqual(rows[0].querySelector('.script-perm-ability')!.textContent, 'all non-exec');
+        assert.strictEqual(rows[1].querySelector('.script-perm-name')!.textContent, 'All scripts');
+        assert.strictEqual(rows[1].querySelector('.script-perm-ability')!.textContent, 'exec');
+        assert.strictEqual(rows[2].querySelector('.script-perm-name')!.textContent, 'crc-check.js');
         assert.ok(section.compareDocumentPosition(document.querySelector('.script-list')!) & 4, 'section precedes the list');
 
+        click(dom, rows[2].querySelector('[data-revoke]'));
+        click(dom, rows[1].querySelector('[data-revoke]'));
         click(dom, rows[0].querySelector('[data-revoke]'));
-        assert.deepStrictEqual(cb.revokes, [[A, 'write']]);
+        assert.deepStrictEqual(cb.revokes, [
+            ['script', A, 'write'],
+            ['session', '*', 'exec'],
+            ['workspace', 'D:\\sample\\tools\\sign.js', '*'],
+        ]);
+    });
+
+    test('Manage reveals the bulk actions; each bulk revoke needs a confirming click', () => {
+        panel.setPermissionGrants([
+            { scriptPath: A, capability: 'write', scope: 'script' },
+            { scriptPath: '*', capability: 'exec', scope: 'session' },
+            { scriptPath: 'D:\\sample\\tools\\sign.js', capability: '*', scope: 'workspace' },
+        ]);
+        const section = document.querySelector<HTMLElement>('.script-perms-section')!;
+        const manage = section.querySelector<HTMLElement>('[data-perms-manage]')!;
+        assert.strictEqual(manage.getAttribute('aria-expanded'), 'false');
+        assert.ok(!section.classList.contains('expanded'), 'collapsed until Manage is clicked');
+        click(dom, manage);
+        assert.ok(section.classList.contains('expanded'));
+        assert.strictEqual(manage.getAttribute('aria-expanded'), 'true');
+
+        const workspace = section.querySelector<HTMLElement>('[data-revoke-all-workspace]')!;
+        click(dom, workspace);
+        assert.deepStrictEqual(cb.revokeAlls, [], 'first click arms only');
+        assert.strictEqual(workspace.textContent, 'Confirm?');
+        click(dom, workspace);
+        assert.deepStrictEqual(cb.revokeAlls, [{ scope: 'workspace', scriptPath: undefined }]);
+
+        const session = section.querySelector<HTMLElement>('[data-revoke-all-session]')!;
+        click(dom, session);
+        click(dom, session);
+        assert.deepStrictEqual(cb.revokeAlls[1], { scope: 'session', scriptPath: undefined });
+    });
+
+    test('a script with several grants gets an All action that confirms before revoking them', () => {
+        panel.setPermissionGrants([
+            { scriptPath: A, capability: 'fetch', scope: 'workspace' },
+            { scriptPath: 'D:\\sample\\tools\\sign.js', capability: 'write', scope: 'workspace' },
+            { scriptPath: A, capability: 'write', scope: 'script' },
+        ]);
+        const section = document.querySelector<HTMLElement>('.script-perms-section')!;
+        const rows = [...section.querySelectorAll<HTMLElement>('.script-perm-row')];
+        assert.deepStrictEqual(rows.map(r => r.dataset.path), [A, 'D:\\sample\\tools\\sign.js', A]);
+        assert.strictEqual(section.querySelectorAll('[data-revoke-all]').length, 2, 'only the multi-grant script offers All');
+
+        const all = rows[0].querySelector<HTMLElement>('[data-revoke-all]')!;
+        click(dom, all);
+        assert.deepStrictEqual(cb.revokeAlls, [], 'first click arms only');
+        click(dom, all);
+        assert.deepStrictEqual(cb.revokeAlls, [{ scope: undefined, scriptPath: A }]);
     });
 
     test('an empty grant list removes the section', () => {
-        panel.setPermissionGrants([{ scriptPath: A, capability: 'write' }]);
+        panel.setPermissionGrants([{ scriptPath: A, capability: 'write', scope: 'script' }]);
         assert.ok(document.querySelector('.script-perms-section'));
         panel.setPermissionGrants([]);
         assert.strictEqual(document.querySelector('.script-perms-section'), null);
@@ -858,7 +923,7 @@ suite('ScriptsPanel workspace permissions list', () => {
 
     test('permission list updates never clear existing result areas', () => {
         panel.showResult(A, [{ label: 'CRC32', value: '0x1' }], [], '', undefined, 0);
-        panel.setPermissionGrants([{ scriptPath: A, capability: 'write' }]);
+        panel.setPermissionGrants([{ scriptPath: A, capability: 'write', scope: 'script' }]);
         assert.strictEqual(cardFor(A).querySelector('.script-result-label')?.textContent, 'CRC32');
     });
 });

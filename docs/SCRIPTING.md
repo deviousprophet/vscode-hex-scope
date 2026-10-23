@@ -542,12 +542,12 @@ script, the capability, and the concrete target (address + byte count, command, 
 | Choice | Effect |
 |--------|--------|
 | **Allow once** | Approves this call only. The next dangerous call asks again |
-| **Allow `<capability>` in this script** | Any later call of that capability in the same unchanged file, for this extension-host session |
-| **Allow all capabilities in this script** | Same, for every dangerous capability of that file |
-| **Allow `<capability>` this session** | Every script may use that capability until VS Code restarts |
-| **Allow all capabilities this session** | Same, for every dangerous capability |
-| **Always allow `<capability>` in this workspace** | Persisted in workspace state; survives restarts; listed in the panel's **Permissions** section |
-| **Always allow all non-exec capabilities in this workspace** | Same, for `write` and `fetch` only |
+| **Allow `<capability>` for this script, until VS Code restarts** | Any later call of that capability in the same unchanged file, until the extension host exits |
+| **Allow all capabilities for this script, until VS Code restarts** | Same, for every dangerous capability of that file |
+| **Allow `<capability>` for every script, until VS Code restarts** | Every script may use that capability until the extension host exits |
+| **Allow all capabilities for every script, until VS Code restarts** | Same, for every dangerous capability |
+| **Always allow `<capability>` for this script in this workspace, across restarts** | Persisted in workspace state; survives restarts; listed in the panel's **Permissions** section |
+| **Always allow all non-exec capabilities in this workspace, across restarts** | Same, for `write` and `fetch` only |
 | **Deny** (or <kbd>Esc</kbd>) | The call returns `false` / `null` and performs no write |
 
 Rules:
@@ -556,11 +556,16 @@ Rules:
   broader scopes, Escape denies, and focus returns to the card's Run button.
 - There is no pre-run capability gate; dangerous calls are approved where they happen.
 - Script- and workspace-scoped approvals are tied to the script file's fingerprint (mtime).
-  Editing the script revokes them; the next run prompts again. Session-scoped approvals are
-  intentionally broader and last until VS Code restarts.
+  Editing or deleting the script revokes them; the next run prompts again.
+- Script- and session-scoped approvals live in memory, keyed by workspace root: closing and
+  reopening an editor keeps them, and only the extension host exiting drops them. Session-wide
+  approvals are intentionally broader (every script) and also survive per-script edits.
 - `exec` is never persisted to the workspace — the workspace options are not offered for it.
 - Unanswered prompts deny after 120 seconds, as do prompts whose panel is closed.
-- Workspace grants are revocable per script/capability in the panel's **Permissions** section.
+- The panel's **Permissions** section lists every grant — scope chip (`This script`,
+  `This session`, `Workspace`), script (`All scripts` for a session-wide grant), and capability —
+  with a **Revoke** per row. **Manage** reveals bulk revokes (per script, per scope); every bulk
+  action needs a second confirming click.
 
 ### Saving approved writes
 
