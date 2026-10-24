@@ -8,6 +8,7 @@
 - The Scripts panel gains a **＋ New** split button whose caret menu lists the four templates plus **Browse examples…** (selective) and **Add all examples**, and an empty state with **Create script** + **Browse examples…**; empty Overlay/Integrity provider pickers now offer **Create … script** and **Open scripts folder** instead of a dead option
 - Example installation can be selective: **Browse examples…** (New menu, empty state, and the manager) copies only the checked catalog rows and still skips existing files
 - Role scripts: declare `@script integrity`, `@script address`, or `@script size` and export typed entries (`verifyIntegrity`, `getIntegrityValue`, `getAddress`, `getSize`) that receive `api.context`
+- The Scripts panel groups scripts into collapsible **Actions** and **Providers** groups (Actions first, alphabetical inside each): provider cards show a job chip — `Integrity check` / `Instance address` / `Array size` — and **Open** instead of a Run button that would only fail
 - Script-backed integrity checks that can verify a range, provide replacement bytes, or both, with optional auto-fix and row-level errors
 - Script-resolved struct instance addresses with explicit refresh plus resolving, stale, and error states
 - Struct size parameters and per-instance values, including script-supplied array sizes, with editor controls and C preview macros
@@ -17,7 +18,7 @@
 - Approved script writes show a save summary in the result card: mapped range, byte count, before/after bytes, and `Ctrl+Z` undo guidance, with a distinct failed-save state
 - Live discovery: adding, editing, or deleting a script under `.hexscope/scripts/` refreshes the list automatically (250 ms debounce) while manual Refresh stays
 - JavaScript-first TypeScript path: `.ts` cards add **Open setup guide** and **Create JavaScript version** (writes a `.js` sibling with a conversion header, never overwriting) when the optional esbuild compiler is unavailable
-- Provider cards and details show **Used by** links for the integrity checks, instances, and array sizes that use them, jumping to the destination; the script name opens the file, and a card context menu adds Open / Copy path / Reveal in Explorer / Show details / Manage permissions
+- Provider cards and details show **Used by** links for the integrity checks, instances, and array sizes that use them, jumping to the destination; the script name opens the file, and every card's context menu offers Open / Copy path / Reveal in Explorer / Show details / Manage permissions
 - Scripts can be deleted from **HexScope: Manage Scripts** (`Delete a script…`) or the card context menu (`Delete`): a modal confirm, the script's stored grants are revoked, and the list updates immediately
 
 ### Changed
