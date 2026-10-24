@@ -1,39 +1,35 @@
 # Changelog
 
+All notable changes to the Hex Scope extension will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
 ### Added
-- `HexScope: Manage Scripts` opens without a hex document and lists Actions and Providers (picking one opens the file) alongside New action / integrity / address / size templates, **Browse examples…** (multi-select), **Add all examples**, a host-side **Manage permissions…** revoke picker, **Open scripts folder**, and **Reveal a script in Explorer…**
-- Script creation from templates: a file name is suggested, duplicates are refused with a clear message (never overwritten), writes require a trusted workspace, the new script opens immediately, and it appears in the matching group without a manual refresh
-- The Scripts panel gains a **＋ New** split button whose caret menu lists the four templates plus **Browse examples…** (selective) and **Add all examples**, and an empty state with **Create script** + **Browse examples…**; empty Overlay/Integrity provider pickers now offer **Create … script** and **Open scripts folder** instead of a dead option
-- Example installation can be selective: **Browse examples…** (New menu, empty state, and the manager) copies only the checked catalog rows and still skips existing files
+- `HexScope: Manage Scripts` works without an open hex document: pick a script to open it, create one from a template, or choose example, permission, folder, and reveal actions
+- Create a script from one of four templates — via `HexScope: New Script` in the Command Palette, the **＋ New** button, or the manager: the name is suggested, duplicates are refused with a clear message (never overwritten), writes require a trusted workspace, and the new script opens immediately
+- The Scripts panel gains a **＋ New** split button whose caret menu lists the four templates plus **Browse examples…** and **Add all examples**, and an empty state with **Create script** + **Browse examples…**; empty provider pickers offer **Create … script** and **Open scripts folder**
+- Bundled example scripts with `hexscope.d.ts` IntelliSense types, installed by `HexScope: Add Example Scripts` or the New menu — **Browse examples…** installs only the checked rows, **Add all examples** installs the catalog, existing files are always skipped, and a minimal `hello.js` shows the required `run(api)` export
 - Role scripts: declare `@script integrity`, `@script address`, or `@script size` and export typed entries (`verifyIntegrity`, `getIntegrityValue`, `getAddress`, `getSize`) that receive `api.context`
-- The Scripts panel groups scripts into collapsible **Actions** and **Providers** groups (Actions first, alphabetical inside each): provider cards show a job chip — `Integrity check` / `Instance address` / `Array size` — and **Open** instead of a Run button that would only fail
+- The Scripts panel groups scripts into collapsible **Actions** and **Providers** (Actions first): provider cards show a job chip — `Integrity check` / `Instance address` / `Array size` — and **Open** instead of a Run button that would only fail, and scripts with unrecognized exports get an inspect-exports hint instead of a failing Run
 - Script-backed integrity checks that can verify a range, provide replacement bytes, or both, with optional auto-fix and row-level errors
-- Script-resolved struct instance addresses with explicit refresh plus resolving, stale, and error states
+- Script-resolved struct instance addresses with an explicit refresh and resolving, stale, and error states; resolved values stay transient and are never persisted
 - Struct size parameters and per-instance values, including script-supplied array sizes, with editor controls and C preview macros
-- Bundled example scripts, `hexscope.d.ts` IntelliSense types, and a `HexScope: Add Example Scripts` command that copies without overwriting
-- A minimal `hello.js` starter example that shows the required `run(api)` export
-- The Scripts panel gains a compact filter bar (text + `All` / `Actions` / `Providers` chips) and an expandable per-card details row (roles, capabilities, entries, fingerprint, last run, active grants) with Open / Copy path / Reveal / Manage permissions actions
-- Approved script writes show a save summary in the result card: mapped range, byte count, before/after bytes, and `Ctrl+Z` undo guidance, with a distinct failed-save state
-- Live discovery: adding, editing, or deleting a script under `.hexscope/scripts/` refreshes the list automatically (250 ms debounce) while manual Refresh stays
+- The Scripts panel gains a compact filter bar (text + `All` / `Actions` / `Providers` chips) and an expandable per-card details row (roles, capabilities, used-by links that jump to the checks, instances, and sizes that use them, entries, fingerprint, last run, active grants) with **Open** / **Copy path** / **Reveal** / **Manage permissions** actions
+- Script cards show capability and role badges, and every card opens from its name or context menu (Open / Copy path / Reveal in Explorer / Show details / Manage permissions / Delete)
+- Approved script writes commit as one undoable save and report their lifecycle in the result card — `Saving …` then `Saved … · Ctrl+Z to undo` — with a save summary (mapped range, byte count, before/after bytes) and a distinct failed-save state that says nothing was saved
+- Failed, timed-out, or cancelled runs discard their staged writes — nothing is left to save
+- Adding, editing, or deleting a script under `.hexscope/scripts/` refreshes the list automatically (250 ms debounce); manual Refresh stays
 - JavaScript-first TypeScript path: `.ts` cards add **Open setup guide** and **Create JavaScript version** (writes a `.js` sibling with a conversion header, never overwriting) when the optional esbuild compiler is unavailable
-- Provider cards and details show **Used by** links for the integrity checks, instances, and array sizes that use them, jumping to the destination; the script name opens the file, and every card's context menu offers Open / Copy path / Reveal in Explorer / Show details / Manage permissions
-- Scripts can be deleted from **HexScope: Manage Scripts** (`Delete a script…`) or the card context menu (`Delete`): a modal confirm, the script's stored grants are revoked, and the list updates immediately
+- The Permissions section lists every script, session, and workspace grant with per-row and bulk revoke; grants are revoked when the script changes or is deleted, and workspace grants persist across VS Code restarts
+- Scripts can be deleted from **HexScope: Manage Scripts** or the card menu: a modal confirm, the script's stored grants are revoked, and the list updates immediately
 
 ### Changed
-- Dangerous script calls use one inline approval with scoped choices instead of a modal prompt plus a separate Apply & Save step; approved writes commit as one undoable save
-- Session-scoped script approvals now last for the workspace session: closing and reopening a file keeps them, and the panel's Permissions section lists every script, session, and workspace grant with per-row and bulk revoke
-- Script cards show capability and role badges, workspace permissions are revocable in the panel, and scripts in subdirectories or `.d.ts` files are ignored
-- Every Scripts card has an open/edit action so the script file can be opened directly from the sidebar
-- Struct instance cards show script-resolved address and size state; resolved values stay transient and are never persisted
-- The script list refreshes when a script file is added, edited, or deleted on disk (short debounce); manual Refresh remains. `.ts` Run is enabled when esbuild resolves (local dev) instead of always blocked
-- Approved script writes report their lifecycle in the result card — `Saving …` then `Saved … · Ctrl+Z to undo` — and a new run keeps the prior summary in its history row
-
-### Fixed
-- Editing or deleting a script revokes its stored approvals
-- Script-written bytes no longer report as saved before the save completes
-- A failed script save now reports "nothing was saved" with the host error instead of staying at "saving"
+- Dangerous script calls use one inline approval with scoped choices instead of a modal prompt plus a separate Apply & Save step; approved writes commit as one undoable save, `exec` approvals are never stored, and an unanswered prompt denies after two minutes
+- Script approvals last for the workspace session instead of being re-confirmed after the file changes or the editor reopens
+- `.ts` scripts Run when the optional esbuild compiler resolves (local development) instead of being blocked for every workspace
 
 ## [3.0.0] - 2026-10-19
 
