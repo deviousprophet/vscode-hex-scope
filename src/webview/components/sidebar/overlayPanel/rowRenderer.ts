@@ -507,9 +507,15 @@ function describeFieldGroup(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, r
         typeName: declared.typeName,
         summary,
         summaryLabel: fieldGroupSummaryLabel(rctx, rows, isBitUnit, isArray, summary),
-        symbolicSummary: groupSummaryForDeclaration(declared, isArray || declared.countParam !== undefined, declared.countParam ?? declared.count),
+        symbolicSummary: symbolicGroupSummary(declared),
         byteCount: fieldGroupByteCount(rows, isBitUnit, isArray, declared.count),
     };
+}
+
+/** Symbolic summary for the tooltip: the parameter name when one drives the count. */
+function symbolicGroupSummary(declared: FieldGroupDeclarationInfo): string {
+    const symbolic = declared.countParam !== undefined || declared.count > 1;
+    return groupSummaryForDeclaration(declared, symbolic, declared.countParam ?? declared.count);
 }
 
 function fieldGroupDeclarationInfo(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, rows: DecodedField[], baseName: string): FieldGroupDeclarationInfo {

@@ -11,6 +11,13 @@
  *
  * Copy of the public surface of `src/core/scripting/types.ts`. Keep the two in
  * sync when the script API changes.
+ *
+ * Members are declared in documentation order (document access first, then
+ * reporting, then checksums, hashes, and external calls), so the declaration
+ * order intentionally differs from the internal file. This file must stay
+ * ambient and standalone - it is copied into user workspaces on its own and
+ * cannot import from the extension - so keep the two in sync by shape, not by
+ * line order.
  */
 
 /** CommonJS shim available to `.js` scripts in the sandbox. */
@@ -64,10 +71,10 @@ interface ScriptContext {
     param?: string;
     /** Already-resolved sibling parameters plus authored values and type defaults. */
     paramValues?: Record<string, number>;
-    /** Total mapped bytes in the current document. */
-    documentSize?: number;
     /** Current hex selection, inclusive (`end` is the last selected address). */
     selection?: { start: number; end: number };
+    /** Total mapped bytes in the current document. */
+    documentSize?: number;
     /** First address of the stored value, when the integrity check has one. */
     storedStart?: number;
     /** Last address of the stored value, when its length is known. */
@@ -122,6 +129,14 @@ interface HexScopeAPI {
         /** Total number of mapped bytes in the document. */
         readonly size: number;
     };
+    /** Append one line to the script's output log. */
+    output(text: string): void;
+    /** Add a key/value row to the script's result block. */
+    setResult(label: string, value: string): void;
+    /** Record a pass/fail row without stopping the script. */
+    assert(condition: boolean, label: string): void;
+    /** Role-run context; an empty object for `run` scripts. */
+    context: ScriptContext;
     /** Checksums. */
     crc: {
         /** CRC-8 (poly 0x07, init 0x00). */
@@ -131,6 +146,11 @@ interface HexScopeAPI {
         /** CRC-32/ISO-HDLC (unsigned). */
         crc32(data: Uint8Array | number[]): number;
     };
+    /**
+     * Run an external command (no shell expansion). Asks for approval inline;
+     * resolves `null` when the call was denied.
+     */
+    exec(command: string, args?: string[]): Promise<ExecResult | null>;
     /** Cryptographic hashes. */
     hash: {
         sha1(data: Uint8Array): Promise<Uint8Array>;
@@ -138,21 +158,8 @@ interface HexScopeAPI {
         sha512(data: Uint8Array): Promise<Uint8Array>;
     };
     /**
-     * Run an external command (no shell expansion). Asks for approval inline;
-     * resolves `null` when the call was denied.
-     */
-    exec(command: string, args?: string[]): Promise<ExecResult | null>;
-    /**
      * HTTP/HTTPS request. Asks for approval inline; resolves `null` when the
      * call was denied.
      */
     fetch(url: string, options?: FetchOptions): Promise<FetchResult | null>;
-    /** Append one line to the script's output log. */
-    output(text: string): void;
-    /** Add a key/value row to the script's result block. */
-    setResult(label: string, value: string): void;
-    /** Record a pass/fail row without stopping the script. */
-    assert(condition: boolean, label: string): void;
-    /** Role-run context; an empty object for `run` scripts. */
-    context: ScriptContext;
 }

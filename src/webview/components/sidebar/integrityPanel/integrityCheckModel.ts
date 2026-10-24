@@ -92,13 +92,25 @@ export function blankIntegrityDraft(): IntegrityDraft {
 export function draftFromIntegrityConfig(config: IntegrityCheckConfig): IntegrityDraft {
     return {
         kind: config.kind,
-        algorithm: config.kind === 'builtin' ? config.algorithm : DEFAULT_ALGORITHM,
-        scriptPath: config.kind === 'script' ? config.scriptPath : '',
+        algorithm: configAlgorithm(config),
+        scriptPath: configScriptPath(config),
         name: config.name ?? '',
         startRaw: formatIntegrityAddress(config.startAddress),
         endRaw: formatIntegrityAddress(config.endAddress),
-        storedRaw: config.storedAddress === undefined ? '' : formatIntegrityAddress(config.storedAddress),
+        storedRaw: storedRawAddress(config.storedAddress),
     };
+}
+
+function configAlgorithm(config: IntegrityCheckConfig): IntegrityAlgorithm {
+    return config.kind === 'builtin' ? config.algorithm : DEFAULT_ALGORITHM;
+}
+
+function configScriptPath(config: IntegrityCheckConfig): string {
+    return config.kind === 'script' ? config.scriptPath : '';
+}
+
+function storedRawAddress(storedAddress: number | undefined): string {
+    return storedAddress === undefined ? '' : formatIntegrityAddress(storedAddress);
 }
 
 export function applyIntegrityDraft(check: IntegrityCheckState, draft: IntegrityDraft): void {
@@ -137,12 +149,26 @@ export function integrityCheckConfigFromState(check: IntegrityCheckState): Integ
     if (!nameCfg.ok) { return nameCfg; }
     const storedCfg = storedValueConfig(check);
     if (!storedCfg.ok) { return storedCfg; }
-    const base = { ...range.value, ...nameCfg.value, ...storedCfg.value };
-    if (check.kind === 'script') {
-        const scriptPath = check.scriptPath.trim();
-        if (!scriptPath) { return { ok: false, error: 'Script path is required.' }; }
-        return { ok: true, value: { kind: 'script', scriptPath, ...base } };
-    }
+    return checkConfigOfKind(check, { ...range.value, ...nameCfg.value, ...storedCfg.value });
+}
+
+/** Shared (kind-independent) config fields assembled by the validation steps. */
+type IntegrityConfigBase = Pick<
+    IntegrityCheckConfig,
+    'startAddress' | 'endAddress' | 'storedAddress' | 'autoFixStoredValue' | 'name'
+>;
+
+function checkConfigOfKind(check: IntegrityCheckState, base: IntegrityConfigBase): IntegrityConfigValidation {
+    return check.kind === 'script' ? scriptCheckConfig(check, base) : builtinCheckConfig(check, base);
+}
+
+function scriptCheckConfig(check: IntegrityCheckState, base: IntegrityConfigBase): IntegrityConfigValidation {
+    const scriptPath = check.scriptPath.trim();
+    if (!scriptPath) { return { ok: false, error: 'Script path is required.' }; }
+    return { ok: true, value: { kind: 'script', scriptPath, ...base } };
+}
+
+function builtinCheckConfig(check: IntegrityCheckState, base: IntegrityConfigBase): IntegrityConfigValidation {
     return { ok: true, value: { kind: 'builtin', algorithm: check.algorithm, ...base } };
 }
 

@@ -211,10 +211,12 @@ interface IntegrityCheckCandidate {
 
 function normalizeIntegrityCheck(value: unknown): IntegrityCheckConfig | null {
     const raw = integrityCheckCandidate(value);
-    if (!raw) { return null; }
-    if (!hasValidCheckCore(raw)) { return null; }
+    if (!raw || !hasValidCheckCore(raw)) { return null; }
     const kind = resolveCheckKind(raw);
-    if (!kind) { return null; }
+    return kind ? normalizeCheckOfKind(raw, kind) : null;
+}
+
+function normalizeCheckOfKind(raw: IntegrityCheckCandidate, kind: IntegrityCheckKind): IntegrityCheckConfig | null {
     return kind === 'script' ? normalizeScriptCheck(raw) : normalizeBuiltinCheck(raw);
 }
 
@@ -247,9 +249,17 @@ function normalizeScriptCheck(raw: IntegrityCheckCandidate): IntegrityCheckConfi
 
 /** Missing `kind` infers script only when a non-empty scriptPath exists, else builtin. */
 function resolveCheckKind(raw: IntegrityCheckCandidate): IntegrityCheckKind | null {
-    if (raw.kind === undefined) { return hasScriptPath(raw.scriptPath) ? 'script' : 'builtin'; }
-    if (raw.kind === 'builtin' || raw.kind === 'script') { return raw.kind; }
-    console.warn(`Integrity check has an unknown kind (${String(raw.kind)}); dropping it.`);
+    if (raw.kind === undefined) { return inferredCheckKind(raw.scriptPath); }
+    return declaredCheckKind(raw.kind);
+}
+
+function inferredCheckKind(scriptPath: unknown): IntegrityCheckKind {
+    return hasScriptPath(scriptPath) ? 'script' : 'builtin';
+}
+
+function declaredCheckKind(kind: unknown): IntegrityCheckKind | null {
+    if (kind === 'builtin' || kind === 'script') { return kind; }
+    console.warn(`Integrity check has an unknown kind (${String(kind)}); dropping it.`);
     return null;
 }
 
@@ -479,10 +489,20 @@ export function scriptCheckPassed(
     result: IntegrityResult | null,
     storedBytes?: Uint8Array | null,
 ): boolean | undefined {
-    if (!result || result.kind !== 'script') { return undefined; }
+    const script = scriptResult(result);
+    if (!script) { return undefined; }
+    return scriptCheckStatus(script, storedBytes);
+}
+
+function scriptResult(result: IntegrityResult | null): IntegrityScriptResult | null {
+    return result && result.kind === 'script' ? result : null;
+}
+
+function scriptCheckStatus(result: IntegrityScriptResult, storedBytes?: Uint8Array | null): boolean | undefined {
     if (result.valid !== undefined) { return result.valid; }
-    if (!result.valueBytes || !storedBytes) { return undefined; }
-    return integrityBytesEqual(result.valueBytes, storedBytes);
+    const valueBytes = result.valueBytes;
+    if (!valueBytes || !storedBytes) { return undefined; }
+    return integrityBytesEqual(valueBytes, storedBytes);
 }
 
 /** Base name of a script path (both separators accepted; UI label/tooltip split). */

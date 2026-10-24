@@ -91,10 +91,24 @@ export function scheduleIntegrityCalculation(
     }
     const token = ++check.token;
     cancelPendingCalculation(check);
-    if (preserveResult) { check.error = ''; }
-    else { clearCheckResult(check); }
+    resetCalculationState(check, preserveResult);
     const prepared = prepareIntegrityRequest(check);
     if (!prepared) { hooks.updateCheckCard(check); return; }
+    startBuiltinCalculation(check, token, prepared, hooks);
+}
+
+/** Clear or preserve the previous result before a scheduled recalculation. */
+function resetCalculationState(check: IntegrityCheckState, preserveResult: boolean): void {
+    if (preserveResult) { check.error = ''; return; }
+    clearCheckResult(check);
+}
+
+function startBuiltinCalculation(
+    check: IntegrityCheckState,
+    token: number,
+    prepared: PreparedCheck,
+    hooks: IntegrityCalculationHooks,
+): void {
     check.calculating = true;
     if (!check.result) { check.meta = `Calculating ${formatByteCount(preparedByteCount(prepared))}…`; }
     hooks.updateCheckCard(check);
@@ -205,25 +219,43 @@ function prepareScriptCheck(check: IntegrityCheckState): PreparedScriptCheck | n
         check.meta = 'Not configured';
         return null;
     }
-    const range = validateIntegrityAddressRange(check.startRaw, check.endRaw);
-    if (!range.ok) { check.error = range.error; return null; }
+    return preparedScriptCheck(check);
+}
+
+function preparedScriptCheck(check: IntegrityCheckState): PreparedScriptCheck | null {
+    const range = validateScriptRange(check);
+    if (!range) { return null; }
     const scriptPath = check.scriptPath.trim();
     if (!scriptPath) { check.error = 'Script path is required.'; return null; }
-    let storedAddress: number | undefined;
-    if (check.storedRaw) {
-        const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
-        if (!stored.ok) { check.error = stored.error; return null; }
-        storedAddress = stored.value;
-    }
-    const storedLength = check.storedBytes?.length ?? check.expectedBytes?.length;
+    const stored = scriptStoredAddress(check);
+    if (!stored.ok) { check.error = stored.error; return null; }
     return {
         scriptPath,
         scriptName: integrityScriptName(scriptPath),
-        startAddress: range.value.startAddress,
-        endAddress: range.value.endAddress,
-        storedAddress,
-        storedLength,
+        startAddress: range.startAddress,
+        endAddress: range.endAddress,
+        storedAddress: stored.value,
+        storedLength: scriptStoredLength(check),
     };
+}
+
+/** Validated range for a script check; stores the first range error on the check. */
+function validateScriptRange(check: IntegrityCheckState): { startAddress: number; endAddress: number } | null {
+    const range = validateIntegrityAddressRange(check.startRaw, check.endRaw);
+    if (!range.ok) { check.error = range.error; return null; }
+    return range.value;
+}
+
+function scriptStoredAddress(check: IntegrityCheckState): { ok: true; value?: number } | { ok: false; error: string } {
+    if (!check.storedRaw) { return { ok: true, value: undefined }; }
+    const stored = parseIntegrityAddress(check.storedRaw, 'Stored value');
+    return stored.ok ? { ok: true, value: stored.value } : stored;
+}
+
+/** Known stored-field length from the last result (drives context.storedEnd). */
+function scriptStoredLength(check: IntegrityCheckState): number | undefined {
+    const stored = check.storedBytes?.length;
+    return stored ?? check.expectedBytes?.length;
 }
 
 function scheduleScriptCheck(
@@ -234,15 +266,27 @@ function scheduleScriptCheck(
     const token = ++check.token;
     cancelPendingCalculation(check);
     check.stale = false;
-    if (!preserveResult) { clearCheckResult(check); }
-    else { check.error = ''; }
+    resetCalculationState(check, preserveResult);
     const prepared = prepareScriptCheck(check);
     if (!prepared) {
-        check.calculating = false;
-        hooks.updateCheckCard(check);
-        hooks.syncHighlight();
+        settleUnpreparedScript(check, hooks);
         return;
     }
+    beginScriptRun(check, prepared, hooks, token);
+}
+
+function settleUnpreparedScript(check: IntegrityCheckState, hooks: IntegrityCalculationHooks): void {
+    check.calculating = false;
+    hooks.updateCheckCard(check);
+    hooks.syncHighlight();
+}
+
+function beginScriptRun(
+    check: IntegrityCheckState,
+    prepared: PreparedScriptCheck,
+    hooks: IntegrityCalculationHooks,
+    token: number,
+): void {
     check.calculating = true;
     check.meta = `Running ${prepared.scriptName}…`;
     hooks.updateCheckCard(check);
@@ -250,15 +294,36 @@ function scheduleScriptCheck(
         applyScriptError(check, token, 'Script execution is unavailable.', hooks);
         return;
     }
-    hooks.startScriptRun(check, {
+    hooks.startScriptRun(check, scriptRunPayload(prepared, hooks));
+}
+
+function scriptRunPayload(prepared: PreparedScriptCheck, hooks: IntegrityCalculationHooks): IntegrityScriptRunPayload {
+    const payload: IntegrityScriptRunPayload = {
         scriptPath: prepared.scriptPath,
         startAddress: prepared.startAddress,
         endAddress: prepared.endAddress,
-        ...(prepared.storedAddress === undefined ? {} : { storedAddress: prepared.storedAddress }),
-        ...(prepared.storedLength === undefined ? {} : { storedLength: prepared.storedLength }),
-        edits: hooks.getPendingEdits?.() ?? [],
-        generation: hooks.getGeneration?.() ?? 0,
-    });
+        edits: pendingEdits(hooks),
+        generation: pendingGeneration(hooks),
+    };
+    assignStoredAddress(payload, prepared.storedAddress);
+    assignStoredLength(payload, prepared.storedLength);
+    return payload;
+}
+
+function pendingEdits(hooks: IntegrityCalculationHooks): Array<[number, number]> {
+    return hooks.getPendingEdits?.() ?? [];
+}
+
+function pendingGeneration(hooks: IntegrityCalculationHooks): number {
+    return hooks.getGeneration?.() ?? 0;
+}
+
+function assignStoredAddress(payload: IntegrityScriptRunPayload, value: number | undefined): void {
+    if (value !== undefined) { payload.storedAddress = value; }
+}
+
+function assignStoredLength(payload: IntegrityScriptRunPayload, value: number | undefined): void {
+    if (value !== undefined) { payload.storedLength = value; }
 }
 
 /** Apply a host script failure; stale tokens/requests are ignored. */
@@ -302,26 +367,55 @@ export function applyIntegrityScriptResult(
         applyScriptError(check, token, 'Script returned an invalid value.', hooks);
         return;
     }
-    const result: IntegrityScriptResult = {
-        kind: 'script',
-        valid: typeof outcome.valid === 'boolean' ? outcome.valid : undefined,
-        valueBytes: valueBytes ?? undefined,
-        byteCount: Number.isSafeInteger(outcome.byteCount) && outcome.byteCount >= 0 ? outcome.byteCount : 0,
-        scriptName: typeof outcome.scriptName === 'string' ? outcome.scriptName : check.scriptPath,
-    };
+    applyScriptValue(check, outcome, valueBytes, hooks);
+}
+
+function applyScriptValue(
+    check: IntegrityCheckState,
+    outcome: IntegrityScriptOutcome,
+    valueBytes: Uint8Array | null,
+    hooks: IntegrityCalculationHooks,
+): void {
+    const result = scriptResultFromOutcome(check, outcome, valueBytes);
     check.result = result;
     check.expectedBytes = valueBytes ? Uint8Array.from(valueBytes) : null;
     check.storedBytes = null;
     check.calculating = false;
     check.stale = false;
     check.error = '';
-    const warnings = Array.isArray(outcome.warnings) ? outcome.warnings.filter(w => typeof w === 'string') : [];
-    check.meta = resultMeta(result, warnings);
+    check.meta = resultMeta(result, scriptWarnings(outcome.warnings));
     readScriptStoredBytes(check, hooks);
+    settleScriptResult(check, hooks);
+}
+
+function settleScriptResult(check: IntegrityCheckState, hooks: IntegrityCalculationHooks): void {
     if (check.error) { hooks.updateCheckCard(check); hooks.syncHighlight(); return; }
     hooks.updateCheckCard(check);
     hooks.onCalculated(check);
     hooks.syncHighlight();
+}
+
+function scriptResultFromOutcome(
+    check: IntegrityCheckState,
+    outcome: IntegrityScriptOutcome,
+    valueBytes: Uint8Array | null,
+): IntegrityScriptResult {
+    return {
+        kind: 'script',
+        valid: typeof outcome.valid === 'boolean' ? outcome.valid : undefined,
+        valueBytes: valueBytes ?? undefined,
+        byteCount: normalizedByteCount(outcome.byteCount),
+        scriptName: typeof outcome.scriptName === 'string' ? outcome.scriptName : check.scriptPath,
+    };
+}
+
+function normalizedByteCount(byteCount: unknown): number {
+    if (typeof byteCount !== 'number' || !Number.isSafeInteger(byteCount) || byteCount < 0) { return 0; }
+    return byteCount;
+}
+
+function scriptWarnings(warnings: unknown): string[] {
+    return Array.isArray(warnings) ? warnings.filter(w => typeof w === 'string') : [];
 }
 
 function resultMeta(result: IntegrityScriptResult, warnings: readonly string[]): string {
@@ -334,21 +428,35 @@ function normalizeScriptBytes(value: unknown): Uint8Array | null {
     const bytes = new Uint8Array(value.length);
     for (let i = 0; i < value.length; i++) {
         const byte = value[i];
-        if (typeof byte !== 'number' || !Number.isInteger(byte) || byte < 0 || byte > 0xFF) { return null; }
+        if (!isScriptByte(byte)) { return null; }
         bytes[i] = byte;
     }
     return bytes;
 }
 
+function isScriptByte(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 0xFF;
+}
+
 function readScriptStoredBytes(check: IntegrityCheckState, hooks: IntegrityCalculationHooks): void {
     const bytes = check.expectedBytes;
     if (!bytes || !check.storedRaw) { return; }
+    readStoredBytesAt(check, bytes.length, hooks);
+}
+
+function readStoredBytesAt(check: IntegrityCheckState, byteLength: number, hooks: IntegrityCalculationHooks): void {
     const address = parseIntegrityAddress(check.storedRaw, 'Stored value');
     if (!address.ok) { check.error = address.error; return; }
-    const stored = readStoredIntegrityBytes(
-        { startAddress: address.value, byteLength: bytes.length },
-        hooks.readByte,
-    );
+    applyStoredBytes(check, address.value, byteLength, hooks);
+}
+
+function applyStoredBytes(
+    check: IntegrityCheckState,
+    startAddress: number,
+    byteLength: number,
+    hooks: IntegrityCalculationHooks,
+): void {
+    const stored = readStoredIntegrityBytes({ startAddress, byteLength }, hooks.readByte);
     if (!stored.ok) { check.error = stored.error; return; }
     check.storedBytes = stored.value;
 }

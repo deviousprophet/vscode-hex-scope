@@ -141,19 +141,35 @@ function hydrateTypePreview(pre: HTMLElement, types: readonly TypeDef[], editing
 function previewParams(pre: HTMLElement): Readonly<Record<string, number>> | undefined {
     const raw = pre.dataset.previewParams;
     if (!raw) { return undefined; }
+    const parsed = parsePreviewJson(raw);
+    if (parsed === undefined) { return undefined; }
+    const values = pickPreviewNumbers(parsed);
+    return Object.keys(values).length > 0 ? values : undefined;
+}
+
+function parsePreviewJson(raw: string): Record<string, unknown> | undefined {
     try {
         const parsed = JSON.parse(raw) as unknown;
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) { return undefined; }
-        const values: Record<string, number> = {};
-        for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
-            if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 1) {
-                values[name] = value;
-            }
-        }
-        return Object.keys(values).length > 0 ? values : undefined;
+        return isPlainRecord(parsed) ? parsed : undefined;
     } catch {
         return undefined;
     }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function pickPreviewNumbers(parsed: Record<string, unknown>): Record<string, number> {
+    const values: Record<string, number> = {};
+    for (const [name, value] of Object.entries(parsed)) {
+        if (isValidPreviewNumber(value)) { values[name] = value; }
+    }
+    return values;
+}
+
+function isValidPreviewNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
 }
 
 /** Resolve the def a preview id points at, preferring the in-flight editor draft. */

@@ -1,9 +1,11 @@
 import type {
     BitFieldChild, TypeDef, TypeField, TypeInstance, TypeInstanceAddressSource, TypeInstanceParamSource,
-    TypePointerSource,
+    TypeParam, TypePointerSource,
 } from '../../../../core/types';
 import { withCleanedBitChildren } from '../../../../core/overlay/bitChildren';
-import { resolveTypeParams } from '../../../../core/overlay/overlayCodec';
+import {
+    appendUnknownParamErrors, declaredParamNames, resolveTypeParams,
+} from '../../../../core/overlay/overlayCodec';
 import type { LayoutParams, LayoutValidation } from '../../../../core/overlay/overlayCodec';
 
 export type PinIdFactory = () => string;
@@ -98,12 +100,21 @@ export function resolvedInstanceParams(
 ): Map<string, number> {
     const values = new Map<string, number>();
     for (const [key, resolution] of resolutions) {
-        const parsed = parseParamResolutionKey(key);
-        if (!parsed || parsed.pinId !== pinId) { continue; }
-        if (resolution.status !== 'resolved') { continue; }
-        values.set(parsed.param, resolution.value);
+        appendResolvedParam(values, pinId, key, resolution);
     }
     return values;
+}
+
+function appendResolvedParam(
+    values: Map<string, number>,
+    pinId: string,
+    key: string,
+    resolution: ParamResolution,
+): void {
+    const parsed = parseParamResolutionKey(key);
+    if (!parsed || parsed.pinId !== pinId) { return; }
+    if (resolution.status !== 'resolved') { return; }
+    values.set(parsed.param, resolution.value);
 }
 
 /**
@@ -116,40 +127,99 @@ export function validateInstanceParamConfig(
     values: LayoutParams | undefined,
     sources: Readonly<Record<string, TypeInstanceParamSource>> | undefined,
 ): string[] {
-    const errors: string[] = [];
-    const declared = new Set((def.params ?? []).map(param => param.name));
-    const sourceNames = Object.keys(sources ?? {});
-    for (const key of sourceNames) {
-        if (!declared.has(key)) {
-            errors.push(`Type "${def.name}": unknown parameter "${key}".`);
-        }
-        if (hasParam(values, key)) {
-            errors.push(`Parameter "${key}" cannot have both a manual value and a script source.`);
-        }
-        if (!sources?.[key]?.scriptPath?.trim()) {
-            errors.push(`Parameter "${key}": select a size script.`);
-        }
-    }
-    for (const key of Object.keys(values ?? {})) {
-        if (!declared.has(key)) {
-            errors.push(`Type "${def.name}": unknown parameter "${key}".`);
-        }
-    }
-    for (const param of def.params ?? []) {
-        const manual = hasParam(values, param.name);
-        const sourced = Object.prototype.hasOwnProperty.call(sources ?? {}, param.name);
-        if (manual) {
-            if (!isPositiveParamValue(values?.[param.name])) {
-                errors.push(`Type "${def.name}": parameter "${param.name}" must be a positive integer.`);
-            }
-            continue;
-        }
-        if (sourced) { continue; }
-        if (param.default === undefined) {
-            errors.push(`Type "${def.name}": parameter "${param.name}" has no value.`);
-        }
-    }
+    const declared = declaredParamNames(def);
+    const errors = [
+        ...sourceConfigErrors(def, values, sources, declared),
+        ...unknownValueParamErrors(def, values, declared),
+        ...declaredParamConfigErrors(def, values, sources),
+    ];
     return [...new Set(errors)];
+}
+
+function sourceConfigErrors(
+    def: TypeDef,
+    values: LayoutParams | undefined,
+    sources: Readonly<Record<string, TypeInstanceParamSource>> | undefined,
+    declared: ReadonlySet<string>,
+): string[] {
+    const errors: string[] = [];
+    for (const key of Object.keys(sources ?? {})) {
+        appendSourceConfigErrors(def, key, values, sources, declared, errors);
+    }
+    return errors;
+}
+
+function appendSourceConfigErrors(
+    def: TypeDef,
+    key: string,
+    values: LayoutParams | undefined,
+    sources: Readonly<Record<string, TypeInstanceParamSource>> | undefined,
+    declared: ReadonlySet<string>,
+    errors: string[],
+): void {
+    if (!declared.has(key)) { errors.push(`Type "${def.name}": unknown parameter "${key}".`); }
+    if (hasParam(values, key)) {
+        errors.push(`Parameter "${key}" cannot have both a manual value and a script source.`);
+    }
+    if (!sourcePath(sources, key)) { errors.push(`Parameter "${key}": select a size script.`); }
+}
+
+function sourcePath(
+    sources: Readonly<Record<string, TypeInstanceParamSource>> | undefined,
+    key: string,
+): string {
+    return trimmedSourcePath(sources?.[key]);
+}
+
+function unknownValueParamErrors(
+    def: TypeDef,
+    values: LayoutParams | undefined,
+    declared: ReadonlySet<string>,
+): string[] {
+    const errors: string[] = [];
+    appendUnknownParamErrors(def, Object.keys(values ?? {}), declared, errors);
+    return errors;
+}
+
+function declaredParamConfigErrors(
+    def: TypeDef,
+    values: LayoutParams | undefined,
+    sources: Readonly<Record<string, TypeInstanceParamSource>> | undefined,
+): string[] {
+    const errors: string[] = [];
+    for (const param of def.params ?? []) {
+        const error = declaredParamError(def, param, values, sources);
+        if (error) { errors.push(error); }
+    }
+    return errors;
+}
+
+function declaredParamError(
+    def: TypeDef,
+    param: TypeParam,
+    values: LayoutParams | undefined,
+    sources: Readonly<Record<string, TypeInstanceParamSource>> | undefined,
+): string | null {
+    if (hasParam(values, param.name)) { return manualParamError(def, param, values); }
+    if (hasOwnParamSource(sources, param.name)) { return null; }
+    return missingParamError(def, param);
+}
+
+function manualParamError(def: TypeDef, param: TypeParam, values: LayoutParams | undefined): string | null {
+    return isPositiveParamValue(values?.[param.name])
+        ? null
+        : `Type "${def.name}": parameter "${param.name}" must be a positive integer.`;
+}
+
+function hasOwnParamSource(
+    sources: Readonly<Record<string, TypeInstanceParamSource>> | undefined,
+    name: string,
+): boolean {
+    return Boolean(sources) && Object.prototype.hasOwnProperty.call(sources, name);
+}
+
+function missingParamError(def: TypeDef, param: TypeParam): string | null {
+    return param.default === undefined ? `Type "${def.name}": parameter "${param.name}" has no value.` : null;
 }
 
 /**
@@ -163,19 +233,40 @@ export function instanceParamResolutionError(
     resolutions: ReadonlyMap<ParamResolutionKey, ParamResolution>,
 ): string | undefined {
     for (const param of def.params ?? []) {
-        if (hasParam(pin.paramValues, param.name)) { continue; }
-        if (!pin.paramSources?.[param.name]) { continue; }
-        const resolution = resolutions.get(paramResolutionKey(pin.id, param.name));
-        if (!resolution || resolution.status === 'resolving') {
-            return `Resolving parameter "${param.name}"…`;
-        }
-        if (resolution.status === 'stale') {
-            return `Parameter "${param.name}" is stale.`;
-        }
-        if (resolution.status === 'error') {
-            return resolution.message;
-        }
+        const error = sourcedParamError(pin, param.name, resolutions);
+        if (error) { return error; }
     }
+    return undefined;
+}
+
+/** Resolution error for one script-sourced parameter (manual values are never sourced). */
+function sourcedParamError(
+    pin: Pick<TypeInstance, 'id' | 'paramValues' | 'paramSources'>,
+    name: string,
+    resolutions: ReadonlyMap<ParamResolutionKey, ParamResolution>,
+): string | undefined {
+    if (!isSourcedParam(pin, name)) { return undefined; }
+    return paramResolutionError(name, resolutions.get(paramResolutionKey(pin.id, name)));
+}
+
+/** A parameter whose value comes from a script (manual values win, so they are not sourced). */
+function isSourcedParam(
+    pin: Pick<TypeInstance, 'paramValues' | 'paramSources'>,
+    name: string,
+): boolean {
+    if (hasParam(pin.paramValues, name)) { return false; }
+    return Boolean(pin.paramSources?.[name]);
+}
+
+function paramResolutionError(name: string, resolution: ParamResolution | undefined): string | undefined {
+    if (!resolution) { return `Resolving parameter "${name}"…`; }
+    return statusResolutionError(name, resolution);
+}
+
+function statusResolutionError(name: string, resolution: ParamResolution): string | undefined {
+    if (resolution.status === 'resolving') { return `Resolving parameter "${name}"…`; }
+    if (resolution.status === 'stale') { return `Parameter "${name}" is stale.`; }
+    if (resolution.status === 'error') { return resolution.message; }
     return undefined;
 }
 
@@ -203,12 +294,16 @@ export function effectiveInstanceAddress(
 
 /** Save-time validation for an authored address source (empty path, pointer conflict). */
 export function addressSourceError(pin: Pick<TypeInstance, 'addressSource' | 'pointerSources'>): string | null {
-    if (!pin.addressSource) { return null; }
-    if (!pin.addressSource.scriptPath.trim()) { return 'Select an address script.'; }
-    if (pin.pointerSources && pin.pointerSources.length > 0) {
-        return 'An instance created by a pointer cannot take its address from a script.';
-    }
-    return null;
+    const source = pin.addressSource;
+    if (!source) { return null; }
+    if (!source.scriptPath.trim()) { return 'Select an address script.'; }
+    return hasPointerSources(pin)
+        ? 'An instance created by a pointer cannot take its address from a script.'
+        : null;
+}
+
+function hasPointerSources(pin: Pick<TypeInstance, 'pointerSources'>): boolean {
+    return Boolean(pin.pointerSources && pin.pointerSources.length > 0);
 }
 
 export type PointerTypeInstanceInput = {
@@ -241,50 +336,68 @@ export function makeTypeInstance(draft: TypeInstanceDraft, makeId: PinIdFactory)
         addr: draft.addr,
         name: draft.name,
     };
-    if (draft.paramValues && Object.keys(draft.paramValues).length > 0) {
-        instance.paramValues = { ...draft.paramValues };
-    }
-    const paramSources = cleanParamSources(draft.paramSources);
-    if (paramSources) { instance.paramSources = paramSources; }
-    const source = cleanAddressSource(draft.addressSource);
-    if (source) { instance.addressSource = source; }
+    assignOptionalParamValues(instance, draft.paramValues);
+    assignOptionalParamSources(instance, draft.paramSources);
+    assignOptionalAddressSource(instance, draft.addressSource);
     return instance;
 }
+
+/** Author edits applied to an existing instance. */
+export type TypeInstanceEdit = {
+    name: string;
+    addr: number;
+    typeId: string;
+    paramValues?: Record<string, number>;
+    paramSources?: Record<string, TypeInstanceParamSource> | null;
+    addressSource?: TypeInstanceAddressSource | null;
+};
 
 export function withEditedTypeInstance(
     pins: TypeInstance[],
     index: number,
-    edit: {
-        name: string;
-        addr: number;
-        typeId: string;
-        paramValues?: Record<string, number>;
-        paramSources?: Record<string, TypeInstanceParamSource> | null;
-        addressSource?: TypeInstanceAddressSource | null;
-    },
+    edit: TypeInstanceEdit,
 ): TypeInstance[] {
     const pin = pins[index];
     if (!pin) { return pins; }
     const next = [...pins];
+    next[index] = editedTypeInstance(pin, edit);
+    return next;
+}
+
+function editedTypeInstance(pin: TypeInstance, edit: TypeInstanceEdit): TypeInstance {
     const updated: TypeInstance = {
         ...pin,
         name: edit.name || pin.name,
         addr: edit.addr,
         typeId: edit.typeId,
     };
-    if (edit.paramValues && Object.keys(edit.paramValues).length > 0) {
-        updated.paramValues = { ...edit.paramValues };
-    } else {
-        delete updated.paramValues;
-    }
-    const paramSources = cleanParamSources(edit.paramSources ?? undefined);
-    if (paramSources) { updated.paramSources = paramSources; }
-    else { delete updated.paramSources; }
-    const source = cleanAddressSource(edit.addressSource ?? undefined);
-    if (source) { updated.addressSource = source; }
-    else { delete updated.addressSource; }
-    next[index] = updated;
-    return next;
+    assignOptionalParamValues(updated, edit.paramValues);
+    assignOptionalParamSources(updated, edit.paramSources);
+    assignOptionalAddressSource(updated, edit.addressSource);
+    return updated;
+}
+
+function assignOptionalParamValues(instance: TypeInstance, values: Record<string, number> | undefined): void {
+    if (values && Object.keys(values).length > 0) { instance.paramValues = { ...values }; return; }
+    delete instance.paramValues;
+}
+
+function assignOptionalParamSources(
+    instance: TypeInstance,
+    sources: Record<string, TypeInstanceParamSource> | null | undefined,
+): void {
+    const cleaned = cleanParamSources(sources ?? undefined);
+    if (cleaned) { instance.paramSources = cleaned; return; }
+    delete instance.paramSources;
+}
+
+function assignOptionalAddressSource(
+    instance: TypeInstance,
+    source: TypeInstanceAddressSource | null | undefined,
+): void {
+    const cleaned = cleanAddressSource(source ?? undefined);
+    if (cleaned) { instance.addressSource = cleaned; return; }
+    delete instance.addressSource;
 }
 
 /** Trim parameter-source paths; empty paths author no source. */
@@ -292,12 +405,28 @@ function cleanParamSources(
     sources: Record<string, TypeInstanceParamSource> | undefined,
 ): Record<string, TypeInstanceParamSource> | undefined {
     if (!sources) { return undefined; }
+    const cleaned = cleanedParamSourceEntries(sources);
+    return hasEntries(cleaned) ? cleaned : undefined;
+}
+
+function cleanedParamSourceEntries(
+    sources: Record<string, TypeInstanceParamSource>,
+): Record<string, TypeInstanceParamSource> {
     const cleaned: Record<string, TypeInstanceParamSource> = {};
     for (const [name, source] of Object.entries(sources)) {
-        const scriptPath = source?.scriptPath?.trim() ?? '';
+        const scriptPath = trimmedSourcePath(source);
         if (name && scriptPath) { cleaned[name] = { scriptPath }; }
     }
-    return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+    return cleaned;
+}
+
+function trimmedSourcePath(source: { scriptPath?: string } | undefined): string {
+    const scriptPath = source?.scriptPath;
+    return typeof scriptPath === 'string' ? scriptPath.trim() : '';
+}
+
+function hasEntries(record: Record<string, unknown>): boolean {
+    return Object.keys(record).length > 0;
 }
 
 /** Trim a source path; an empty path authors no source. */

@@ -21,6 +21,7 @@ import {
     type IntegrityCheckConfig,
     type IntegrityCheckKind,
     type IntegrityCheckSet,
+    type IntegrityValidation,
 } from '../../../../core/integrity';
 import type { ScriptInfo, ScriptRole } from '../../../../core/scripting/types';
 import { esc, flashCopied } from '../../../utils';
@@ -75,6 +76,50 @@ const INTEGRITY_STATUS_SYMBOLS: Record<string, string> = {
 
 type DraftValidation = { ok: true; value: IntegrityDraft } | { ok: false; error: string };
 type StoredDraftValidation = { ok: true; value: string } | { ok: false; error: string };
+
+/** A host response applies only to the check still waiting on that request id. */
+function isCurrentScriptRequest(
+    check: IntegrityCheckState | undefined,
+    msg: IntegrityScriptResultMessage,
+): check is IntegrityCheckState {
+    if (!check) { return false; }
+    return check.requestId === msg.requestId;
+}
+
+/** A discarded-edit refresh pauses auto-fix only when a stored field could be rewritten. */
+function suppressesAutoFix(check: IntegrityCheckState): boolean {
+    return check.autoFixStoredValue && Boolean(check.storedRaw);
+}
+
+/** A script check with a usable path (the only kind with an open-script action). */
+function isScriptCheck(check: IntegrityCheckState): boolean {
+    return check.kind === 'script' && Boolean(check.scriptPath);
+}
+
+/** Draft kind from the form's algorithm select (the `script` sentinel selects script mode). */
+function selectedKind(form: HTMLElement): IntegrityCheckKind {
+    return draftAlgorithmValue(form) === 'script' ? 'script' : 'builtin';
+}
+
+/** Built-in algorithm from the form select; script mode keeps the default. */
+function selectedAlgorithm(form: HTMLElement, kind: IntegrityCheckKind): IntegrityAlgorithm {
+    return (kind === 'builtin' ? draftAlgorithmValue(form) : 'crc32-iso-hdlc') as IntegrityAlgorithm;
+}
+
+function draftAlgorithmValue(form: HTMLElement): string {
+    return form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')!.value;
+}
+
+/** Trimmed script-path input; empty when the control is absent. */
+function scriptPathValue(form: HTMLElement): string {
+    const input = form.querySelector<HTMLInputElement>('[data-draft-control="scriptPath"]');
+    return input ? input.value.trim() : '';
+}
+
+/** Kind-specific identity half of the auto-fix mismatch key. */
+function checkIdentityValue(check: IntegrityCheckState): string {
+    return check.kind === 'builtin' ? check.algorithm : check.scriptPath;
+}
 
 export interface IntegrityHighlight {
     rangeStart: number;
@@ -222,11 +267,15 @@ export class IntegrityPanel {
     notifyEditsDiscarded(): void {
         if (!this.initialized) { return; }
         for (const check of this.checks) {
-            if (check.kind === 'script') { this.markScriptStale(check); continue; }
-            check.suppressAutoFixOnNextResult = check.autoFixStoredValue && !!check.storedRaw;
-            this.scheduleIntegrityCalculation(check, true);
+            this.refreshAfterEditsDiscarded(check);
         }
         this.syncHighlight();
+    }
+
+    private refreshAfterEditsDiscarded(check: IntegrityCheckState): void {
+        if (check.kind === 'script') { this.markScriptStale(check); return; }
+        check.suppressAutoFixOnNextResult = suppressesAutoFix(check);
+        this.scheduleIntegrityCalculation(check, true);
     }
 
     /** Re-decode results for the new shared byte order (was notifyIntegrityEndianChanged). */
@@ -281,16 +330,26 @@ export class IntegrityPanel {
     /** Host pushes a completed script check run. */
     acceptScriptResult(msg: IntegrityScriptResultMessage): void {
         const check = this.checks.find(item => item.id === msg.checkId);
-        if (!check || check.requestId !== msg.requestId) { return; }
+        if (!isCurrentScriptRequest(check, msg)) { return; }
         check.requestId = 0;
-        if (msg.generation !== (this.cb.getGeneration?.() ?? 0)) {
+        if (this.isStaleGeneration(msg)) {
             this.scheduleIntegrityCalculation(check, true);
             return;
         }
+        this.applyScriptMessage(check, msg);
+    }
+
+    /** Apply one host script message; failures and missing results settle as errors. */
+    private applyScriptMessage(check: IntegrityCheckState, msg: IntegrityScriptResultMessage): void {
         const hooks = this.calcHooks();
         if (msg.error) { applyIntegrityScriptError(check, check.token, msg.error, hooks); return; }
         if (!msg.result) { applyIntegrityScriptError(check, check.token, 'Script returned no result.', hooks); return; }
         applyIntegrityScriptResult(check, check.token, msg.result, hooks);
+    }
+
+    /** A result for an older document generation is stale; refresh instead of applying. */
+    private isStaleGeneration(msg: IntegrityScriptResultMessage): boolean {
+        return msg.generation !== (this.cb.getGeneration?.() ?? 0);
     }
 
     /** Byte change while a script run is in flight: drop it and mark the row stale. */
@@ -617,9 +676,14 @@ export class IntegrityPanel {
     }
 
     private openScriptCheck(id: number): void {
+        const check = this.scriptCheck(id);
+        if (check) { this.cb.onOpenScript?.(check.scriptPath); }
+    }
+
+    /** The configured script check with this id, if any. */
+    private scriptCheck(id: number): IntegrityCheckState | undefined {
         const check = this.checks.find(item => item.id === id);
-        if (!check || check.kind !== 'script' || !check.scriptPath) { return; }
-        this.cb.onOpenScript?.(check.scriptPath);
+        return check && isScriptCheck(check) ? check : undefined;
     }
 
     private toggleHighlightedCheck(id: number): void {
@@ -751,14 +815,19 @@ export class IntegrityPanel {
     }
 
     private readDraft(form: HTMLElement): DraftValidation {
-        const selected = form.querySelector<HTMLSelectElement>('[data-draft-control="algorithm"]')!.value;
-        const kind: IntegrityCheckKind = selected === 'script' ? 'script' : 'builtin';
-        const algorithm = (kind === 'builtin' ? selected : 'crc32-iso-hdlc') as IntegrityAlgorithm;
+        const kind = selectedKind(form);
         const nameDraft = this.readDraftName(form);
         if (!nameDraft.ok) { return nameDraft; }
-        const startRaw = form.querySelector<HTMLInputElement>('[data-draft-control="start"]')!.value;
-        const endRaw = form.querySelector<HTMLInputElement>('[data-draft-control="end"]')!.value;
-        const range = validateIntegrityAddressRange(startRaw, endRaw);
+        const fields = this.readDraftFields(form, kind);
+        if (!fields.ok) { return fields; }
+        return { ok: true, value: { kind, name: nameDraft.name, ...fields.value } };
+    }
+
+    private readDraftFields(
+        form: HTMLElement,
+        kind: IntegrityCheckKind,
+    ): { ok: true; value: Omit<IntegrityDraft, 'kind' | 'name'> } | { ok: false; error: string } {
+        const range = this.readRangeDraft(form);
         if (!range.ok) { return range; }
         const stored = this.readStoredDraft(form);
         if (!stored.ok) { return stored; }
@@ -767,10 +836,8 @@ export class IntegrityPanel {
         return {
             ok: true,
             value: {
-                kind,
-                algorithm,
+                algorithm: selectedAlgorithm(form, kind),
                 scriptPath: scriptPath.value,
-                name: nameDraft.name,
                 startRaw: formatIntegrityAddress(range.value.startAddress),
                 endRaw: formatIntegrityAddress(range.value.endAddress),
                 storedRaw: stored.value,
@@ -778,14 +845,21 @@ export class IntegrityPanel {
         };
     }
 
+    private readRangeDraft(form: HTMLElement): IntegrityValidation<{ startAddress: number; endAddress: number }> {
+        const startRaw = form.querySelector<HTMLInputElement>('[data-draft-control="start"]')!.value;
+        const endRaw = form.querySelector<HTMLInputElement>('[data-draft-control="end"]')!.value;
+        return validateIntegrityAddressRange(startRaw, endRaw);
+    }
+
     private readScriptPathDraft(
         form: HTMLElement,
         kind: IntegrityCheckKind,
     ): { ok: true; value: string } | { ok: false; error: string } {
         if (kind !== 'script') { return { ok: true, value: '' }; }
-        const path = (form.querySelector<HTMLInputElement>('[data-draft-control="scriptPath"]')?.value ?? '').trim();
-        if (!path) { return { ok: false, error: 'Script path is required.' }; }
-        return { ok: true, value: path };
+        const path = scriptPathValue(form);
+        return path
+            ? { ok: true, value: path }
+            : { ok: false, error: 'Script path is required.' };
     }
 
     private readDraftName(form: HTMLElement): { ok: true; name: string } | { ok: false; error: string } {
@@ -993,10 +1067,11 @@ export class IntegrityPanel {
     }
 
     private autoFixMismatchKey(check: IntegrityCheckState): string {
-        if (!isMismatchedCheck(check) || !check.expectedBytes || !check.storedBytes) { return ''; }
+        if (!isMismatchedCheck(check)) { return ''; }
+        if (!check.expectedBytes || !check.storedBytes) { return ''; }
         return [
             check.kind,
-            check.kind === 'builtin' ? check.algorithm : check.scriptPath,
+            checkIdentityValue(check),
             check.startRaw,
             check.endRaw,
             check.storedRaw,

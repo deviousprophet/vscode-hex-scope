@@ -150,6 +150,49 @@ function isValidParamValue(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
 }
 
+/** Non-null object as a record (arrays included, matching the item guard). */
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return value !== null && typeof value === 'object' ? value as Record<string, unknown> : null;
+}
+
+/** Non-null, non-array object as a record (the shape every optional entry must have). */
+function asPlainRecord(value: unknown): Record<string, unknown> | null {
+    const record = asRecord(value);
+    return record && !Array.isArray(record) ? record : null;
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function trimmedString(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+/** True when `raw` is a plain object with exactly `count` own keys. */
+function hasPlainKeyCount(raw: unknown, count: number): boolean {
+    const record = asPlainRecord(raw);
+    return record !== null && Object.keys(record).length === count;
+}
+
+/** Copy `record` without `key` (the drop path for every optional entry). */
+function copyWithoutKey(record: Record<string, unknown>, key: string): Record<string, unknown> {
+    const next: Record<string, unknown> = { ...record };
+    delete next[key];
+    return next;
+}
+
+function dropRecordKey(record: Record<string, unknown>, key: string): TypeInstance {
+    return copyWithoutKey(record, key) as unknown as TypeInstance;
+}
+
+/** Copy `record` without `key`, re-adding it only when the cleaned value is non-empty. */
+function withCleanedEntry(record: Record<string, unknown>, key: string, cleaned: Record<string, unknown>): TypeInstance {
+    const next = copyWithoutKey(record, key);
+    if (Object.keys(cleaned).length > 0) { next[key] = cleaned; }
+    return next as unknown as TypeInstance;
+}
+
 /**
  * Sanitize declared `params` and any dangling `countParam` references so an
  * old/hand-edited pool still loads. Malformed entries are dropped, surviving
@@ -166,16 +209,33 @@ function sanitizeTypeParamDefs(defs: TypeDef[]): TypeDefsNormalization {
 }
 
 function sanitizeTypeParamDef(def: TypeDef): TypeDef {
-    const namedKind = def.kind === 'bitfield' || def.kind === 'enum';
-    const params = namedKind ? [] : sanitizeParamList(def.params);
-    const paramsDiffer = namedKind ? def.params !== undefined : paramsChanged(def.params, params);
-    const names = new Set(params.map(param => param.name));
-    const fields = Array.isArray(def.fields)
-        ? def.fields.map(field => danglingCountParamField(field, names))
-        : def.fields;
-    const fieldsChanged = Array.isArray(def.fields) && fields.some((field, i) => field !== def.fields[i]);
-    if (!paramsDiffer && !fieldsChanged) { return def; }
+    const params = isNamedKind(def) ? [] : sanitizeParamList(def.params);
+    const fields = cleanCountParamFields(def, params);
+    if (!paramsChangedForDef(def, params) && !fieldsChangedForDef(def, fields)) { return def; }
+    return withCleanedParams(def, fields, params);
+}
 
+/** Named kinds (`bitfield` / `enum`) never declare size parameters. */
+function isNamedKind(def: TypeDef): boolean {
+    return def.kind === 'bitfield' || def.kind === 'enum';
+}
+
+function paramsChangedForDef(def: TypeDef, params: TypeParam[]): boolean {
+    return isNamedKind(def) ? def.params !== undefined : paramsChanged(def.params, params);
+}
+
+function cleanCountParamFields(def: TypeDef, params: TypeParam[]): TypeField[] {
+    if (!Array.isArray(def.fields)) { return def.fields; }
+    const names = new Set(params.map(param => param.name));
+    return def.fields.map(field => danglingCountParamField(field, names));
+}
+
+function fieldsChangedForDef(def: TypeDef, fields: TypeField[]): boolean {
+    if (!Array.isArray(def.fields)) { return false; }
+    return def.fields.some((field, i) => field !== fields[i]);
+}
+
+function withCleanedParams(def: TypeDef, fields: TypeField[], params: TypeParam[]): TypeDef {
     const next: TypeDef = { ...def, fields };
     if (params.length > 0) { next.params = params; }
     else { delete next.params; }
@@ -187,24 +247,49 @@ function sanitizeParamList(raw: TypeParam[] | undefined): TypeParam[] {
     if (!Array.isArray(raw)) { return []; }
     const seen = new Set<string>();
     const out: TypeParam[] = [];
-    for (const entry of raw) {
-        const param = sanitizeParamEntry(entry);
-        if (!param || seen.has(param.name)) { continue; }
-        seen.add(param.name);
-        out.push(param);
+    for (const param of raw.map(entry => sanitizeParamEntry(entry))) {
+        appendUniqueParam(out, seen, param);
     }
     return out;
 }
 
+function appendUniqueParam(out: TypeParam[], seen: Set<string>, param: TypeParam | null): void {
+    if (!param || seen.has(param.name)) { return; }
+    seen.add(param.name);
+    out.push(param);
+}
+
 function sanitizeParamEntry(raw: unknown): TypeParam | null {
+    const candidate = asParamCandidate(raw);
+    return candidate ? buildSanitizedParam(candidate) : null;
+}
+
+function asParamCandidate(raw: unknown): Partial<TypeParam> | null {
     if (!raw || typeof raw !== 'object') { return null; }
-    const candidate = raw as Partial<TypeParam>;
-    if (typeof candidate.name !== 'string' || !PARAM_NAME_RE.test(candidate.name)) { return null; }
-    if (candidate.kind !== 'size') { return null; }
-    if (candidate.default !== undefined && !isValidParamValue(candidate.default)) { return null; }
+    return raw as Partial<TypeParam>;
+}
+
+type ValidParamDeclaration = Partial<TypeParam> & { name: string; kind: 'size' };
+
+function buildSanitizedParam(candidate: Partial<TypeParam>): TypeParam | null {
+    if (!isValidParamDeclaration(candidate)) { return null; }
     const param: TypeParam = { name: candidate.name, kind: 'size' };
     if (candidate.default !== undefined) { param.default = candidate.default; }
     return param;
+}
+
+function isValidParamDeclaration(candidate: Partial<TypeParam>): candidate is ValidParamDeclaration {
+    if (!isParamNameValid(candidate)) { return false; }
+    if (candidate.kind !== 'size') { return false; }
+    return isValidParamDefault(candidate.default);
+}
+
+function isParamNameValid(candidate: Partial<TypeParam>): candidate is Partial<TypeParam> & { name: string } {
+    return typeof candidate.name === 'string' && PARAM_NAME_RE.test(candidate.name);
+}
+
+function isValidParamDefault(value: unknown): boolean {
+    return value === undefined || isValidParamValue(value);
 }
 
 function paramsChanged(raw: TypeParam[] | undefined, cleaned: TypeParam[]): boolean {
@@ -214,7 +299,12 @@ function paramsChanged(raw: TypeParam[] | undefined, cleaned: TypeParam[]): bool
 }
 
 function sameParam(a: TypeParam | undefined, b: TypeParam | undefined): boolean {
-    return a?.name === b?.name && a?.kind === b?.kind && a?.default === b?.default;
+    if (!a || !b) { return a === b; }
+    return sameParamValue(a, b);
+}
+
+function sameParamValue(a: TypeParam, b: TypeParam): boolean {
+    return a.name === b.name && a.kind === b.kind && a.default === b.default;
 }
 
 /** A `countParam` whose name was dropped on load falls back to the literal `count`. */
@@ -250,39 +340,53 @@ export function normalizeTypeInstances(value: unknown): TypeInstancesNormalizati
  * Clean data is returned by reference.
  */
 function sanitizeInstanceParamSources(item: TypeInstance): TypeInstance {
-    if (!item || typeof item !== 'object') { return item; }
-    const record = item as unknown as Record<string, unknown>;
-    if (!Object.prototype.hasOwnProperty.call(record, 'paramSources')) { return item; }
-    const raw = record.paramSources;
-    const manual = record.paramValues && typeof record.paramValues === 'object' && !Array.isArray(record.paramValues)
-        ? record.paramValues as Record<string, unknown>
-        : {};
+    const record = asRecord(item);
+    if (!record || !hasOwn(record, 'paramSources')) { return item; }
+    const cleaned = cleanParamSourceEntries(record);
+    if (paramSourcesUnchanged(record.paramSources, cleaned)) { return item; }
+    return withCleanedEntry(record, 'paramSources', cleaned);
+}
+
+function cleanParamSourceEntries(record: Record<string, unknown>): Record<string, { scriptPath: string }> {
+    const manual = manualParamValues(record);
     const cleaned: Record<string, { scriptPath: string }> = {};
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        for (const [key, val] of Object.entries(raw)) {
-            if (!PARAM_NAME_RE.test(key) || Object.prototype.hasOwnProperty.call(manual, key)) { continue; }
-            const source = val && typeof val === 'object' && !Array.isArray(val)
-                ? val as Record<string, unknown>
-                : null;
-            const scriptPath = typeof source?.scriptPath === 'string' ? source.scriptPath.trim() : '';
-            if (scriptPath) { cleaned[key] = { scriptPath }; }
-        }
+    for (const [key, value] of Object.entries(asPlainRecord(record.paramSources) ?? {})) {
+        const entry = sanitizedParamSource(key, value, manual);
+        if (entry) { cleaned[entry.key] = entry.source; }
     }
-    const rawKeyCount = raw && typeof raw === 'object' && !Array.isArray(raw) ? Object.keys(raw).length : -1;
-    if (rawKeyCount >= 0 && rawKeyCount === Object.keys(cleaned).length) {
-        const same = Object.entries(cleaned).every(([key, source]) => {
-            const existing = (raw as Record<string, unknown>)[key];
-            const candidate = existing && typeof existing === 'object' && !Array.isArray(existing)
-                ? existing as Record<string, unknown>
-                : null;
-            return candidate?.scriptPath === source.scriptPath;
-        });
-        if (same) { return item; }
-    }
-    const { paramSources: _sources, ...rest } = record;
-    return Object.keys(cleaned).length > 0
-        ? { ...(rest as unknown as TypeInstance), paramSources: cleaned }
-        : rest as unknown as TypeInstance;
+    return cleaned;
+}
+
+function manualParamValues(record: Record<string, unknown>): Record<string, unknown> {
+    return asPlainRecord(record.paramValues) ?? {};
+}
+
+/** One parameter-source entry; null when the name/path is unusable or a manual value wins. */
+function sanitizedParamSource(
+    key: string,
+    value: unknown,
+    manual: Record<string, unknown>,
+): { key: string; source: { scriptPath: string } } | null {
+    if (!isUsableParamSource(key, manual)) { return null; }
+    const scriptPath = trimmedString(asPlainRecord(value)?.scriptPath);
+    if (!scriptPath) { return null; }
+    return { key, source: { scriptPath } };
+}
+
+function isUsableParamSource(key: string, manual: Record<string, unknown>): boolean {
+    return PARAM_NAME_RE.test(key) && !hasOwn(manual, key);
+}
+
+/** True when every surviving source matches the raw entry with the same key count. */
+function paramSourcesUnchanged(raw: unknown, cleaned: Record<string, { scriptPath: string }>): boolean {
+    if (!hasPlainKeyCount(raw, Object.keys(cleaned).length)) { return false; }
+    const record = asPlainRecord(raw) ?? {};
+    return Object.entries(cleaned).every(([key, source]) => sourcePathMatches(record[key], source.scriptPath));
+}
+
+function sourcePathMatches(raw: unknown, scriptPath: string): boolean {
+    const candidate = asPlainRecord(raw);
+    return typeof candidate?.scriptPath === 'string' && candidate.scriptPath === scriptPath;
 }
 
 /**
@@ -291,35 +395,38 @@ function sanitizeInstanceParamSources(item: TypeInstance): TypeInstance {
  * pointer-created metadata (load stays lenient; save-side validation rejects it).
  */
 function sanitizeInstanceAddressSource(item: TypeInstance): TypeInstance {
-    if (!item || typeof item !== 'object') { return item; }
-    const record = item as unknown as Record<string, unknown>;
-    if (!Object.prototype.hasOwnProperty.call(record, 'addressSource')) { return item; }
-    const raw = record.addressSource;
-    const candidate = raw && typeof raw === 'object' && !Array.isArray(raw)
-        ? (raw as Record<string, unknown>)
-        : null;
-    const scriptPath = typeof candidate?.scriptPath === 'string' ? candidate.scriptPath.trim() : '';
-    const pointerSources = Array.isArray(record.pointerSources) ? record.pointerSources : [];
-    if (scriptPath && pointerSources.length === 0) { return item; }
-    const { addressSource: _source, ...rest } = record;
-    return rest as unknown as TypeInstance;
+    const record = asRecord(item);
+    if (!record || !hasOwn(record, 'addressSource')) { return item; }
+    if (isKeptAddressSource(record)) { return item; }
+    return dropRecordKey(record, 'addressSource');
+}
+
+/** A non-empty path with no pointer-created metadata keeps the source by identity. */
+function isKeptAddressSource(record: Record<string, unknown>): boolean {
+    const scriptPath = trimmedString(asPlainRecord(record.addressSource)?.scriptPath);
+    return Boolean(scriptPath) && pointerSourceCount(record) === 0;
+}
+
+function pointerSourceCount(record: Record<string, unknown>): number {
+    return Array.isArray(record.pointerSources) ? record.pointerSources.length : 0;
 }
 
 function sanitizeInstanceParamValues(item: unknown): TypeInstance {
-    if (!item || typeof item !== 'object') { return item as TypeInstance; }
-    const record = item as Record<string, unknown>;
-    if (!Object.prototype.hasOwnProperty.call(record, 'paramValues')) { return item as TypeInstance; }
-    const raw = record.paramValues;
+    const record = asRecord(item);
+    if (!record || !hasOwn(record, 'paramValues')) { return item as TypeInstance; }
+    const cleaned = cleanParamValues(record.paramValues);
+    if (hasPlainKeyCount(record.paramValues, Object.keys(cleaned).length)) { return item as TypeInstance; }
+    return withCleanedEntry(record, 'paramValues', cleaned);
+}
+
+function cleanParamValues(raw: unknown): Record<string, number> {
     const cleaned: Record<string, number> = {};
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        for (const [key, val] of Object.entries(raw)) {
-            if (PARAM_NAME_RE.test(key) && isValidParamValue(val)) { cleaned[key] = val; }
-        }
+    for (const [key, value] of Object.entries(asPlainRecord(raw) ?? {})) {
+        if (isUsableParamValue(key, value)) { cleaned[key] = value; }
     }
-    const rawKeyCount = raw && typeof raw === 'object' && !Array.isArray(raw) ? Object.keys(raw).length : -1;
-    if (rawKeyCount >= 0 && rawKeyCount === Object.keys(cleaned).length) { return item as TypeInstance; }
-    const { paramValues: _values, ...rest } = record;
-    return Object.keys(cleaned).length > 0
-        ? { ...(rest as unknown as TypeInstance), paramValues: cleaned }
-        : rest as unknown as TypeInstance;
+    return cleaned;
+}
+
+function isUsableParamValue(key: string, value: unknown): value is number {
+    return PARAM_NAME_RE.test(key) && isValidParamValue(value);
 }

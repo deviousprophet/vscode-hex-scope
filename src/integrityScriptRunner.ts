@@ -37,29 +37,32 @@ export type IntegrityScriptRunOutcome =
     | { ok: true; value: IntegrityScriptValueOutcome }
     | { ok: false; error: string; errorType: ScriptErrorType };
 
+/** Absolute form of an authored (workspace-relative or absolute) script path. */
+function authoredAbsolutePath(root: string, scriptPath: string): string {
+    const trimmed = scriptPath.trim();
+    return path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(root, trimmed);
+}
+
+function isOutsideRoot(relative: string): boolean {
+    return relative.startsWith('..') || path.isAbsolute(relative);
+}
+
 /**
  * Resolve a persisted (workspace-relative) script path. Returns null when the
  * path is empty or escapes the workspace root.
  */
 export function resolveIntegrityScriptPath(root: string, scriptPath: string): string | null {
-    const trimmed = scriptPath.trim();
-    if (!trimmed) { return null; }
-    const absolute = path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(root, trimmed);
-    const relative = path.relative(root, absolute);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) { return null; }
-    return absolute;
+    if (!scriptPath.trim()) { return null; }
+    const absolute = authoredAbsolutePath(root, scriptPath);
+    return isOutsideRoot(path.relative(root, absolute)) ? null : absolute;
 }
 
 /** Persist script paths relative to the workspace root (posix separators). */
 export function workspaceRelativeScriptPath(root: string, scriptPath: string): string {
     const trimmed = scriptPath.trim();
     if (!trimmed) { return ''; }
-    const absolute = path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(root, trimmed);
-    const relative = path.relative(root, absolute);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) {
-        return trimmed.split(path.sep).join('/');
-    }
-    return relative.split(path.sep).join('/');
+    const relative = path.relative(root, authoredAbsolutePath(root, trimmed));
+    return (isOutsideRoot(relative) ? trimmed : relative).split(path.sep).join('/');
 }
 
 /** Normalize every script check's path before persistence. */
@@ -115,68 +118,154 @@ function verifyContext(
     return context;
 }
 
+interface ValueEntryRun {
+    missing: boolean;
+    error?: string;
+    errorType?: ScriptErrorType;
+    valueBytes?: number[];
+}
+
+interface VerifyEntryRun {
+    missing: boolean;
+    error?: string;
+    errorType?: ScriptErrorType;
+    valid?: boolean;
+}
+
 /**
  * Run one script check: `getIntegrityValue` first, then `verifyIntegrity`.
  * A missing export is not an error (one failing entry must not erase the other);
  * `verifyIntegrity` is authoritative when it produces a boolean.
  */
 export async function runIntegrityScript(input: IntegrityScriptRunInput): Promise<IntegrityScriptRunOutcome> {
-    if (input.edits.length > MAX_INTEGRITY_EDIT_ENTRIES) {
-        return failure('Too many pending edits to run the script.', 'contract');
-    }
-    if (!input.trusted) {
-        return failure('Workspace not trusted', 'cancel');
-    }
+    const rejection = integrityInputRejection(input);
+    if (rejection) { return rejection; }
     const scriptPath = resolveIntegrityScriptPath(input.root, input.scriptPath);
     if (!scriptPath || !isReadableFile(scriptPath)) {
         return failure(`Script not found: ${input.scriptPath}`, 'runtime');
     }
+    const host = createIntegrityHost(input);
+    const value = await runValueEntry(input, host, scriptPath);
+    const verify = await runVerifyEntry(input, host, scriptPath, value.valueBytes);
+    return buildIntegrityOutcome(input, scriptPath, value, verify);
+}
 
-    const host = new VSCodeScriptHost(input.segments, {
+function integrityInputRejection(input: IntegrityScriptRunInput): IntegrityScriptRunOutcome | null {
+    if (input.edits.length > MAX_INTEGRITY_EDIT_ENTRIES) {
+        return failure('Too many pending edits to run the script.', 'contract');
+    }
+    return input.trusted ? null : failure('Workspace not trusted', 'cancel');
+}
+
+function createIntegrityHost(input: IntegrityScriptRunInput): VSCodeScriptHost {
+    return new VSCodeScriptHost(input.segments, {
         confirm: input.confirm,
         edits: input.edits,
         workspaceRoot: input.root,
         selectionRange: { start: input.startAddress, end: input.endAddress },
     });
+}
 
-    const valueOutput = await executeEntry(scriptPath, 'getIntegrityValue', host, {
+async function runValueEntry(
+    input: IntegrityScriptRunInput,
+    host: VSCodeScriptHost,
+    scriptPath: string,
+): Promise<ValueEntryRun> {
+    const output = await executeEntry(scriptPath, 'getIntegrityValue', host, {
         trusted: input.trusted,
         context: baseContext(input, host),
     });
-    const valueMissing = missingExport(valueOutput);
-    const valueError = !valueMissing ? valueOutput.error : undefined;
-    const valueBytes = !valueError && Array.isArray(valueOutput.value) ? valueOutput.value : undefined;
+    const missing = missingExport(output);
+    const error = missing ? undefined : output.error;
+    const valueBytes = !error && Array.isArray(output.value) ? output.value : undefined;
+    return { missing, error, errorType: output.errorType, valueBytes };
+}
 
-    const verifyOutput = await executeEntry(scriptPath, 'verifyIntegrity', host, {
+async function runVerifyEntry(
+    input: IntegrityScriptRunInput,
+    host: VSCodeScriptHost,
+    scriptPath: string,
+    valueBytes: readonly number[] | undefined,
+): Promise<VerifyEntryRun> {
+    const output = await executeEntry(scriptPath, 'verifyIntegrity', host, {
         trusted: input.trusted,
         context: verifyContext(input, host, valueBytes),
     });
-    const verifyMissing = missingExport(verifyOutput);
+    const missing = missingExport(output);
+    const valid = !missing && typeof output.value === 'boolean' ? output.value : undefined;
+    return { missing, error: output.error, errorType: output.errorType, valid };
+}
 
-    if (valueMissing && verifyMissing) {
-        return failure("Script must export 'verifyIntegrity' or 'getIntegrityValue'.", 'contract');
-    }
-    if (!verifyMissing && verifyOutput.error) {
-        return failure(`verifyIntegrity: ${verifyOutput.error}`, verifyOutput.errorType ?? 'runtime');
-    }
-    const valid = !verifyMissing && typeof verifyOutput.value === 'boolean' ? verifyOutput.value : undefined;
-    if (!verifyMissing && valid === undefined) {
-        return failure('verifyIntegrity returned an invalid value.', 'contract');
-    }
-    if (valueError && verifyMissing) {
-        return failure(`getIntegrityValue: ${valueError}`, valueOutput.errorType ?? 'runtime');
-    }
+function buildIntegrityOutcome(
+    input: IntegrityScriptRunInput,
+    scriptPath: string,
+    value: ValueEntryRun,
+    verify: VerifyEntryRun,
+): IntegrityScriptRunOutcome {
+    const missing = bothEntriesMissing(value, verify);
+    if (missing) { return missing; }
+    const verifyFailure = verifyEntryFailure(verify);
+    if (verifyFailure) { return verifyFailure; }
+    const valueFailure = valueEntryFailure(value, verify);
+    if (valueFailure) { return valueFailure; }
+    return integritySuccess(input, scriptPath, value, verify);
+}
 
-    const warnings = valueError ? [`getIntegrityValue: ${valueError}`] : [];
-    const byteCount = valueBytes?.length ?? (input.endAddress - input.startAddress + 1);
+function bothEntriesMissing(value: ValueEntryRun, verify: VerifyEntryRun): IntegrityScriptRunOutcome | null {
+    return value.missing && verify.missing
+        ? failure("Script must export 'verifyIntegrity' or 'getIntegrityValue'.", 'contract')
+        : null;
+}
+
+function verifyEntryFailure(verify: VerifyEntryRun): IntegrityScriptRunOutcome | null {
+    if (verify.missing) { return null; }
+    const error = verifyErrorFailure(verify);
+    if (error) { return error; }
+    return verify.valid === undefined
+        ? failure('verifyIntegrity returned an invalid value.', 'contract')
+        : null;
+}
+
+function verifyErrorFailure(verify: VerifyEntryRun): IntegrityScriptRunOutcome | null {
+    if (!verify.error) { return null; }
+    return failure(`verifyIntegrity: ${verify.error}`, verify.errorType ?? 'runtime');
+}
+
+function valueEntryFailure(value: ValueEntryRun, verify: VerifyEntryRun): IntegrityScriptRunOutcome | null {
+    if (!value.error || !verify.missing) { return null; }
+    return failure(`getIntegrityValue: ${value.error}`, value.errorType ?? 'runtime');
+}
+
+function integritySuccess(
+    input: IntegrityScriptRunInput,
+    scriptPath: string,
+    value: ValueEntryRun,
+    verify: VerifyEntryRun,
+): IntegrityScriptRunOutcome {
     return {
         ok: true,
         value: {
-            ...(valid === undefined ? {} : { valid }),
-            ...(valueBytes === undefined ? {} : { valueBytes }),
-            byteCount,
+            ...optionalOutcomeFields(verify, value),
+            byteCount: valueByteCount(input, value),
             scriptName: path.basename(scriptPath),
-            warnings,
+            warnings: valueWarnings(value),
         },
     };
+}
+
+type OptionalOutcomeFields = Pick<IntegrityScriptValueOutcome, 'valid' | 'valueBytes'>;
+
+function optionalOutcomeFields(verify: VerifyEntryRun, value: ValueEntryRun): OptionalOutcomeFields {
+    const fields: OptionalOutcomeFields = {};
+    if (verify.valid !== undefined) { fields.valid = verify.valid; }
+    if (value.valueBytes !== undefined) { fields.valueBytes = value.valueBytes; }
+    return fields;
+}
+
+function valueByteCount(input: IntegrityScriptRunInput, value: ValueEntryRun): number {
+    return value.valueBytes?.length ?? (input.endAddress - input.startAddress + 1);
+}
+
+function valueWarnings(value: ValueEntryRun): string[] {
+    return value.error ? [`getIntegrityValue: ${value.error}`] : [];
 }

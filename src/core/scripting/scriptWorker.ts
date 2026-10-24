@@ -126,13 +126,10 @@ async function runEntry(
 
     new vm.Script(code).runInNewContext(sandbox, { timeout: timeoutMs, breakOnSigint: true });
 
-    const exports = (moduleObj.exports ?? {}) as Record<string, unknown>;
-    const fn = exports[entry] as ((a: unknown) => unknown) | undefined;
-    if (typeof fn !== 'function') {
-        const message = entry === 'run'
-            ? "Script must export a 'run' function."
-            : `Script must export a '${entry}' function.`;
-        return sendResult(collected, message, entry === 'run' ? 'compile' : 'contract');
+    const fn = entryFunction(moduleObj, entry);
+    if (!fn) {
+        const { message, errorType } = missingExportError(entry);
+        return sendResult(collected, message, errorType);
     }
 
     api.hex.size = rpcCall('hex.size', []) as number;
@@ -149,13 +146,34 @@ async function runEntry(
     sendResult(collected, undefined, undefined, normalized.value);
 }
 
-parentPort.on('message', async (msg: unknown) => {
+/** The entry export as a callable, or undefined when it is missing/mistyped. */
+function entryFunction(
+    moduleObj: { exports: Record<string, unknown> },
+    entry: ScriptEntry,
+): ((api: unknown) => unknown) | undefined {
+    const fn = (moduleObj.exports ?? {})[entry];
+    return typeof fn === 'function' ? (fn as (api: unknown) => unknown) : undefined;
+}
+
+/** Why the run failed before executing: `run` is a compile error, roles a contract error. */
+function missingExportError(entry: ScriptEntry): { message: string; errorType: string } {
+    return entry === 'run'
+        ? { message: "Script must export a 'run' function.", errorType: 'compile' }
+        : { message: `Script must export a '${entry}' function.`, errorType: 'contract' };
+}
+
+/** One `run` message: dispatch to the entry runner; anything else is ignored. */
+async function handleMessage(msg: unknown): Promise<void> {
     const data = msg as {
         type: string; code: string; entry?: ScriptEntry; timeoutMs: number; context?: ScriptContext;
     };
     if (data.type !== 'run') { return; }
+    await runEntry(data.code, data.entry ?? 'run', data.timeoutMs, data.context ?? {});
+}
+
+parentPort.on('message', async (msg: unknown) => {
     try {
-        await runEntry(data.code, data.entry ?? 'run', data.timeoutMs, data.context ?? {});
+        await handleMessage(msg);
     } catch (err: unknown) {
         const e = formatErr(err);
         sendResult({ results: [], log: [] }, e.message, e.type);

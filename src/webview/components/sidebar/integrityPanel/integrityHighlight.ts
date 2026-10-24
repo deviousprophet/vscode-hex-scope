@@ -52,10 +52,18 @@ function addStoredHighlight(highlight: IntegrityHighlight, check: IntegrityCheck
 
 /** Built-in length comes from the algorithm; script length from the value bytes. */
 function storedByteLength(check: IntegrityCheckState): number | null {
-    if (check.kind === 'script') {
-        return check.expectedBytes?.length ?? check.storedBytes?.length ?? null;
-    }
-    return integrityOutputByteLength(check.algorithm);
+    return check.kind === 'script'
+        ? scriptStoredByteLength(check)
+        : integrityOutputByteLength(check.algorithm);
+}
+
+function scriptStoredByteLength(check: IntegrityCheckState): number | null {
+    const expected = byteArrayLength(check.expectedBytes);
+    return expected !== undefined ? expected : (byteArrayLength(check.storedBytes) ?? null);
+}
+
+function byteArrayLength(bytes: Uint8Array | null): number | undefined {
+    return bytes ? bytes.length : undefined;
 }
 
 export function clearHighlight(hooks: IntegrityHighlightHooks): void {

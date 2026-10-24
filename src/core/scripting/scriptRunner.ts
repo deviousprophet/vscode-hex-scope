@@ -41,13 +41,17 @@ function parseManifest(source: string): string[] {
     return [...caps];
 }
 
+function isScriptRole(role: string): role is ScriptRole {
+    return role === 'integrity' || role === 'address' || role === 'size';
+}
+
 function parseRoles(source: string): ScriptRole[] {
     const re = /@script\s+(\w+)/gi;
     const roles = new Set<ScriptRole>();
     let m: RegExpExecArray | null;
     while ((m = re.exec(source)) !== null) {
         const role = m[1].toLowerCase();
-        if (role === 'integrity' || role === 'address' || role === 'size') { roles.add(role); }
+        if (isScriptRole(role)) { roles.add(role); }
     }
     return [...roles];
 }
@@ -211,10 +215,7 @@ async function runInWorker(
             const h = snap();
             if (err) { finish({ ...h, error: err, errorType: errType }); return; }
             if (entry === 'run') { finish(h); return; }
-
-            const normalized = normalizeScriptValue(entry, rawValue);
-            if (!normalized.ok) { finish({ ...h, error: normalized.error, errorType: 'contract' }); return; }
-            finish({ ...h, value: normalized.value });
+            finish(normalizedOutput(h, entry, rawValue));
         }
 
         worker.on('message', (msg: Record<string, unknown>) => {
@@ -256,6 +257,14 @@ function earlyExit(signal: AbortSignal | undefined, trusted: boolean): ScriptOut
     return null;
 }
 
+/** Contract-normalized result: the value, or the row-level contract error. */
+function normalizedOutput(h: ScriptOutput, entry: ScriptEntry, rawValue: unknown): ScriptOutput {
+    const normalized = normalizeScriptValue(entry, rawValue);
+    return normalized.ok
+        ? { ...h, value: normalized.value }
+        : { ...h, error: normalized.error, errorType: 'contract' };
+}
+
 export async function executeEntry(
     filePath: string,
     entry: ScriptEntry,
@@ -264,8 +273,18 @@ export async function executeEntry(
 ): Promise<ScriptOutput> {
     const blocked = earlyExit(options.signal, options.trusted ?? true);
     if (blocked) { return blocked; }
+    return runFile(filePath, entry, host, options);
+}
+
+/** Compile and run one script file; compile/read failures become `compile` errors. */
+async function runFile(
+    filePath: string,
+    entry: ScriptEntry,
+    host: ScriptHost,
+    options: ScriptRunOptions,
+): Promise<ScriptOutput> {
+    const context = options.context ?? {};
     try {
-        const context = options.context ?? {};
         const api = buildAPI(host, context);
         const jsCode = await compileScript(readScript(filePath), filePath);
         return await runInWorker(

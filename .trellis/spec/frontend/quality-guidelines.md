@@ -67,6 +67,7 @@ Prefer this shape over stacked conditional spreads in readers/normalizers; the s
 - Mentally delete the behavior: if test still passes, strengthen it.
 - Use injected ID factories/read-byte callbacks for deterministic core tests.
 - Keep source fixtures representative; do not replace format tests with only synthetic one-line records.
+- Build fake filesystem paths with `path.join` (never a hardcoded `D:\\…` literal): production derives display names with `path.basename`, so a Windows-shaped literal resolves to the whole string under POSIX path semantics and the assertion passes only on one OS.
 - Verify review claims against actual trust boundaries and design comments.
 
 ## Echo-Test Cleanup Convention

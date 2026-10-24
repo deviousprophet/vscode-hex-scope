@@ -125,18 +125,31 @@ function arrayToggleLabel(isArr: boolean): string {
     }
 
 function fieldArrayCellHtml(f: TypeField, params: readonly TypeParam[]): string {
-        const hasParam = f.countParam !== undefined;
-        const isArr = hasParam || f.count > 1;
-        const toggleLabel = arrayToggleLabel(isArr);
-        return (
-            `<div class="ofe-arr-cell${isArr ? ' is-array' : ''}${hasParam ? ' has-param' : ''}">` +
-            `<button class="ofe-arr-toggle${activeClassAttr(isArr)}" title="${toggleLabel}" aria-label="${toggleLabel}">[ ]</button>` +
-            `<input class="ofe-count-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
-                   `value="${!hasParam && isArr ? f.count : ''}" placeholder="N">` +
-            countParamSelectHtml(f, params) +
-            `</div>`
-        );
-    }
+    const hasParam = f.countParam !== undefined;
+    const isArray = hasParam || f.count > 1;
+    return (
+        `<div class="ofe-arr-cell${arrayCellClass(hasParam, isArray)}">` +
+        arrayToggleHtml(isArray) +
+        arrayCountInputHtml(f, hasParam, isArray) +
+        countParamSelectHtml(f, params) +
+        `</div>`
+    );
+}
+
+function arrayCellClass(hasParam: boolean, isArray: boolean): string {
+    return `${isArray ? ' is-array' : ''}${hasParam ? ' has-param' : ''}`;
+}
+
+function arrayToggleHtml(isArray: boolean): string {
+    const toggleLabel = arrayToggleLabel(isArray);
+    return `<button class="ofe-arr-toggle${activeClassAttr(isArray)}" title="${toggleLabel}" aria-label="${toggleLabel}">[ ]</button>`;
+}
+
+/** Literal count input: hidden while a parameter supplies the count. */
+function arrayCountInputHtml(f: TypeField, hasParam: boolean, isArray: boolean): string {
+    const value = !hasParam && isArray ? f.count : '';
+    return `<input class="ofe-count-inp sb-input sb-input-sm" type="text" inputmode="numeric" value="${value}" placeholder="N">`;
+}
 
 /** "Count from parameter" select — rendered only when the containing type declares params. */
 function countParamSelectHtml(f: TypeField, params: readonly TypeParam[]): string {

@@ -71,27 +71,63 @@ function isGrantEntry(value: unknown): value is GrantEntry {
         && isCapabilityGrant(entry.capability);
 }
 
+/** A session-scoped grant entry: `session` is the file-independent `*` wildcard. */
+function sessionEntry(
+    scope: 'script' | 'session',
+    scriptPath: string,
+    fingerprint: string,
+    capability: ScriptCapabilityGrant,
+): GrantEntry {
+    return scope === 'session'
+        ? { scriptPath: ANY_SCRIPT, fingerprint: '*', capability }
+        : { scriptPath, fingerprint, capability };
+}
+
+/** Paths whose script no longer exists in the scanned folder (`*` entries are exempt). */
+function missingScriptPaths(entries: readonly GrantEntry[], active: ReadonlySet<string>): Set<string> {
+    const missing = new Set<string>();
+    for (const entry of entries) {
+        if (isMissingScript(entry, active)) { missing.add(entry.scriptPath); }
+    }
+    return missing;
+}
+
+function isMissingScript(entry: GrantEntry, active: ReadonlySet<string>): boolean {
+    return entry.scriptPath !== ANY_SCRIPT && !active.has(pathKey(entry.scriptPath));
+}
+
 function normalizeStored(value: unknown): GrantEntry[] {
     const stored = value as Partial<StoredGrants> | null;
     if (!stored || !Array.isArray(stored.grants)) { return []; }
     return stored.grants.filter(isGrantEntry);
 }
 
+/** True when the grant covers this capability (exact or `*` breadth). */
+function coversCapability(entry: GrantEntry, capability: ScriptCapability): boolean {
+    return entry.capability === capability || entry.capability === '*';
+}
+
 /** Exact path + fingerprint match, plus same-fingerprint `*` breadth. */
 function entryMatches(entry: GrantEntry, key: string, fingerprint: string, capability: ScriptCapability): boolean {
-    const entryKey = entry.scriptPath === ANY_SCRIPT ? ANY_SCRIPT : pathKey(entry.scriptPath);
-    if (entryKey !== ANY_SCRIPT) {
-        if (entryKey !== key || entry.fingerprint !== fingerprint) { return false; }
-        return entry.capability === capability || entry.capability === '*';
-    }
-    return entry.capability === capability || entry.capability === '*';
+    if (!coversCapability(entry, capability)) { return false; }
+    if (entry.scriptPath === ANY_SCRIPT) { return true; }
+    return pathKey(entry.scriptPath) === key && entry.fingerprint === fingerprint;
+}
+
+/** Same script file (by key), same content fingerprint. */
+function sameTarget(entry: GrantEntry, key: string, fingerprint: string): boolean {
+    return pathKey(entry.scriptPath) === key && entry.fingerprint === fingerprint;
+}
+
+/** Workspace breadth check: exact capability, or `*` for every non-exec capability. */
+function workspaceCovers(grant: ScriptCapabilityGrant, capability: ScriptCapability): boolean {
+    return grant === capability || (grant === '*' && capability !== 'exec');
 }
 
 /** Workspace entries are always script-scoped; `*` excludes `exec`. */
 function workspaceEntryMatches(entry: GrantEntry, key: string, fingerprint: string, capability: ScriptCapability): boolean {
-    if (pathKey(entry.scriptPath) !== key || entry.fingerprint !== fingerprint) { return false; }
-    if (entry.capability === capability) { return true; }
-    return entry.capability === '*' && capability !== 'exec';
+    if (!sameTarget(entry, key, fingerprint)) { return false; }
+    return workspaceCovers(entry.capability, capability);
 }
 
 function sameEntry(a: GrantEntry, b: GrantEntry): boolean {
@@ -124,19 +160,21 @@ export class ScriptGrantStore {
     /** Record an approval. `once` is never stored; `exec` never persists. */
     grant(scope: ScriptPermissionScope, scriptPath: string, fingerprint: string, capability: ScriptCapabilityGrant): void {
         if (scope === 'once') { return; }
-        if (scope === 'workspace' && capability === 'exec') {
+        if (scope === 'workspace') {
+            this.grantWorkspace(scriptPath, fingerprint, capability);
+            return;
+        }
+        pushUnique(this.sessionEntries, sessionEntry(scope, scriptPath, fingerprint, capability));
+    }
+
+    /** Workspace-scope grant: persisted, except `exec` which downgrades to `session`. */
+    private grantWorkspace(scriptPath: string, fingerprint: string, capability: ScriptCapabilityGrant): void {
+        if (capability === 'exec') {
             pushUnique(this.sessionEntries, { scriptPath, fingerprint, capability });
             return;
         }
-        if (scope === 'workspace') {
-            pushUnique(this.workspaceEntries, { scriptPath, fingerprint, capability });
-            this.persist();
-            return;
-        }
-        const entry: GrantEntry = scope === 'session'
-            ? { scriptPath: ANY_SCRIPT, fingerprint: '*', capability }
-            : { scriptPath, fingerprint, capability };
-        pushUnique(this.sessionEntries, entry);
+        pushUnique(this.workspaceEntries, { scriptPath, fingerprint, capability });
+        this.persist();
     }
 
     /** Drop every session + workspace grant for one script (file changed, deleted, or bulk revoke). Keeps session-wide grants. */
@@ -172,12 +210,7 @@ export class ScriptGrantStore {
      */
     revokeMissing(activePaths: readonly string[]): boolean {
         const active = new Set(activePaths.map(pathKey));
-        const missing = new Set<string>();
-        for (const entry of [...this.sessionEntries, ...this.workspaceEntries]) {
-            if (entry.scriptPath !== ANY_SCRIPT && !active.has(pathKey(entry.scriptPath))) {
-                missing.add(entry.scriptPath);
-            }
-        }
+        const missing = missingScriptPaths([...this.sessionEntries, ...this.workspaceEntries], active);
         for (const scriptPath of missing) { this.revokeAllForScript(scriptPath); }
         return missing.size > 0;
     }
@@ -306,13 +339,30 @@ export function acceptedGrant(
     scopes: readonly ScriptPermissionScope[],
     response: ScriptPermissionDecision,
 ): ScriptCapabilityGrant | null {
-    if (response.decision !== 'allow') { return null; }
-    if (!scopes.includes(response.scope)) { return null; }
     const breadth = response.capability ?? capability;
-    if (breadth !== capability && breadth !== '*') { return null; }
-    // `exec` never persists, so a workspace-scoped exec decision is invalid.
-    if (response.scope === 'workspace' && capability === 'exec') { return null; }
-    return breadth;
+    return isAcceptableResponse(capability, scopes, response, breadth) ? breadth : null;
+}
+
+/** Every rule a stored grant must pass; a denied response never passes. */
+function isAcceptableResponse(
+    capability: ScriptCapability,
+    scopes: readonly ScriptPermissionScope[],
+    response: ScriptPermissionDecision,
+    breadth: ScriptCapabilityGrant,
+): boolean {
+    return response.decision === 'allow'
+        && scopes.includes(response.scope)
+        && breadthAllowed(capability, breadth)
+        && !workspaceExecEscape(response.scope, capability);
+}
+
+function breadthAllowed(capability: ScriptCapability, breadth: ScriptCapabilityGrant): boolean {
+    return breadth === capability || breadth === '*';
+}
+
+/** `exec` never persists, so a workspace-scoped exec decision is invalid. */
+function workspaceExecEscape(scope: ScriptPermissionScope, capability: ScriptCapability): boolean {
+    return scope === 'workspace' && capability === 'exec';
 }
 
 /** What a dangerous call needs to be approved. */

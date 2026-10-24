@@ -88,19 +88,41 @@ function hasComparableStoredValue(check: IntegrityCheckState): check is Integrit
 }
 
 export function isMismatchedCheck(check: IntegrityCheckState): boolean {
-    if (check.calculating || check.stale) { return false; }
-    if (check.result?.kind === 'script' && check.result.valid === true) { return false; }
+    if (isBusyCheck(check)) { return false; }
+    if (isVerifiedScriptCheck(check)) { return false; }
     return hasComparableStoredValue(check) &&
         !integrityBytesEqual(check.expectedBytes, check.storedBytes);
 }
 
+function isBusyCheck(check: IntegrityCheckState): boolean {
+    return check.calculating || check.stale;
+}
+
+/** An authoritative `valid: true` script result never shows as a mismatch. */
+function isVerifiedScriptCheck(check: IntegrityCheckState): boolean {
+    return check.result?.kind === 'script' && check.result.valid === true;
+}
+
 export function highlightStatus(check: IntegrityCheckState): 'match' | 'mismatch' | 'unverified' {
-    if (check.result?.kind === 'script') {
-        const passed = scriptCheckPassed(check.result, check.storedBytes);
-        return passed === undefined ? 'unverified' : (passed ? 'match' : 'mismatch');
-    }
+    if (check.result?.kind === 'script') { return scriptHighlightStatus(check.result, check.storedBytes); }
+    return storedHighlightStatus(check);
+}
+
+function scriptHighlightStatus(
+    result: IntegrityScriptResult,
+    storedBytes: Uint8Array | null,
+): 'match' | 'mismatch' | 'unverified' {
+    const passed = scriptCheckPassed(result, storedBytes);
+    return passed === undefined ? 'unverified' : passedStatus(passed);
+}
+
+function storedHighlightStatus(check: IntegrityCheckState): 'match' | 'mismatch' | 'unverified' {
     if (!hasComparableStoredValue(check)) { return 'unverified'; }
-    return integrityBytesEqual(check.expectedBytes, check.storedBytes) ? 'match' : 'mismatch';
+    return passedStatus(integrityBytesEqual(check.expectedBytes, check.storedBytes));
+}
+
+function passedStatus(passed: boolean): 'match' | 'mismatch' {
+    return passed ? 'match' : 'mismatch';
 }
 
 export function checkStatusLabel(check: IntegrityCheckState): string {
@@ -111,8 +133,13 @@ export function checkStatusLabel(check: IntegrityCheckState): string {
 }
 
 function completedCheckStatus(check: IntegrityCheckState): string {
-    if (!check.result) { return 'Not configured'; }
-    if (check.result.kind === 'script') { return scriptStatusLabel(check.result, check.storedBytes); }
+    const result = check.result;
+    if (!result) { return 'Not configured'; }
+    if (result.kind === 'script') { return scriptStatusLabel(result, check.storedBytes); }
+    return storedStatusLabel(check);
+}
+
+function storedStatusLabel(check: IntegrityCheckState): string {
     if (!hasComparableStoredValue(check)) { return 'Calculated'; }
     return integrityBytesEqual(check.expectedBytes, check.storedBytes) ? 'Match' : 'Mismatch';
 }
@@ -120,7 +147,14 @@ function completedCheckStatus(check: IntegrityCheckState): string {
 function scriptStatusLabel(result: IntegrityScriptResult, storedBytes: Uint8Array | null): string {
     const passed = scriptCheckPassed(result, storedBytes);
     if (passed === undefined) { return 'Calculated'; }
-    if (result.valid !== undefined) { return passed ? 'Verified' : 'Failed'; }
+    return result.valid !== undefined ? verifiedLabel(passed) : passedStatusLabel(passed);
+}
+
+function verifiedLabel(passed: boolean): string {
+    return passed ? 'Verified' : 'Failed';
+}
+
+function passedStatusLabel(passed: boolean): string {
     return passed ? 'Match' : 'Mismatch';
 }
 

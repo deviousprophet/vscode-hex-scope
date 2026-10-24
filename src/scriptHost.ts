@@ -44,6 +44,18 @@ function findSegment(lookup: SegmentLookup[], addr: number): SegmentLookup | und
     return undefined;
 }
 
+const noOutput = (): void => { /* no output hook wired */ };
+const noResult = (): void => { /* no result hook wired */ };
+const denyAll = async (): Promise<boolean> => false;
+
+/** Seed the pending-edit overlay from the webview's staged edits. */
+function applyEdits(
+    target: Map<number, number>,
+    edits: ReadonlyArray<readonly [number, number]> | undefined,
+): void {
+    for (const [address, value] of edits ?? []) { target.set(address, value); }
+}
+
 export class VSCodeScriptHost implements IScriptHost {
     private readonly edits = new Map<number, number>();
     public readonly pendingWrites: WriteEdit[] = [];
@@ -70,12 +82,12 @@ export class VSCodeScriptHost implements IScriptHost {
         },
     ) {
         this.lookup = buildLookup(segments);
-        this._outputHook = options.output ?? (() => {});
-        this._resultHook = options.setResult ?? (() => {});
-        this._confirm = options.confirm ?? (async () => false);
+        this._outputHook = options.output ?? noOutput;
+        this._resultHook = options.setResult ?? noResult;
+        this._confirm = options.confirm ?? denyAll;
         this.selectionRange = options.selectionRange;
         this.workspaceRoot = options.workspaceRoot;
-        for (const [address, value] of options.edits ?? []) { this.edits.set(address, value); }
+        applyEdits(this.edits, options.edits);
     }
 
     get totalSize(): number {

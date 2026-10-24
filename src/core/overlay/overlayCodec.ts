@@ -84,19 +84,57 @@ function isValidLayoutValue(value: unknown): value is number {
  */
 export function resolveTypeParams(def: TypeDef, instanceValues?: LayoutParams): LayoutValidation<LayoutParams> {
     const values: Record<string, number> = {};
-    for (const param of def.params ?? []) {
-        const raw = instanceValues && Object.prototype.hasOwnProperty.call(instanceValues, param.name)
-            ? instanceValues[param.name]
-            : param.default;
-        if (raw === undefined) {
-            return { ok: false, error: `Type "${def.name}": parameter "${param.name}" has no value.` };
-        }
-        if (!isValidLayoutValue(raw)) {
-            return { ok: false, error: `Type "${def.name}": parameter "${param.name}" must be a positive integer.` };
-        }
-        values[param.name] = raw;
+    for (const param of paramsOf(def)) {
+        const error = resolvedParamError(def, param, instanceValues, values);
+        if (error) { return { ok: false, error }; }
     }
     return { ok: true, value: values };
+}
+
+function resolvedParamError(
+    def: TypeDef,
+    param: TypeParam,
+    instanceValues: LayoutParams | undefined,
+    values: Record<string, number>,
+): string | null {
+    const raw = paramValueOrDefault(param, instanceValues);
+    if (raw === undefined) { return `Type "${def.name}": parameter "${param.name}" has no value.`; }
+    if (!isValidLayoutValue(raw)) {
+        return `Type "${def.name}": parameter "${param.name}" must be a positive integer.`;
+    }
+    values[param.name] = raw;
+    return null;
+}
+
+function paramsOf(def: TypeDef): TypeParam[] {
+    return def.params ?? [];
+}
+
+/** Explicit instance value when present, otherwise the declared default. */
+function paramValueOrDefault(param: TypeParam, values: LayoutParams | undefined): unknown {
+    if (values && Object.prototype.hasOwnProperty.call(values, param.name)) { return values[param.name]; }
+    return param.default;
+}
+
+/** Declared parameter names for a type (the one membership set validation uses). */
+export function declaredParamNames(def: TypeDef): Set<string> {
+    return new Set(paramsOf(def).map(param => param.name));
+}
+
+/** Push one unknown-parameter error per key the type does not declare. */
+export function appendUnknownParamErrors(
+    def: TypeDef,
+    keys: readonly string[],
+    declared: ReadonlySet<string>,
+    errors: string[],
+): void {
+    for (const key of keys) {
+        if (!declared.has(key)) { errors.push(unknownParamError(def, key)); }
+    }
+}
+
+function unknownParamError(def: TypeDef, key: string): string {
+    return `Type "${def.name}": unknown parameter "${key}".`;
 }
 
 /** Resolve to a plain map, falling back to `{}` when a required value is missing. */
@@ -122,23 +160,23 @@ export function resolvedFieldCount(field: TypeField, params: LayoutParams): numb
  */
 export function validateInstanceParamValues(def: TypeDef, values: LayoutParams | undefined): string[] {
     const errors: string[] = [];
-    const declared = new Set((def.params ?? []).map(param => param.name));
-    for (const key of Object.keys(values ?? {})) {
-        if (!declared.has(key)) {
-            errors.push(`Type "${def.name}": unknown parameter "${key}".`);
-        }
-    }
-    for (const param of def.params ?? []) {
-        const value = values && Object.prototype.hasOwnProperty.call(values, param.name)
-            ? values[param.name]
-            : param.default;
-        if (value === undefined) {
-            errors.push(`Type "${def.name}": parameter "${param.name}" has no value.`);
-        } else if (!isValidLayoutValue(value)) {
-            errors.push(`Type "${def.name}": parameter "${param.name}" must be a positive integer.`);
-        }
+    appendUnknownParamErrors(def, paramValueKeys(values), declaredParamNames(def), errors);
+    for (const param of paramsOf(def)) {
+        const error = instanceParamValueError(def, param, values);
+        if (error) { errors.push(error); }
     }
     return errors;
+}
+
+function paramValueKeys(values: LayoutParams | undefined): string[] {
+    return Object.keys(values ?? {});
+}
+
+function instanceParamValueError(def: TypeDef, param: TypeParam, values: LayoutParams | undefined): string | null {
+    const value = paramValueOrDefault(param, values);
+    if (value === undefined) { return `Type "${def.name}": parameter "${param.name}" has no value.`; }
+    if (!isValidLayoutValue(value)) { return `Type "${def.name}": parameter "${param.name}" must be a positive integer.`; }
+    return null;
 }
 
 
@@ -629,35 +667,55 @@ const PARAM_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** Parameter declarations: unique C identifiers, `kind: 'size'`, positive-integer defaults, struct-only. */
 function validateTypeParams(def: TypeDef, errors: string[]): void {
     if (def.params === undefined) { return; }
-    const ctx = `Type "${def.name}"`;
     if (!Array.isArray(def.params)) {
-        errors.push(`${ctx}: params must be an array.`);
+        errors.push(`Type "${def.name}": params must be an array.`);
         return;
     }
-    if (def.params.length > 0 && typeDefKind(def) !== 'struct') {
-        errors.push(`${ctx}: only a struct type can declare parameters.`);
+    validateTypeParamList(def, def.params, errors);
+}
+
+function validateTypeParamList(def: TypeDef, params: TypeParam[], errors: string[]): void {
+    if (params.length > 0 && typeDefKind(def) !== 'struct') {
+        errors.push(`Type "${def.name}": only a struct type can declare parameters.`);
     }
     const seen = new Set<string>();
-    for (const param of def.params) {
+    const ctx = `Type "${def.name}"`;
+    for (const param of params) {
         validateTypeParam(param, ctx, seen, errors);
     }
 }
 
 function validateTypeParam(param: TypeParam, ctx: string, seen: Set<string>, errors: string[]): void {
-    if (!param || typeof param.name !== 'string' || param.name.trim() === '') {
+    if (!isPresentParam(param)) {
         errors.push(`${ctx}: parameter name must not be empty.`);
         return;
     }
-    if (!PARAM_NAME_RE.test(param.name)) {
-        errors.push(`${ctx}: invalid parameter name "${param.name}" (must be a C identifier).`);
+    appendParamNameErrors(param.name, ctx, seen, errors);
+    appendParamKindError(param, ctx, errors);
+    appendParamDefaultError(param, ctx, errors);
+}
+
+function isPresentParam(param: TypeParam): param is TypeParam & { name: string } {
+    return Boolean(param) && typeof param.name === 'string' && param.name.trim() !== '';
+}
+
+function appendParamNameErrors(name: string, ctx: string, seen: Set<string>, errors: string[]): void {
+    if (!PARAM_NAME_RE.test(name)) {
+        errors.push(`${ctx}: invalid parameter name "${name}" (must be a C identifier).`);
     }
-    if (seen.has(param.name)) {
-        errors.push(`${ctx}: duplicate parameter name "${param.name}".`);
+    if (seen.has(name)) {
+        errors.push(`${ctx}: duplicate parameter name "${name}".`);
     }
-    seen.add(param.name);
+    seen.add(name);
+}
+
+function appendParamKindError(param: TypeParam, ctx: string, errors: string[]): void {
     if (param.kind !== 'size') {
         errors.push(`${ctx}: parameter "${param.name}" has invalid kind "${param.kind}" (expected "size").`);
     }
+}
+
+function appendParamDefaultError(param: TypeParam, ctx: string, errors: string[]): void {
     if (param.default !== undefined && !isValidLayoutValue(param.default)) {
         errors.push(`${ctx}: parameter "${param.name}" default must be a positive integer.`);
     }
@@ -665,12 +723,15 @@ function validateTypeParam(param: TypeParam, ctx: string, seen: Set<string>, err
 
 /** Every `countParam` must name a parameter declared by the containing type. */
 function validateFieldCountParams(def: TypeDef, errors: string[]): void {
-    const names = new Set((def.params ?? []).map(param => param.name));
+    const names = declaredParamNames(def);
     for (const field of def.fields) {
-        if (field.countParam !== undefined && !names.has(field.countParam)) {
-            errors.push(`Type "${def.name}": field "${field.name}" references unknown parameter "${field.countParam}".`);
-        }
+        appendCountParamError(def, field, names, errors);
     }
+}
+
+function appendCountParamError(def: TypeDef, field: TypeField, names: ReadonlySet<string>, errors: string[]): void {
+    if (field.countParam === undefined || names.has(field.countParam)) { return; }
+    errors.push(`Type "${def.name}": field "${field.name}" references unknown parameter "${field.countParam}".`);
 }
 
 /** One field: reference check plus inline bit-field container validation. */
@@ -687,18 +748,36 @@ function validateTypeFieldEntry(d: TypeDef, f: TypeField, byId: Map<string, Type
  * per-usage values, so every parameter must carry a default.
  */
 function validateNestedParamDefaults(def: TypeDef, field: TypeField, byId: Map<string, TypeDef>, errors: string[]): void {
-    field = normalizeTypeField(field);
-    if (field.type !== 'struct' || field.isPointer || !field.refTypeId) { return; }
-    const target = byId.get(field.refTypeId);
-    if (!target || typeDefKind(target) !== 'struct') { return; }
+    const target = nestedStructTarget(field, byId);
+    if (!target) { return; }
     for (const param of target.params ?? []) {
-        if (param.default === undefined) {
-            errors.push(
-                `Type "${def.name}": field "${field.name}" references templated type "${target.name}" ` +
-                `whose parameter "${param.name}" has no default.`,
-            );
-        }
+        appendMissingNestedDefault(def, field, target, param, errors);
     }
+}
+
+function nestedStructTarget(field: TypeField, byId: Map<string, TypeDef>): TypeDef | null {
+    const normalized = normalizeTypeField(field);
+    if (!isNestedStructField(normalized)) { return null; }
+    const target = byId.get(normalized.refTypeId);
+    return target && typeDefKind(target) === 'struct' ? target : null;
+}
+
+function isNestedStructField(field: TypeField): field is TypeField & { refTypeId: string } {
+    return field.type === 'struct' && !field.isPointer && Boolean(field.refTypeId);
+}
+
+function appendMissingNestedDefault(
+    def: TypeDef,
+    field: TypeField,
+    target: TypeDef,
+    param: TypeParam,
+    errors: string[],
+): void {
+    if (param.default !== undefined) { return; }
+    errors.push(
+        `Type "${def.name}": field "${field.name}" references templated type "${target.name}" ` +
+        `whose parameter "${param.name}" has no default.`,
+    );
 }
 
 const TYPE_DEF_KINDS = new Set(['struct', 'bitfield', 'enum']);
@@ -2282,23 +2361,33 @@ function usedParamNames(def: TypeDef): string[] {
  * base name. A name that still collides gets a numeric suffix.
  */
 function paramMacroNames(def: TypeDef): Map<string, string> {
-    const groups = new Map<string, string[]>();
-    for (const param of def.params ?? []) {
-        const base = parameterMacroBase(param.name);
-        const group = groups.get(base) ?? [];
-        group.push(param.name);
-        groups.set(base, group);
-    }
+    const groups = paramNameGroups(def);
     const prefix = parameterMacroBase(def.name || 'TYPE');
     const out = new Map<string, string>();
     for (const [base, names] of groups) {
-        if (names.length === 1) {
-            out.set(names[0], base);
-            continue;
-        }
-        names.forEach((name, i) => out.set(name, `${prefix}_${base}${i > 0 ? `_${i}` : ''}`));
+        appendParamMacroNames(out, prefix, base, names);
     }
     return out;
+}
+
+function paramNameGroups(def: TypeDef): Map<string, string[]> {
+    const groups = new Map<string, string[]>();
+    for (const param of paramsOf(def)) {
+        appendParamGroup(groups, param.name);
+    }
+    return groups;
+}
+
+function appendParamGroup(groups: Map<string, string[]>, name: string): void {
+    const base = parameterMacroBase(name);
+    const group = groups.get(base) ?? [];
+    group.push(name);
+    groups.set(base, group);
+}
+
+function appendParamMacroNames(out: Map<string, string>, prefix: string, base: string, names: string[]): void {
+    if (names.length === 1) { out.set(names[0], base); return; }
+    names.forEach((name, i) => out.set(name, `${prefix}_${base}${i > 0 ? `_${i}` : ''}`));
 }
 
 function parameterMacroBase(name: string): string {
@@ -2314,16 +2403,32 @@ function appendParamMacros(
 ): void {
     const used = usedParamNames(def);
     if (used.length === 0) { return; }
-    const byName = new Map((def.params ?? []).map(param => [param.name, param]));
+    const byName = paramsByName(def);
     for (const name of used) {
-        const param = byName.get(name);
-        const value = isValidLayoutValue(params[name]) ? params[name] : 0;
-        const note = param?.default !== undefined
-            ? 'size parameter'
-            : 'size parameter \u2014 no default; set per instance';
-        lines.push(`#define ${macros.get(name) ?? parameterMacroBase(name)} ${value} /* ${note} */`);
+        lines.push(paramMacroLine(name, byName.get(name), params, macros));
     }
     lines.push('');
+}
+
+function paramsByName(def: TypeDef): Map<string, TypeParam> {
+    return new Map(paramsOf(def).map(param => [param.name, param]));
+}
+
+function paramMacroLine(
+    name: string,
+    param: TypeParam | undefined,
+    params: LayoutParams,
+    macros: Map<string, string>,
+): string {
+    const value = isValidLayoutValue(params[name]) ? params[name] : 0;
+    const macro = macros.get(name) ?? parameterMacroBase(name);
+    return `#define ${macro} ${value} /* ${paramNote(param)} */`;
+}
+
+function paramNote(param: TypeParam | undefined): string {
+    return param?.default !== undefined
+        ? 'size parameter'
+        : 'size parameter \u2014 no default; set per instance';
 }
 
 /** Render a standalone `kind: 'bitfield'` def as a C typedef of its storage unit. */

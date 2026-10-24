@@ -30,7 +30,7 @@ import { OverlayPanel } from './components/sidebar/overlayPanel/overlayPanel';
 import { clearSearch, initSearch, invalidateSearchIfDiverged, nextMatch, prevMatch, runSearch } from './search/searchEngine';
 import { SearchBar } from './components/searchBar/searchBar';
 import { Toolbar } from './components/toolbar/toolbar';
-import type { BitFieldAllocation, LabelDraftPreview, SerializedParseResult, SerializedRecord, TypeDef, TypeInstance } from '../core/types';
+import type { BitFieldAllocation, LabelDraftPreview, SerializedParseResult, SerializedRecord, TypeDef, TypeInstance, TypeInstanceParamSource, TypeParam } from '../core/types';
 import type { SidebarTab } from './components/sidebar/sidebar';
 import { RecordView, type RecordViewRenderInput } from './components/recordView/recordView';
 import { RecordPageCache } from './recordPageCache';
@@ -76,7 +76,7 @@ import { showToast } from './components/toast';
 import { formatCopyCommand } from '../core/byteTools/copy';
 import type { InstanceAddressRequestEntry, InstanceParamRequestEntry } from '../webviewProtocol';
 import {
-    effectiveInstanceParams, instanceUsesScriptAddress, instanceUsesScriptParams,
+    effectiveInstanceParams, instanceUsesScriptAddress, instanceUsesScriptParams, type ParamResolution,
 } from './components/sidebar/overlayPanel/overlayInstancesModel';
 import { menuController } from './components/menuController/menuController';
 import { renderMenuHtml, type MenuState } from './components/menuController/menuRender';
@@ -273,13 +273,23 @@ function paramRequestEntries(): InstanceParamRequestEntry[] {
     const selection = currentSelectionRange();
     const entries: InstanceParamRequestEntry[] = [];
     for (const pin of S.typeInstances) {
-        const def = S.types.find(candidate => candidate.id === pin.typeId);
-        if (!def || !def.params || def.params.length === 0) { continue; }
-        if (!instanceUsesScriptParams(pin)) { continue; }
-        const entry = nextParamEntry(pin, def, selection);
+        const entry = paramEntryFor(pin, selection);
         if (entry) { entries.push(entry); }
     }
     return entries;
+}
+
+/** Pending `getSize` entry for one instance, or null when it has none. */
+function paramEntryFor(pin: TypeInstance, selection: SelectionRange | null): InstanceParamRequestEntry | null {
+    const def = S.types.find(candidate => candidate.id === pin.typeId);
+    if (!def || !isTemplated(def)) { return null; }
+    if (!instanceUsesScriptParams(pin)) { return null; }
+    return nextParamEntry(pin, def, selection);
+}
+
+/** True for a type whose layout depends on at least one size parameter. */
+function isTemplated(def: TypeDef): boolean {
+    return def.params !== undefined && def.params.length > 0;
 }
 
 function nextParamEntry(
@@ -287,33 +297,88 @@ function nextParamEntry(
     def: TypeDef,
     selection: SelectionRange | null,
 ): InstanceParamRequestEntry | null {
+    const pending = firstPendingParam(pin, def);
+    if (!pending) { return null; }
     const resolved = overlayPanel.resolvedParamValues(pin.id, S.documentGeneration);
-    const siblingValues = siblingParamValues(def, pin, resolved);
-    for (const param of def.params ?? []) {
-        if (Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, param.name)) { continue; }
-        const source = pin.paramSources?.[param.name];
-        if (!source) { continue; }
-        const resolution = overlayPanel.paramResolution(pin.id, param.name);
-        if (resolution?.status === 'error') { return null; }
-        if (resolution?.status === 'resolved' && resolution.generation === S.documentGeneration) { continue; }
-        return {
-            pinId: pin.id,
-            param: param.name,
-            scriptPath: source.scriptPath,
-            context: {
-                instance: {
-                    id: pin.id,
-                    name: pin.name,
-                    typeId: pin.typeId,
-                    typeName: def.name,
-                },
-                param: param.name,
-                paramValues: siblingValues,
-                ...(selection ? { selection: { start: selection.start, end: selection.end } } : {}),
-            },
-        };
+    return {
+        pinId: pin.id,
+        param: pending.name,
+        scriptPath: pending.scriptPath,
+        context: paramRunContext(pin, def.name, pending.name, siblingParamValues(def, pin, resolved), selection),
+    };
+}
+
+/** A script-sourced parameter that still needs a `getSize` run. */
+interface PendingParam {
+    name: string;
+    scriptPath: string;
+}
+
+/**
+ * First parameter waiting on its `getSize` script; null when none is pending or
+ * a failed parameter blocks the instance's remaining parameters.
+ */
+function firstPendingParam(pin: TypeInstance, def: TypeDef): PendingParam | null {
+    for (const param of paramsOf(def)) {
+        const state = paramRoundState(pin, param);
+        if (state.kind === 'error') { return null; }
+        if (state.kind === 'pending') { return { name: param.name, scriptPath: state.scriptPath }; }
     }
     return null;
+}
+
+type ParamRoundState =
+    | { kind: 'done' }
+    | { kind: 'pending'; scriptPath: string }
+    | { kind: 'error' };
+
+/** What the next resolution round should do with one declared parameter. */
+function paramRoundState(pin: TypeInstance, param: TypeParam): ParamRoundState {
+    const source = pendingSource(pin, param);
+    if (!source) { return { kind: 'done' }; }
+    const resolution = overlayPanel.paramResolution(pin.id, param.name);
+    if (isErroredResolution(resolution)) { return { kind: 'error' }; }
+    if (isFreshlyResolved(resolution)) { return { kind: 'done' }; }
+    return { kind: 'pending', scriptPath: source.scriptPath };
+}
+
+/** Script source of a parameter that still needs resolving (authored values win). */
+function pendingSource(pin: TypeInstance, param: TypeParam): TypeInstanceParamSource | undefined {
+    if (hasAuthoredValue(pin, param.name)) { return undefined; }
+    return pin.paramSources?.[param.name];
+}
+
+function hasAuthoredValue(pin: TypeInstance, name: string): boolean {
+    return Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, name);
+}
+
+function isErroredResolution(resolution: ParamResolution | undefined): boolean {
+    return resolution?.status === 'error';
+}
+
+function isFreshlyResolved(resolution: ParamResolution | undefined): boolean {
+    return resolution?.status === 'resolved' && resolution.generation === S.documentGeneration;
+}
+
+/** Declared parameters of a type (empty for a literal layout). */
+function paramsOf(def: TypeDef): readonly TypeParam[] {
+    return def.params ?? [];
+}
+
+function paramRunContext(
+    pin: TypeInstance,
+    typeName: string,
+    param: string,
+    siblingValues: Record<string, number>,
+    selection: SelectionRange | null,
+): InstanceParamRequestEntry['context'] {
+    const context: InstanceParamRequestEntry['context'] = {
+        instance: { id: pin.id, name: pin.name, typeId: pin.typeId, typeName },
+        param,
+        paramValues: siblingValues,
+    };
+    if (selection) { context.selection = { start: selection.start, end: selection.end }; }
+    return context;
 }
 
 /** Read-only sibling values: defaults, resolved/source values, then authored values. */
@@ -323,12 +388,18 @@ function siblingParamValues(
     resolved: ReadonlyMap<string, number>,
 ): Record<string, number> {
     const values: Record<string, number> = {};
-    for (const param of def.params ?? []) {
-        if (param.default !== undefined) { values[param.name] = param.default; }
-    }
-    for (const [name, value] of resolved) { values[name] = value; }
-    for (const [name, value] of Object.entries(pin.paramValues ?? {})) { values[name] = value; }
+    for (const param of paramsOf(def)) { applyParamDefault(values, param); }
+    assignValues(values, resolved);
+    assignValues(values, Object.entries(pin.paramValues ?? {}));
     return values;
+}
+
+function applyParamDefault(values: Record<string, number>, param: TypeParam): void {
+    if (param.default !== undefined) { values[param.name] = param.default; }
+}
+
+function assignValues(values: Record<string, number>, entries: Iterable<readonly [string, number]>): void {
+    for (const [name, value] of entries) { values[name] = value; }
 }
 
 /** One host message for every dynamic instance (one script run per instance). */
@@ -341,26 +412,7 @@ function requestInstanceAddresses(): void {
     }
     if (pins.length === 0) { return; }
     const selection = currentSelectionRange();
-    const entries: InstanceAddressRequestEntry[] = pins.map(pin => {
-        const def = S.types.find(candidate => candidate.id === pin.typeId);
-        const resolved = overlayPanel.resolvedParamValues(pin.id, S.documentGeneration);
-        const effective = def ? effectiveInstanceParams(def, pin, resolved) : null;
-        return {
-            pinId: pin.id,
-            scriptPath: pin.addressSource!.scriptPath,
-            context: {
-                instance: {
-                    id: pin.id,
-                    name: pin.name,
-                    typeId: pin.typeId,
-                    typeName: def?.name ?? '?',
-                },
-                // Address scripts see the effective (authored + resolved + default) values.
-                paramValues: effective?.ok ? { ...effective.value } : { ...(pin.paramValues ?? {}) },
-                ...(selection ? { selection: { start: selection.start, end: selection.end } } : {}),
-            },
-        };
-    });
+    const entries = pins.map(pin => addressEntryFor(pin, selection));
     resolutionRequestSeq += 1;
     pendingAddressRequestId = resolutionRequestSeq;
     overlayPanel.markAddressesResolving(entries.map(entry => entry.pinId));
@@ -371,6 +423,47 @@ function requestInstanceAddresses(): void {
         edits: Array.from(S.edits.entries()),
         entries,
     });
+}
+
+/** One address-resolution entry for a dynamic instance (`addressSource` is present). */
+function addressEntryFor(pin: TypeInstance, selection: SelectionRange | null): InstanceAddressRequestEntry {
+    return {
+        pinId: pin.id,
+        scriptPath: pin.addressSource!.scriptPath,
+        context: addressRunContext(pin, selection),
+    };
+}
+
+function addressRunContext(pin: TypeInstance, selection: SelectionRange | null): InstanceAddressRequestEntry['context'] {
+    const def = S.types.find(candidate => candidate.id === pin.typeId);
+    const resolved = overlayPanel.resolvedParamValues(pin.id, S.documentGeneration);
+    const context: InstanceAddressRequestEntry['context'] = {
+        instance: { id: pin.id, name: pin.name, typeId: pin.typeId, typeName: def?.name ?? '?' },
+        // Address scripts see the effective (authored + resolved + default) values.
+        paramValues: effectiveParamValues(def, pin, resolved),
+    };
+    if (selection) { context.selection = { start: selection.start, end: selection.end }; }
+    return context;
+}
+
+/** Effective parameter values for an address run; authored values are the fallback. */
+function effectiveParamValues(
+    def: TypeDef | undefined,
+    pin: TypeInstance,
+    resolved: ReadonlyMap<string, number>,
+): Record<string, number> {
+    const effective = resolveEffectiveParams(def, pin, resolved);
+    return effective ? { ...effective } : { ...(pin.paramValues ?? {}) };
+}
+
+function resolveEffectiveParams(
+    def: TypeDef | undefined,
+    pin: TypeInstance,
+    resolved: ReadonlyMap<string, number>,
+): Record<string, number> | null {
+    if (!def) { return null; }
+    const effective = effectiveInstanceParams(def, pin, resolved);
+    return effective.ok ? effective.value : null;
 }
 
 function handleInstanceParamsResolvedMessage(msg: WebviewMessageByType<'instanceParamsResolved'>): void {

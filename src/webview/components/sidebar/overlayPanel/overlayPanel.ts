@@ -445,26 +445,39 @@ clearAddressResolutions(): void {
 
 /** Keep the last resolved address visible but not current; no decode runs until re-resolved. */
 markAddressesStale(generation: number): void {
+    this.pruneVanishedAddressResolutions();
+    if (this.markPinsStale(generation)) { this.refreshInstances(); }
+}
+
+/** Drop resolutions whose instance vanished from the current pin list. */
+private pruneVanishedAddressResolutions(): void {
     const ids = new Set(this._pins.map(pin => pin.id));
     for (const id of Array.from(this._addressResolutions.keys())) {
         if (!ids.has(id)) { this._addressResolutions.delete(id); }
     }
+}
+
+private markPinsStale(generation: number): boolean {
     let changed = false;
     for (const pin of this._pins) {
-        if (!instanceUsesScriptAddress(pin)) { continue; }
-        const current = this._addressResolutions.get(pin.id);
-        if (current?.status === 'resolving') { continue; }
-        const addr = current?.status === 'resolved' || current?.status === 'stale'
-            ? current.addr
-            : current?.status === 'error' ? current.lastAddr : undefined;
-        this._addressResolutions.set(pin.id, {
-            status: 'stale',
-            ...(addr === undefined ? {} : { addr }),
-            generation,
-        });
-        changed = true;
+        if (this.staleAddressOfPin(pin, generation)) { changed = true; }
     }
-    if (changed) { this.refreshInstances(); }
+    return changed;
+}
+
+private staleAddressOfPin(pin: TypeInstance, generation: number): boolean {
+    return instanceUsesScriptAddress(pin) && this.markAddressStale(pin.id, generation);
+}
+
+/** Rewrite one instance's resolution as stale, keeping its last address when there is one. */
+private markAddressStale(pinId: string, generation: number): boolean {
+    const current = this._addressResolutions.get(pinId);
+    if (current?.status === 'resolving') { return false; }
+    const stale: { status: 'stale'; generation: number; addr?: number } = { status: 'stale', generation };
+    const addr = lastAddressValue(current);
+    if (addr !== undefined) { stale.addr = addr; }
+    this._addressResolutions.set(pinId, stale);
+    return true;
 }
 
 /** Mark the batched request's instances as in flight. */
@@ -476,22 +489,17 @@ markAddressesResolving(pinIds: readonly string[]): void {
 
 /** Apply one batch of host results (partial results allowed). */
 applyAddressResults(results: readonly InstanceAddressResult[], generation: number): void {
-    for (const result of results) {
-        if (result.ok) {
-            this._addressResolutions.set(result.pinId, { status: 'resolved', addr: result.addr, generation });
-            continue;
-        }
-        const current = this._addressResolutions.get(result.pinId);
-        const lastAddr = current?.status === 'resolved' || current?.status === 'stale' ? current.addr : undefined;
-        this._addressResolutions.set(result.pinId, {
-            status: 'error',
-            message: result.error || 'Invalid address from script',
-            generation,
-            ...(result.errorType ? { errorType: result.errorType } : {}),
-            ...(lastAddr === undefined ? {} : { lastAddr }),
-        });
-    }
+    for (const result of results) { this.applyAddressResult(result, generation); }
     this.refreshInstances();
+}
+
+private applyAddressResult(result: InstanceAddressResult, generation: number): void {
+    if (result.ok) {
+        this._addressResolutions.set(result.pinId, { status: 'resolved', addr: result.addr, generation });
+        return;
+    }
+    const lastAddr = previousAddressValue(this._addressResolutions.get(result.pinId));
+    this._addressResolutions.set(result.pinId, addressFailureResolution(result, generation, lastAddr));
 }
 
 /** Drop every transient parameter resolution (document close / profile switch). */
@@ -503,25 +511,27 @@ clearParamResolutions(): void {
 
 /** Keep the last resolved value visible but not current; no decode runs until re-resolved. */
 markParamsStale(generation: number): void {
-    let changed = false;
-    for (const pin of this._pins) {
-        if (!instanceUsesScriptParams(pin)) { continue; }
-        for (const param of Object.keys(pin.paramSources ?? {})) {
-            if (Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, param)) { continue; }
-            const key = paramResolutionKey(pin.id, param);
-            const current = this._paramResolutions.get(key);
-            const value = current?.status === 'resolved' || current?.status === 'stale'
-                ? current.value
-                : current?.status === 'error' ? current.lastValue : undefined;
-            this._paramResolutions.set(key, {
-                status: 'stale',
-                ...(value === undefined ? {} : { value }),
-                generation,
-            });
-            changed = true;
-        }
-    }
+    const changed = this._pins.reduce((acc, pin) => this.markPinParamsStale(pin, generation) || acc, false);
     if (changed) { this.refreshInstances(); }
+}
+
+/** Mark every script-sourced parameter of one instance stale (manual values win). */
+private markPinParamsStale(pin: TypeInstance, generation: number): boolean {
+    if (!instanceUsesScriptParams(pin)) { return false; }
+    let changed = false;
+    for (const param of activeParamNames(pin)) {
+        this.markParamStale(pin.id, param, generation);
+        changed = true;
+    }
+    return changed;
+}
+
+private markParamStale(pinId: string, param: string, generation: number): void {
+    const key = paramResolutionKey(pinId, param);
+    const stale: { status: 'stale'; generation: number; value?: number } = { status: 'stale', generation };
+    const value = lastParamValue(this._paramResolutions.get(key));
+    if (value !== undefined) { stale.value = value; }
+    this._paramResolutions.set(key, stale);
 }
 
 /** Mark the batched round's parameters as in flight. */
@@ -535,23 +545,18 @@ markParamsResolving(entries: readonly { pinId: string; param: string }[]): void 
 
 /** Apply one batch of host size results (partial results allowed). */
 applyParamResults(results: readonly InstanceParamResult[], generation: number): void {
-    for (const result of results) {
-        const key = paramResolutionKey(result.pinId, result.param);
-        if (result.ok) {
-            this._paramResolutions.set(key, { status: 'resolved', value: result.value, generation });
-            continue;
-        }
-        const current = this._paramResolutions.get(key);
-        const lastValue = current?.status === 'resolved' || current?.status === 'stale' ? current.value : undefined;
-        this._paramResolutions.set(key, {
-            status: 'error',
-            message: result.error || 'Invalid size from script',
-            generation,
-            ...(result.errorType ? { errorType: result.errorType } : {}),
-            ...(lastValue === undefined ? {} : { lastValue }),
-        });
-    }
+    for (const result of results) { this.applyParamResult(result, generation); }
     this.refreshInstances();
+}
+
+private applyParamResult(result: InstanceParamResult, generation: number): void {
+    const key = paramResolutionKey(result.pinId, result.param);
+    if (result.ok) {
+        this._paramResolutions.set(key, { status: 'resolved', value: result.value, generation });
+        return;
+    }
+    const lastValue = previousParamValue(this._paramResolutions.get(key));
+    this._paramResolutions.set(key, paramFailureResolution(result, generation, lastValue));
 }
 
 /** One parameter's transient resolution (undefined until the first request). */
@@ -561,18 +566,19 @@ paramResolution(pinId: string, param: string): ParamResolution | undefined {
 
 /** Successful resolved values for one instance in the current generation. */
 resolvedParamValues(pinId: string, generation: number): ReadonlyMap<string, number> {
-    const pin = this._pins.find(candidate => candidate.id === pinId);
     const values = new Map<string, number>();
+    const pin = this._pins.find(candidate => candidate.id === pinId);
     if (!pin) { return values; }
-    const resolved = resolvedInstanceParams(pinId, this._paramResolutions);
-    for (const [name, value] of resolved) {
-        if (!this.paramSourceStillActive(pin, name)) { continue; }
-        const resolution = this._paramResolutions.get(paramResolutionKey(pinId, name));
-        if (resolution?.status === 'resolved' && resolution.generation === generation) {
-            values.set(name, value);
-        }
+    for (const [name, value] of this.resolvedParamValuesFor(pin)) {
+        if (this.resolvedInGeneration(pinId, name, generation)) { values.set(name, value); }
     }
     return values;
+}
+
+/** Whether one parameter holds a successful resolution from the requested generation. */
+private resolvedInGeneration(pinId: string, name: string, generation: number): boolean {
+    const resolution = this._paramResolutions.get(paramResolutionKey(pinId, name));
+    return resolution?.status === 'resolved' && resolution.generation === generation;
 }
 
 /** Why an instance cannot decode yet: a pending/stale/failed source or invalid params. */
@@ -581,10 +587,11 @@ paramBlockReason(pinId: string): string | undefined {
     if (!pin) { return undefined; }
     const def = this.allTypesById().find(candidate => candidate.id === pin.typeId);
     if (!def) { return undefined; }
-    const resolutionError = instanceParamResolutionError(def, pin, this._paramResolutions);
-    if (resolutionError) { return resolutionError; }
-    const effective = this.pinLayoutParams(pin, def);
-    return effective ? undefined : this.effectiveParamsError(pin, def);
+    return this.paramResolutionError(pin, def) ?? this.effectiveParamsError(pin, def);
+}
+
+private paramResolutionError(pin: TypeInstance, def: TypeDef): string | undefined {
+    return instanceParamResolutionError(def, pin, this._paramResolutions) || undefined;
 }
 
 /** Effective layout params for one instance (undefined on any parameter error). */
@@ -609,8 +616,7 @@ private resolvedParamValuesFor(pin: TypeInstance): ReadonlyMap<string, number> {
 
 /** A resolution only counts while its authored source is still live (manual wins). */
 private paramSourceStillActive(pin: TypeInstance, name: string): boolean {
-    if (!pin.paramSources?.[name]?.scriptPath?.trim()) { return false; }
-    return !Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, name);
+    return Boolean(pin.paramSources?.[name]?.scriptPath?.trim()) && !hasOwnParamValue(pin, name);
 }
 
 private allTypesById(): TypeDef[] {
@@ -690,12 +696,12 @@ private editorHtml(draft: TypeDef, existing: TypeDef | null): string {
 
 private typeEditorHtml(draft: TypeDef, existing: TypeDef | null): string {
     const fieldRows = this.fieldRowsHtml(draft);
-    const errorHtml = this._editorError ? `<div class="oe-error">${esc(this._editorError)}</div>` : '';
+    const errorHtml = this.editorErrorHtml();
     return (
         `<div class="oi-editor-wrap">` +
         this.editorTabsHtml() +
         `<div class="oe-view" data-oe-view="edit">` +
-        `<div class="oe-form${(draft.params?.length ?? 0) > 0 ? ' has-params' : ''}">` +
+        `<div class="oe-form${hasParams(draft) ? ' has-params' : ''}">` +
         `<label class="oe-name-lbl" for="oe-name">Type name</label>` +
         `<input id="oe-name" class="oe-name-inp sb-input" type="text" value="${esc(draft.name)}" ` +
                `maxlength="64" placeholder="MyType" spellcheck="false" autocomplete="off">` +
@@ -722,6 +728,10 @@ private typeEditorHtml(draft: TypeDef, existing: TypeDef | null): string {
         `</div>` +
         `</div>`
     );
+}
+
+private editorErrorHtml(): string {
+    return this._editorError ? `<div class="oe-error">${esc(this._editorError)}</div>` : '';
 }
 
 /**
@@ -773,18 +783,15 @@ private syncEditorParams(sec: HTMLElement, draft: TypeDef): void {
 }
 
 private readEditorParam(row: HTMLElement, i: number): TypeParam {
-    const nameInp = row.querySelector<HTMLInputElement>('.ofe-param-name');
-    const defaultInp = row.querySelector<HTMLInputElement>('.ofe-param-default');
-    const param: TypeParam = {
-        name: this.sanitizeCIdent(nameInp?.value ?? '') || `param${i}`,
-        kind: 'size',
-    };
-    const rawDefault = defaultInp?.value.trim() ?? '';
-    if (rawDefault !== '') {
-        const value = Number(rawDefault);
-        if (Number.isFinite(value)) { param.default = value; }
-    }
+    const param: TypeParam = { name: this.paramNameFromRow(row, i), kind: 'size' };
+    const defaultValue = readParamDefault(row.querySelector<HTMLInputElement>('.ofe-param-default')?.value);
+    if (defaultValue !== undefined) { param.default = defaultValue; }
     return param;
+}
+
+private paramNameFromRow(row: HTMLElement, i: number): string {
+    const nameInp = row.querySelector<HTMLInputElement>('.ofe-param-name');
+    return this.sanitizeCIdent(nameInp?.value ?? '') || `param${i}`;
 }
 
 private paramIndex(btn: HTMLElement): number | null {
@@ -827,11 +834,7 @@ private onParamRename(sec: HTMLElement, draft: TypeDef, inp: HTMLInputElement): 
     const clean = this.sanitizeCIdent(inp.value) || oldName || 'param';
     inp.value = clean;
     this.syncEditorDraft(sec, draft);
-    if (oldName && oldName !== clean) {
-        for (const field of draft.fields) {
-            if (field.countParam === oldName) { field.countParam = clean; }
-        }
-    }
+    renameParamRefs(draft, oldName, clean);
     this.clearParamError(sec);
     this.refreshParamSection(sec, draft);
 }
@@ -848,24 +851,28 @@ private moveParam(sec: HTMLElement, draft: TypeDef, btn: HTMLElement, delta: num
     const i = this.paramIndex(btn);
     if (i === null) { return; }
     this.syncEditorDraft(sec, draft);
-    const params = draft.params ?? [];
+    const params = this.editorParams(draft);
     const target = i + delta;
-    if (target < 0 || target >= params.length) { return; }
+    if (!isIndexInRange(target, params.length)) { return; }
     [params[i], params[target]] = [params[target], params[i]];
     this.clearParamError(sec);
     this.refreshParamSection(sec, draft);
+}
+
+private editorParams(draft: TypeDef): TypeParam[] {
+    return draft.params ?? [];
 }
 
 private deleteParam(sec: HTMLElement, draft: TypeDef, btn: HTMLElement): void {
     const i = this.paramIndex(btn);
     if (i === null) { return; }
     this.syncEditorDraft(sec, draft);
-    const params = draft.params ?? [];
+    const params = this.editorParams(draft);
     const param = params[i];
     if (!param) { return; }
-    const referencingField = draft.fields.find(field => field.countParam === param.name);
-    if (referencingField) {
-        this.showParamError(sec, `Parameter "${param.name}" is used by field "${referencingField.name}" \u2014 change its count first.`);
+    const referenceError = paramReferenceError(draft, param);
+    if (referenceError) {
+        this.showParamError(sec, referenceError);
         return;
     }
     params.splice(i, 1);
@@ -874,7 +881,7 @@ private deleteParam(sec: HTMLElement, draft: TypeDef, btn: HTMLElement): void {
 }
 
 private refreshParamSection(sec: HTMLElement, draft: TypeDef): void {
-    sec.querySelector<HTMLElement>('.oe-form')?.classList.toggle('has-params', (draft.params?.length ?? 0) > 0);
+    sec.querySelector<HTMLElement>('.oe-form')?.classList.toggle('has-params', hasParams(draft));
     const list = sec.querySelector<HTMLElement>('#oe-params-list');
     if (list) {
         list.innerHTML = this.paramRowsHtml(draft);
@@ -965,9 +972,8 @@ private kindDefEditorShellHtml(draft: TypeDef, parts: KindDefEditorParts): strin
 
 /** Shared editor tail: error slot, save/cancel buttons, and the C preview pane. */
 private kindDefEditorFooterHtml(draft: TypeDef): string {
-    const errorHtml = this._editorError ? `<div class="oe-error">${esc(this._editorError)}</div>` : '';
     return (
-        errorHtml +
+        this.editorErrorHtml() +
         `<div class="oe-btns">` +
         `<button id="oe-save" class="sb-btn sb-btn-primary">Save</button>` +
         `<button id="oe-cancel" class="sb-btn sb-btn-secondary">Cancel</button>` +
@@ -1357,23 +1363,7 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): 
     });
 
     fieldsEl.querySelectorAll<HTMLElement>('.ofe-arr-toggle').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const cell = btn.closest<HTMLElement>('.ofe-arr-cell')!;
-            const nowArr = !cell.classList.contains('is-array');
-            cell.classList.toggle('is-array', nowArr);
-            btn.classList.toggle('active', nowArr);
-            btn.title = nowArr ? 'Remove array' : 'Make array';
-            btn.setAttribute('aria-label', btn.title);
-            const paramSel = cell.querySelector<HTMLSelectElement>('.ofe-count-param');
-            if (!nowArr && paramSel) { paramSel.value = ''; }
-            cell.classList.toggle('has-param', nowArr && !!paramSel?.value);
-            if (nowArr && !paramSel?.value) {
-                const inp = cell.querySelector<HTMLInputElement>('.ofe-count-inp')!;
-                if (!inp.value) { inp.value = '2'; }
-                inp.focus(); inp.select();
-            }
-            this.refreshEditorPreview(sec, draft);
-        });
+        btn.addEventListener('click', () => this.toggleArrayCell(sec, draft, btn));
     });
 
     fieldsEl.querySelectorAll<HTMLElement>('.field-row').forEach(row => {
@@ -1448,6 +1438,41 @@ private wireFieldRows(fieldsEl: HTMLElement, sec: HTMLElement, draft: TypeDef): 
             this.refreshEditorPreview(sec, draft);
         });
     });
+}
+
+/**
+ * Toggle a field row's array cell in place: flips the array/param classes, seeds
+ * the literal count on first activation, and refreshes the preview.
+ */
+private toggleArrayCell(sec: HTMLElement, draft: TypeDef, btn: HTMLElement): void {
+    const cell = btn.closest<HTMLElement>('.ofe-arr-cell')!;
+    const nowArr = !cell.classList.contains('is-array');
+    cell.classList.toggle('is-array', nowArr);
+    this.syncArrayToggleButton(btn, nowArr);
+    this.syncArrayParamState(cell, nowArr);
+    this.refreshEditorPreview(sec, draft);
+}
+
+private syncArrayParamState(cell: HTMLElement, isArray: boolean): void {
+    const paramSel = cell.querySelector<HTMLSelectElement>('.ofe-count-param');
+    this.resetArrayParamSelect(paramSel, isArray);
+    const hasParam = isArray && Boolean(paramSel?.value);
+    cell.classList.toggle('has-param', hasParam);
+    this.seedArrayCountIfNeeded(cell, isArray && !hasParam);
+}
+
+private resetArrayParamSelect(paramSel: HTMLSelectElement | null, isArray: boolean): void {
+    if (!isArray && paramSel) { paramSel.value = ''; }
+}
+
+private seedArrayCountIfNeeded(cell: HTMLElement, needsCount: boolean): void {
+    if (needsCount) { seedArrayCount(cell); }
+}
+
+private syncArrayToggleButton(btn: HTMLElement, isArray: boolean): void {
+    btn.classList.toggle('active', isArray);
+    btn.title = isArray ? 'Remove array' : 'Make array';
+    btn.setAttribute('aria-label', btn.title);
 }
 
 /**
@@ -2052,28 +2077,49 @@ private pinFormAddress(pin: TypeInstance | null): string {
 private addInstanceAddressSourceHtml(pin: TypeInstance | null): string {
     const fromScript = this._pinSourceDraft.mode === 'script';
     const locked = Boolean(pin?.pointerSources?.length);
-    const lockTitle = 'Pointer-created instances must use a fixed address';
-    const empty = this.addressScripts().length === 0;
+    return (
+        this.addressSourceSelectHtml(fromScript, locked) +
+        this.addressFixedRowHtml(pin, fromScript) +
+        this.addressScriptRowHtml(fromScript) +
+        this.addressEmptyActionsHtml(fromScript, this.addressScripts().length === 0) +
+        this.scriptUntrustedHintHtml()
+    );
+}
+
+private addressSourceSelectHtml(fromScript: boolean, locked: boolean): string {
     return (
         `<div class="oa-row oa-src-row">` +
-        `<select id="oa-addr-source" class="sb-select" aria-label="Address source"` +
-               `${locked ? ` title="${lockTitle}"` : ''}>` +
-        `<option value="fixed"${fromScript ? '' : ' selected'}>Fixed address</option>` +
-        `<option value="script"${fromScript ? ' selected' : ''}${locked ? ' disabled' : ''}>From script</option>` +
+        `<select id="oa-addr-source" class="sb-select" aria-label="Address source"${lockedTitleAttr(locked)}>` +
+        sourceOptionHtml('fixed', 'Fixed address', !fromScript, false) +
+        sourceOptionHtml('script', 'From script', fromScript, locked) +
         `</select>` +
-        `</div>` +
+        `</div>`
+    );
+}
+
+private addressFixedRowHtml(pin: TypeInstance | null, fromScript: boolean): string {
+    return (
         `<div class="oa-row oa-addr-row"${fromScript ? ' hidden' : ''}>` +
         `<span class="addr-pfx">0x</span>` +
         `<input id="oa-addr" class="sb-input oa-addr-inp" type="text" maxlength="8" ` +
                `placeholder="08000000" autocomplete="off" spellcheck="false" value="${esc(this.pinFormAddress(pin))}">` +
-        `</div>` +
+        `</div>`
+    );
+}
+
+private addressScriptRowHtml(fromScript: boolean): string {
+    return (
         `<div class="oa-row oa-script-row"${fromScript ? '' : ' hidden'}>` +
         `<select id="oa-script-sel" class="sb-select oa-script-sel" aria-label="Address script">` +
                `${this.addressScriptOptionsHtml(this._pinSourceDraft.scriptPath)}</select>` +
         `<button type="button" id="oa-script-open" class="sb-btn sb-btn-secondary oa-script-open"` +
                `${this._pinSourceDraft.scriptPath ? '' : ' disabled'}>Open</button>` +
-        `</div>` +
-        this.addressEmptyActionsHtml(fromScript, empty) +
+        `</div>`
+    );
+}
+
+private scriptUntrustedHintHtml(): string {
+    return (
         `<div id="oa-script-untrusted" class="oa-hint"${this._scriptsTrusted ? ' hidden' : ''}>` +
         `Workspace not trusted \u2014 scripts cannot run.</div>`
     );
@@ -2090,30 +2136,12 @@ private addressEmptyActionsHtml(fromScript: boolean, empty: boolean): string {
     );
 }
 
-private addressScripts(): Array<{ path: string; label: string }> {
-    const seen = new Set<string>();
-    const options: Array<{ path: string; label: string }> = [];
-    for (const script of this._scripts) {
-        if (!script.roles.includes('address')) { continue; }
-        const path = script.relativePath || script.filePath;
-        if (!path || seen.has(path)) { continue; }
-        seen.add(path);
-        options.push({ path, label: path });
-    }
-    return options;
+private addressScripts(): ScriptOption[] {
+    return roleScriptOptions(this._scripts, 'address');
 }
 
 private addressScriptOptionsHtml(selected: string): string {
-    const options = this.addressScripts();
-    if (selected && !options.some(option => option.path === selected)) {
-        options.unshift({ path: selected, label: `${selected} (not found)` });
-    }
-    if (options.length === 0) {
-        return `<option value="">No @script address scripts</option>`;
-    }
-    return options.map(option =>
-        `<option value="${esc(option.path)}"${option.path === selected ? ' selected' : ''}>${esc(option.label)}</option>`,
-    ).join('');
+    return scriptOptionsHtml(this.addressScripts(), selected, 'No @script address scripts');
 }
 
 /** Form's current script selection: draft value, else the mounted select's value. */
@@ -2165,7 +2193,10 @@ private syncScriptOpenButton(): void {
 private instanceConfirmDisabled(): boolean {
     if (!this.selectedApplyTypeId()) { return true; }
     if (this._pinSourceDraft.mode === 'script') { return !this.selectedAddressScript(); }
-    if (this.paramSourcesPendingSelection()) { return true; }
+    return this.paramSourcesPendingSelection() || this.addressInputEmpty();
+}
+
+private addressInputEmpty(): boolean {
     const addrInput = this.pendingAddrInput();
     if (addrInput) { return addrInput.value.trim().length === 0; }
     return this.pinFormAddress(this.editingTypeInstance()).length === 0;
@@ -2173,11 +2204,13 @@ private instanceConfirmDisabled(): boolean {
 
 /** True when a parameter row is in script mode without a selected script. */
 private paramSourcesPendingSelection(): boolean {
-    for (const row of Array.from(this._root?.querySelectorAll<HTMLElement>('#oa-params .oa-param-row') ?? [])) {
-        if (row.querySelector<HTMLSelectElement>('.oa-param-source')?.value !== 'script') { continue; }
-        if (!this.selectedParamScript(row.dataset.paramName ?? '')) { return true; }
-    }
-    return false;
+    const rows = Array.from(this._root?.querySelectorAll<HTMLElement>('#oa-params .oa-param-row') ?? []);
+    return rows.some(row => this.paramRowPendingSelection(row));
+}
+
+private paramRowPendingSelection(row: HTMLElement): boolean {
+    if (row.querySelector<HTMLSelectElement>('.oa-param-source')?.value !== 'script') { return false; }
+    return !this.selectedParamScript(row.dataset.paramName ?? '');
 }
 
 private refreshInstanceConfirmState(): void {
@@ -2221,29 +2254,62 @@ private addInstanceParamsHtml(def: TypeDef | undefined): string {
     const params = def?.params ?? [];
     if (params.length === 0) { return ''; }
     const pin = this.editingTypeInstance();
-    const rows = params.map(param => {
-        const value = pin?.typeId === def?.id ? pin?.paramValues?.[param.name] : undefined;
-        const initial = value ?? param.default;
-        const draft = this.paramSourceDraft(param.name, pin?.typeId === def?.id ? pin?.paramSources?.[param.name] : undefined);
-        const fromScript = draft.mode === 'script';
-        return (
-            `<div class="oa-param-row" data-param-name="${esc(param.name)}">` +
-            `<span class="oa-param-lbl">${esc(param.name)}</span>` +
-            `<select class="oa-param-source sb-select" aria-label="Parameter ${esc(param.name)} source">` +
-            `<option value="manual"${fromScript ? '' : ' selected'}>Manual</option>` +
-            `<option value="script"${fromScript ? ' selected' : ''}>From script</option>` +
-            `</select>` +
-            `<input class="oa-param-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
-                   `value="${initial !== undefined ? initial : ''}" placeholder="N" ` +
-                   `aria-label="Parameter ${esc(param.name)} value"${fromScript ? ' hidden' : ''}>` +
-            `<select class="oa-param-script sb-select" aria-label="Parameter ${esc(param.name)} size script"${fromScript ? '' : ' hidden'}>` +
-                   `${this.sizeScriptOptionsHtml(draft.scriptPath)}</select>` +
-            `<button type="button" class="oa-param-open sb-btn sb-btn-secondary"` +
-                   `${draft.scriptPath ? '' : ' disabled'} title="Open size script" aria-label="Open size script"${fromScript ? '' : ' hidden'}>Open</button>` +
-            `</div>`
-        );
-    }).join('');
+    const rows = params.map(param => this.paramFormRowHtml(param, def, pin)).join('');
     return `<div id="oa-params" class="oa-params"><div class="oa-params-hdr">Parameters</div>${rows}${this.sizeEmptyActionsHtml()}</div>`;
+}
+
+/** One parameter row of the add/edit instance form. */
+private paramFormRowHtml(param: TypeParam, def: TypeDef | undefined, pin: TypeInstance | null): string {
+    const draft = this.paramSourceDraft(param.name, this.pinParamSource(pin, def, param.name));
+    const fromScript = draft.mode === 'script';
+    return (
+        `<div class="oa-param-row" data-param-name="${esc(param.name)}">` +
+        `<span class="oa-param-lbl">${esc(param.name)}</span>` +
+        this.paramSourceSelectHtml(param, fromScript) +
+        this.paramValueInputHtml(param, this.paramFormValue(pin, def, param), fromScript) +
+        this.paramScriptSelectHtml(param, draft, fromScript) +
+        `</div>`
+    );
+}
+
+/** Whether the edited instance belongs to the selected type (its values seed the form). */
+private pinBoundToType(pin: TypeInstance | null, def: TypeDef | undefined): boolean {
+    return Boolean(pin && def && pin.typeId === def.id);
+}
+
+private pinParamSource(pin: TypeInstance | null, def: TypeDef | undefined, name: string): TypeInstanceParamSource | undefined {
+    return this.pinBoundToType(pin, def) ? pin?.paramSources?.[name] : undefined;
+}
+
+private paramFormValue(pin: TypeInstance | null, def: TypeDef | undefined, param: TypeParam): number | undefined {
+    const value = this.pinBoundToType(pin, def) ? pin?.paramValues?.[param.name] : undefined;
+    return value !== undefined ? value : param.default;
+}
+
+private paramSourceSelectHtml(param: TypeParam, fromScript: boolean): string {
+    return (
+        `<select class="oa-param-source sb-select" aria-label="Parameter ${esc(param.name)} source">` +
+        `<option value="manual"${fromScript ? '' : ' selected'}>Manual</option>` +
+        `<option value="script"${fromScript ? ' selected' : ''}>From script</option>` +
+        `</select>`
+    );
+}
+
+private paramValueInputHtml(param: TypeParam, initial: number | undefined, fromScript: boolean): string {
+    return (
+        `<input class="oa-param-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
+               `value="${initial !== undefined ? initial : ''}" placeholder="N" ` +
+               `aria-label="Parameter ${esc(param.name)} value"${fromScript ? ' hidden' : ''}>`
+    );
+}
+
+private paramScriptSelectHtml(param: TypeParam, draft: PinParamSourceDraft, fromScript: boolean): string {
+    return (
+        `<select class="oa-param-script sb-select" aria-label="Parameter ${esc(param.name)} size script"${fromScript ? '' : ' hidden'}>` +
+               `${this.sizeScriptOptionsHtml(draft.scriptPath)}</select>` +
+        `<button type="button" class="oa-param-open sb-btn sb-btn-secondary"` +
+               `${draft.scriptPath ? '' : ' disabled'} title="Open size script" aria-label="Open size script"${fromScript ? '' : ' hidden'}>Open</button>`
+    );
 }
 
 /** Empty size picker (no `@script size` scripts): create action + folder reveal. */
@@ -2267,38 +2333,24 @@ private paramSourceDraft(name: string, source: TypeInstanceParamSource | undefin
 }
 
 /** Scripts tagged `@script size` (filtered source picker). */
-private sizeScripts(): Array<{ path: string; label: string }> {
-    const seen = new Set<string>();
-    const options: Array<{ path: string; label: string }> = [];
-    for (const script of this._scripts) {
-        if (!script.roles.includes('size')) { continue; }
-        const path = script.relativePath || script.filePath;
-        if (!path || seen.has(path)) { continue; }
-        seen.add(path);
-        options.push({ path, label: path });
-    }
-    return options;
+private sizeScripts(): ScriptOption[] {
+    return roleScriptOptions(this._scripts, 'size');
 }
 
 private sizeScriptOptionsHtml(selected: string): string {
-    const options = this.sizeScripts();
-    if (selected && !options.some(option => option.path === selected)) {
-        options.unshift({ path: selected, label: `${selected} (not found)` });
-    }
-    if (options.length === 0) {
-        return `<option value="">No @script size scripts</option>`;
-    }
-    return options.map(option =>
-        `<option value="${esc(option.path)}"${option.path === selected ? ' selected' : ''}>${esc(option.label)}</option>`,
-    ).join('');
+    return scriptOptionsHtml(this.sizeScripts(), selected, 'No @script size scripts');
 }
 
 /** Current source script selection for one parameter (DOM wins over the draft). */
 private selectedParamScript(name: string): string {
-    const fromDom = this._root?.querySelector<HTMLSelectElement>(
+    const fromDom = this.paramScriptSelectValue(name);
+    return (fromDom || this._pinParamSourceDrafts.get(name)?.scriptPath || '').trim();
+}
+
+private paramScriptSelectValue(name: string): string {
+    return this._root?.querySelector<HTMLSelectElement>(
         `.oa-param-row[data-param-name="${cssEscapeAttr(name)}"] .oa-param-script`,
     )?.value ?? '';
-    return (fromDom || this._pinParamSourceDrafts.get(name)?.scriptPath || '').trim();
 }
 
 /** Read + validate the instance form's parameter values and sources. */
@@ -2310,32 +2362,49 @@ private readInstanceParamConfig(def: TypeDef): {
     const values: Record<string, number> = {};
     const sources: Record<string, { scriptPath: string }> = {};
     const errors: string[] = [];
-    for (const row of Array.from(this._root?.querySelectorAll<HTMLElement>('#oa-params .oa-param-row') ?? [])) {
-        const name = row.dataset.paramName ?? '';
-        const mode = row.querySelector<HTMLSelectElement>('.oa-param-source')?.value === 'script' ? 'script' : 'manual';
-        if (mode === 'script') {
-            const scriptPath = this.selectedParamScript(name);
-            if (!scriptPath) {
-                errors.push(`Parameter "${name}": select a size script.`);
-            } else {
-                sources[name] = { scriptPath };
-            }
-            continue;
-        }
-        const raw = row.querySelector<HTMLInputElement>('.oa-param-inp')?.value.trim() ?? '';
-        if (raw === '') { continue; }
-        const value = Number(raw);
-        if (!Number.isFinite(value) || !Number.isInteger(value)) {
-            errors.push(`Parameter "${name}" must be a positive integer.`);
-            continue;
-        }
-        values[name] = value;
+    for (const row of this.paramConfigRows()) {
+        const error = this.readParamConfigRow(row, values, sources);
+        if (error) { errors.push(error); }
     }
     return {
         values,
         sources,
         errors: [...new Set([...errors, ...validateInstanceParamConfig(def, values, sources)])],
     };
+}
+
+private paramConfigRows(): HTMLElement[] {
+    return Array.from(this._root?.querySelectorAll<HTMLElement>('#oa-params .oa-param-row') ?? []);
+}
+
+/** Read one form row into `values`/`sources`; returns its error message when invalid. */
+private readParamConfigRow(
+    row: HTMLElement,
+    values: Record<string, number>,
+    sources: Record<string, { scriptPath: string }>,
+): string | undefined {
+    const name = row.dataset.paramName ?? '';
+    const isScript = row.querySelector<HTMLSelectElement>('.oa-param-source')?.value === 'script';
+    return isScript
+        ? this.readParamScriptRow(name, sources)
+        : this.readParamValueRow(row, name, values);
+}
+
+private readParamScriptRow(name: string, sources: Record<string, { scriptPath: string }>): string | undefined {
+    const scriptPath = this.selectedParamScript(name);
+    if (!scriptPath) { return `Parameter "${name}": select a size script.`; }
+    sources[name] = { scriptPath };
+    return undefined;
+}
+
+private readParamValueRow(row: HTMLElement, name: string, values: Record<string, number>): string | undefined {
+    const raw = this.paramRowValue(row);
+    if (raw === '') { return undefined; }
+    return storeParamValue(raw, name, values);
+}
+
+private paramRowValue(row: HTMLElement): string {
+    return row.querySelector<HTMLInputElement>('.oa-param-inp')?.value.trim() ?? '';
 }
 
 private showInstanceParamError(message: string | null): void {
@@ -2555,40 +2624,30 @@ private wireAddressRefresh(sec: HTMLElement): void {
             typesPanel,
             '.act-btn-edit',
             '.act-btn-del',
-            btn => {
-                this._editorError = null;
-                const existing = this._types.find(d => d.id === btn.dataset.typeId) ?? null;
-                if (!existing) { return; }
-                this._editingType = {
-                    draft: {
-                        id: existing.id, name: existing.name, packed: existing.packed ?? false,
-                        kind: typeDefKind(existing),
-                        baseType: existing.baseType,
-                        endian: existing.endian, allocation: existing.allocation,
-                        fields: existing.fields.map(f => ({ ...f })),
-                        bitFields: existing.bitFields?.map(c => ({ ...c })),
-                        entries: existing.entries?.map(e => ({ ...e })),
-                        params: existing.params?.map(p => ({ ...p })),
-                    },
-                    existing,
-                    fromManage: true,
-                };
-                this.render();
-            },
-            btn => {
-                const id = btn.dataset.typeId!;
-                const next = withoutTypeDefinition(this._types, this._pins, id);
-                this._types = next.types;
-                this._pins = next.pins;
-                for (const pinId of Array.from(this._addressResolutions.keys())) {
-                    if (!this._pins.some(pin => pin.id === pinId)) { this._addressResolutions.delete(pinId); }
-                }
-                this.pruneParamResolutions();
-                if (this._applyTypeId === id) { this._applyTypeId = null; }
-                this.cb.onStateChange?.(this._types, this._pins);
-                this.render();
-            },
+            btn => this.startEditingType(btn.dataset.typeId),
+            btn => this.deleteTypeById(btn.dataset.typeId!),
         );
+    }
+
+    /** Open the type editor for an existing definition (deep-copied draft). */
+    private startEditingType(typeId: string | undefined): void {
+        this._editorError = null;
+        const existing = this._types.find(d => d.id === typeId) ?? null;
+        if (!existing) { return; }
+        this._editingType = { draft: cloneTypeDefDraft(existing), existing, fromManage: true };
+        this.render();
+    }
+
+    /** Delete a type and every instance that referenced it, then re-render. */
+    private deleteTypeById(id: string): void {
+        const next = withoutTypeDefinition(this._types, this._pins, id);
+        this._types = next.types;
+        this._pins = next.pins;
+        this.pruneVanishedAddressResolutions();
+        this.pruneParamResolutions();
+        if (this._applyTypeId === id) { this._applyTypeId = null; }
+        this.cb.onStateChange?.(this._types, this._pins);
+        this.render();
     }
 
 private wireAddInstanceControls(sec: HTMLElement): void {
@@ -2674,21 +2733,7 @@ private wireParamSourceControls(sec: HTMLElement): void {
         const name = row.dataset.paramName ?? '';
         row.querySelector<HTMLSelectElement>('.oa-param-source')?.addEventListener('change', e => {
             // Attribute-only toggle: a full re-render would drop unsaved input.
-            const mode = (e.target as HTMLSelectElement).value === 'script' ? 'script' : 'manual';
-            const draft = this._pinParamSourceDrafts.get(name) ?? { mode: 'manual', scriptPath: '' };
-            draft.mode = mode;
-            const scriptSel = row.querySelector<HTMLSelectElement>('.oa-param-script');
-            if (mode === 'script' && !draft.scriptPath) {
-                draft.scriptPath = scriptSel?.value ?? '';
-            }
-            this._pinParamSourceDrafts.set(name, draft);
-            const valueInp = row.querySelector<HTMLInputElement>('.oa-param-inp');
-            const openBtn = row.querySelector<HTMLButtonElement>('.oa-param-open');
-            if (valueInp) { valueInp.hidden = mode === 'script'; }
-            if (scriptSel) { scriptSel.hidden = mode !== 'script'; }
-            if (openBtn) { openBtn.hidden = mode !== 'script'; }
-            this.syncParamOpenButtons();
-            this.refreshInstanceConfirmState();
+            this.onParamSourceChange(row, name, (e.target as HTMLSelectElement).value);
         });
         row.querySelector<HTMLSelectElement>('.oa-param-script')?.addEventListener('change', e => {
             const draft = this._pinParamSourceDrafts.get(name) ?? { mode: 'script', scriptPath: '' };
@@ -2706,6 +2751,36 @@ private wireParamSourceControls(sec: HTMLElement): void {
             if (scriptPath) { this.cb.onOpenScript?.(scriptPath); }
         });
     });
+}
+
+/** Manual/script toggle for one parameter row (attribute-only, never a re-render). */
+private onParamSourceChange(row: HTMLElement, name: string, rawMode: string): void {
+    const mode = rawMode === 'script' ? 'script' : 'manual';
+    const draft = this._pinParamSourceDrafts.get(name) ?? { mode: 'manual', scriptPath: '' };
+    draft.mode = mode;
+    this.seedParamScriptPath(draft, mode, row);
+    this._pinParamSourceDrafts.set(name, draft);
+    this.toggleParamRowMode(row, mode);
+    this.syncParamOpenButtons();
+    this.refreshInstanceConfirmState();
+}
+
+private seedParamScriptPath(draft: PinParamSourceDraft, mode: PinParamSourceDraft['mode'], row: HTMLElement): void {
+    if (mode !== 'script' || draft.scriptPath) { return; }
+    draft.scriptPath = this.paramScriptPickerValue(row);
+}
+
+private paramScriptPickerValue(row: HTMLElement): string {
+    return row.querySelector<HTMLSelectElement>('.oa-param-script')?.value ?? '';
+}
+
+private toggleParamRowMode(row: HTMLElement, mode: PinParamSourceDraft['mode']): void {
+    const valueInp = row.querySelector<HTMLInputElement>('.oa-param-inp');
+    const scriptSel = row.querySelector<HTMLSelectElement>('.oa-param-script');
+    const openBtn = row.querySelector<HTMLButtonElement>('.oa-param-open');
+    if (valueInp) { valueInp.hidden = mode === 'script'; }
+    if (scriptSel) { scriptSel.hidden = mode !== 'script'; }
+    if (openBtn) { openBtn.hidden = mode !== 'script'; }
 }
 
 private wireBitLayoutTabs(sec: HTMLElement): void {
@@ -2761,42 +2836,79 @@ private refreshInstances(): void {
 }
 
 private confirmInstance(): void {
-    const source = this._pinSourceDraft.mode === 'script'
-        ? { scriptPath: this.selectedAddressScript() }
-        : null;
-    if (source && !source.scriptPath) {
-        this.showInstanceSourceError('Select an address script.');
-        return;
-    }
-    const editingPin = this.editingTypeInstance();
-    const sourceError = source ? addressSourceError({ addressSource: source, pointerSources: editingPin?.pointerSources }) : null;
-    if (sourceError) {
-        this.showInstanceSourceError(sourceError);
-        return;
-    }
-    this.showInstanceSourceError(null);
-    const addr = source ? this.fallbackAddress(editingPin) : this.applyAddress();
+    const source = this.addressSourceDraft();
+    if (!this.validateInstanceSource(source)) { return; }
+    const addr = this.confirmAddress(source);
     if (addr === null) { return; }
-    const def = this.selectedApplyDef();
-    const params = def ? this.readInstanceParamConfig(def) : { values: {}, sources: {}, errors: [] };
+    const params = this.readFormParams();
     if (params.errors.length > 0) {
         this.showInstanceParamError(params.errors[0]);
         return;
     }
     this.showInstanceParamError(null);
-    if (this._editingPinId) { this.applyEditedPin(addr, params.values, params.sources, source); }
-    else { this.applyNewPin(addr, params.values, params.sources, source); }
+    this.commitInstance(addr, params.values, params.sources, source);
     this.resetPinFormState();
     this.render();
 }
 
+/** Address to store: the fixed input, or the last authored fallback while a script is the source. */
+private confirmAddress(source: { scriptPath: string } | null): number | null {
+    return source ? this.fallbackAddress(this.editingTypeInstance()) : this.applyAddress();
+}
+
+/** Address-source draft of the open form (null = fixed address). */
+private addressSourceDraft(): { scriptPath: string } | null {
+    return this._pinSourceDraft.mode === 'script' ? { scriptPath: this.selectedAddressScript() } : null;
+}
+
+/** Validate the form's address source; shows the source error and returns false when invalid. */
+private validateInstanceSource(source: { scriptPath: string } | null): boolean {
+    if (missingScriptPath(source)) {
+        this.showInstanceSourceError('Select an address script.');
+        return false;
+    }
+    const sourceError = this.sourceErrorFor(source);
+    if (sourceError) {
+        this.showInstanceSourceError(sourceError);
+        return false;
+    }
+    this.showInstanceSourceError(null);
+    return true;
+}
+
+private sourceErrorFor(source: { scriptPath: string } | null): string | null {
+    if (!source) { return null; }
+    const pointerSources = this.editingTypeInstance()?.pointerSources;
+    return addressSourceError({ addressSource: source, pointerSources });
+}
+
+private readFormParams(): { values: Record<string, number>; sources: Record<string, { scriptPath: string }>; errors: string[] } {
+    const def = this.selectedApplyDef();
+    return def ? this.readInstanceParamConfig(def) : emptyParamConfig();
+}
+
+private commitInstance(
+    addr: number,
+    paramValues: Record<string, number>,
+    paramSources: Record<string, { scriptPath: string }>,
+    addressSource: TypeInstance['addressSource'] | null,
+): void {
+    if (this._editingPinId) { this.applyEditedPin(addr, paramValues, paramSources, addressSource); }
+    else { this.applyNewPin(addr, paramValues, paramSources, addressSource); }
+}
+
 /** Fallback `addr` while a script is the source: keep the input when valid, else the last authored value. */
 private fallbackAddress(pin: TypeInstance | null): number {
+    const parsed = this.pendingAddrValue();
+    if (parsed !== null) { return parsed; }
+    return pin ? pin.addr : (this._activeTypeAddr ?? 0);
+}
+
+private pendingAddrValue(): number | null {
     const addrInp = this.pendingAddrInput();
-    const parsed = addrInp ? parseInt(addrInp.value.replace(/^0x/i, ''), 16) : NaN;
-    if (!isNaN(parsed)) { return parsed; }
-    if (pin) { return pin.addr; }
-    return this._activeTypeAddr ?? 0;
+    if (!addrInp) { return null; }
+    const parsed = parseInt(addrInp.value.replace(/^0x/i, ''), 16);
+    return isNaN(parsed) ? null : parsed;
 }
 
 private applyAddress(): number | null {
@@ -2920,16 +3032,23 @@ private pendingAddrInput(): HTMLInputElement | null {
 
 private instanceTypePreviewHtml(def: TypeDef | undefined, pin: TypeInstance): string {
     if (!def) { return ''; }
-    const params = def.params && def.params.length > 0 ? this.pinLayoutParams(pin, def) : undefined;
-    const paramsAttr = params ? ` data-preview-params="${esc(JSON.stringify(params))}"` : '';
     return `<div class="oi-type-preview"${this._previewedPins.has(pin.id) ? '' : ' style="display:none"'}>` +
-                `<pre class="oi-c-preview" data-preview-id="${esc(def.id)}"${paramsAttr}></pre>` +
+                `<pre class="oi-c-preview" data-preview-id="${esc(def.id)}"${this.previewParamsAttr(pin, def)}></pre>` +
           `</div>`;
+}
+
+private previewParamsAttr(pin: TypeInstance, def: TypeDef): string {
+    const params = def.params && def.params.length > 0 ? this.pinLayoutParams(pin, def) : undefined;
+    return params ? ` data-preview-params="${esc(JSON.stringify(params))}"` : '';
 }
 
 private instanceBodyHtml(def: TypeDef | undefined, pin: TypeInstance, expanded: boolean): string {
     if (!expanded || !def || !this.instanceRenderable(pin)) { return ''; }
-    return this.renderTypeBody(def, pin, this.instanceAddress(pin) ?? undefined, this.pinLayoutParams(pin, def));
+    return this.renderTypeBody(def, pin, this.instanceBaseAddr(pin), this.pinLayoutParams(pin, def));
+}
+
+private instanceBaseAddr(pin: TypeInstance): number | undefined {
+    return this.instanceAddress(pin) ?? undefined;
 }
 
 /** Always-visible card actions: Edit | View type | Delete. */
@@ -2961,7 +3080,7 @@ private instanceHeaderHtml(
 ): string {
     return (
         `<div class="sb-card-hdr">` +
-        `<button class="oi-expand-btn" data-pin-id="${esc(pin.id)}" title="${expanded ? 'Collapse instance' : 'Expand instance'}" aria-label="${expanded ? 'Collapse instance' : 'Expand instance'}"${renderable ? '' : ' disabled'}>›</button>` +
+        this.instanceExpandButtonHtml(pin, expanded, renderable) +
         `<div class="sb-card-info">` +
         `<span class="oi-cname">${esc(pin.name)}</span>` +
         `<div class="oi-cmeta-row">` +
@@ -2979,6 +3098,11 @@ private instanceHeaderHtml(
     );
 }
 
+private instanceExpandButtonHtml(pin: TypeInstance, expanded: boolean, renderable: boolean): string {
+    const label = expanded ? 'Collapse instance' : 'Expand instance';
+    return `<button class="oi-expand-btn" data-pin-id="${esc(pin.id)}" title="${label}" aria-label="${label}"${renderable ? '' : ' disabled'}>\u203a</button>`;
+}
+
 /** Card address cell: fixed address, or the script-derived resolving/stale/error state. */
 private instanceAddressHtml(
     pin: TypeInstance,
@@ -2986,33 +3110,52 @@ private instanceAddressHtml(
     addrHex: string,
     totalBytes: number,
 ): string {
-    if (!instanceUsesScriptAddress(pin)) {
-        return `<span class="oi-caddr">0x${addrHex}\u202f\u00b7\u202f${totalBytes}B</span>`;
-    }
+    if (!instanceUsesScriptAddress(pin)) { return this.fixedAddressHtml(addrHex, totalBytes); }
+    return this.scriptAddressHtml(pin, resolution, addrHex, totalBytes);
+}
+
+private scriptAddressHtml(
+    pin: TypeInstance,
+    resolution: AddressResolution | undefined,
+    addrHex: string,
+    totalBytes: number,
+): string {
     const chip = this.scriptChipHtml(pin);
-    if (resolution?.status === 'resolved') {
-        return `<span class="oi-caddr">0x${addrHex}\u202f\u00b7\u202f${totalBytes}B</span>${chip}`;
-    }
-    if (resolution?.status === 'stale') {
-        const lastAddr = resolution.addr !== undefined
-            ? `0x${resolution.addr.toString(16).toUpperCase().padStart(8, '0')}`
-            : '';
-        return `<span class="oi-caddr oi-addr-stale" title="Re-resolving after a document change">` +
-            `${lastAddr ? `${lastAddr}\u202f\u00b7\u202f` : ''}stale</span>${chip}`;
-    }
-    if (resolution?.status === 'error') {
-        const last = resolution.lastAddr !== undefined
-            ? `<span class="oi-caddr oi-addr-stale" title="Last successful address (not current)">` +
-              `0x${resolution.lastAddr.toString(16).toUpperCase().padStart(8, '0')}</span>`
-            : '';
-        return `<span class="oi-caddr oi-addr-error" title="${esc(resolution.message)}">${esc(resolution.message)}</span>${last}${chip}`;
-    }
-    return `<span class="oi-caddr oi-addr-resolving">resolving\u2026</span>${chip}`;
+    if (!resolution) { return `${this.resolvingAddressHtml()}${chip}`; }
+    return `${this.addressCellForResolution(resolution, addrHex, totalBytes)}${chip}`;
+}
+
+private addressCellForResolution(resolution: AddressResolution, addrHex: string, totalBytes: number): string {
+    if (resolution.status === 'resolved') { return this.fixedAddressHtml(addrHex, totalBytes); }
+    if (resolution.status === 'stale') { return this.staleAddressHtml(resolution); }
+    if (resolution.status === 'error') { return this.errorAddressHtml(resolution); }
+    return this.resolvingAddressHtml();
+}
+
+private resolvingAddressHtml(): string {
+    return `<span class="oi-caddr oi-addr-resolving">resolving\u2026</span>`;
+}
+
+private fixedAddressHtml(addrHex: string, totalBytes: number): string {
+    return `<span class="oi-caddr">0x${addrHex}\u202f\u00b7\u202f${totalBytes}B</span>`;
+}
+
+private staleAddressHtml(resolution: Extract<AddressResolution, { status: 'stale' }>): string {
+    const lastAddr = resolution.addr !== undefined ? `0x${formatHexAddr(resolution.addr)}` : '';
+    return `<span class="oi-caddr oi-addr-stale" title="Re-resolving after a document change">` +
+        `${lastAddr ? `${lastAddr}\u202f\u00b7\u202f` : ''}stale</span>`;
+}
+
+private errorAddressHtml(resolution: Extract<AddressResolution, { status: 'error' }>): string {
+    const last = resolution.lastAddr !== undefined
+        ? `<span class="oi-caddr oi-addr-stale" title="Last successful address (not current)">` +
+          `0x${formatHexAddr(resolution.lastAddr)}</span>`
+        : '';
+    return `<span class="oi-caddr oi-addr-error" title="${esc(resolution.message)}">${esc(resolution.message)}</span>${last}`;
 }
 
 private scriptChipHtml(pin: TypeInstance): string {
-    const scriptPath = pin.addressSource?.scriptPath ?? '';
-    return `<span class="oi-script-chip" title="${esc(scriptPath)}">Script</span>`;
+    return scriptChipHtml(pin.addressSource?.scriptPath ?? '');
 }
 
 /** Instance-level parameter warning chip (surfaces a templated type with missing values). */
@@ -3026,27 +3169,31 @@ private instanceContentHtml(pin: TypeInstance, typePreviewHtml: string, bodyHtml
 }
 
 private buildInstanceCard(pin: TypeInstance, i: number): string {
-    const def        = allTypes(this._types).find(d => d.id === pin.typeId);
-    const defName    = def ? def.name : '?';
-    const layout     = def ? this.pinLayoutParams(pin, def) : undefined;
-    const totalBytes = def ? typeByteSize(def, this._types, layout ?? {}) : 0;
-    const resolution = this.instanceResolution(pin);
+    const def = this.typeDefById(pin.typeId);
     const renderable = this.instanceRenderable(pin);
-    const displayAddr = this.instanceAddress(pin) ?? pin.addr;
-    const addrHex    = displayAddr.toString(16).toUpperCase().padStart(8, '0');
-    const expanded   = renderable && this._expanded.has(pin.id);
-    const paramError = this.paramBlockReason(pin.id);
-    const paramDetail = def ? this.instanceParamsHtml(pin, def) : '';
-
-    const bodyHtml = this.instanceBodyHtml(def, pin, expanded);
-    const typePreviewHtml = this.instanceTypePreviewHtml(def, pin);
-
+    const expanded = renderable && this._expanded.has(pin.id);
     return (
         `<div class="sb-card${expanded ? ' oi-expanded' : ''}" data-pin-id="${esc(pin.id)}" data-idx="${i}">` +
-        this.instanceHeaderHtml(pin, i, defName, totalBytes, addrHex, expanded, resolution, renderable, paramError, paramDetail) +
-        this.instanceContentHtml(pin, typePreviewHtml, bodyHtml) +
+        this.instanceHeaderHtml(
+            pin, i, typeNameOf(def), this.instanceCardBytes(pin, def), this.instanceAddrHex(pin),
+            expanded, this.instanceResolution(pin), renderable, this.paramBlockReason(pin.id),
+            this.instanceParamDetailHtml(pin, def),
+        ) +
+        this.instanceContentHtml(pin, this.instanceTypePreviewHtml(def, pin), this.instanceBodyHtml(def, pin, expanded)) +
         `</div>`
     );
+}
+
+private instanceCardBytes(pin: TypeInstance, def: TypeDef | undefined): number {
+    return def ? typeByteSize(def, this._types, this.pinLayoutParams(pin, def) ?? {}) : 0;
+}
+
+private instanceAddrHex(pin: TypeInstance): string {
+    return formatHexAddr(this.instanceAddress(pin) ?? pin.addr);
+}
+
+private instanceParamDetailHtml(pin: TypeInstance, def: TypeDef | undefined): string {
+    return def ? this.instanceParamsHtml(pin, def) : '';
 }
 
 /** Compact per-parameter state row on a templated instance card. */
@@ -3058,40 +3205,58 @@ private instanceParamsHtml(pin: TypeInstance, def: TypeDef): string {
 }
 
 private instanceParamCellHtml(pin: TypeInstance, param: TypeParam): string {
-    const manual = Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, param.name)
-        ? pin.paramValues?.[param.name]
-        : undefined;
+    const manual = manualParamValue(pin, param.name);
+    if (manual !== undefined) { return this.paramCellHtml(param.name, String(manual), 'Manual value'); }
     const source = pin.paramSources?.[param.name];
-    if (manual !== undefined) {
-        return `<span class="oi-cparam" data-param-name="${esc(param.name)}" title="Manual value">` +
-            `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">${manual}</span></span>`;
+    if (!source) { return this.defaultParamCellHtml(param); }
+    return this.scriptParamCellHtml(pin, param, source.scriptPath);
+}
+
+private defaultParamCellHtml(param: TypeParam): string {
+    if (param.default === undefined) {
+        return this.paramCellHtml(param.name, '??', 'Type default', ' oi-cparam-error');
     }
-    if (!source) {
-        const value = param.default !== undefined ? String(param.default) : '??';
-        const cls = param.default !== undefined ? '' : ' oi-cparam-error';
-        return `<span class="oi-cparam${cls}" data-param-name="${esc(param.name)}" title="Type default">` +
-            `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">${value}</span></span>`;
-    }
+    return this.paramCellHtml(param.name, String(param.default), 'Type default');
+}
+
+private scriptParamCellHtml(pin: TypeInstance, param: TypeParam, scriptPath: string): string {
+    const chip = scriptChipHtml(scriptPath);
     const resolution = this.paramResolution(pin.id, param.name);
-    const chip = `<span class="oi-script-chip" title="${esc(source.scriptPath)}">Script</span>`;
-    if (resolution?.status === 'resolved') {
-        return `<span class="oi-cparam" data-param-name="${esc(param.name)}">` +
-            `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">${resolution.value}</span>${chip}</span>`;
+    if (!resolution) { return this.resolvingParamCellHtml(param, chip); }
+    return this.paramCellForResolution(param, resolution, chip);
+}
+
+private paramCellForResolution(param: TypeParam, resolution: ParamResolution, chip: string): string {
+    if (resolution.status === 'resolved') {
+        return this.paramCellHtml(param.name, String(resolution.value), undefined, '', chip);
     }
-    if (resolution?.status === 'stale') {
-        const value = resolution.value !== undefined ? String(resolution.value) : '…';
-        return `<span class="oi-cparam oi-cparam-stale" data-param-name="${esc(param.name)}" title="Re-resolving after a document change">` +
-            `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">${value}</span>${chip}</span>`;
-    }
-    if (resolution?.status === 'error') {
-        const last = resolution.lastValue !== undefined
-            ? `<span class="oi-cparam-val oi-cparam-stale">${resolution.lastValue}</span>`
-            : '';
-        return `<span class="oi-cparam oi-cparam-error" data-param-name="${esc(param.name)}" title="${esc(resolution.message)}">` +
-            `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">${esc(resolution.message)}</span>${last}${chip}</span>`;
-    }
-    return `<span class="oi-cparam oi-cparam-resolving" data-param-name="${esc(param.name)}">` +
-        `<span class="oi-cparam-name">${esc(param.name)}</span>=<span class="oi-cparam-val">resolving…</span>${chip}</span>`;
+    if (resolution.status === 'stale') { return this.staleParamCellHtml(param, resolution, chip); }
+    if (resolution.status === 'error') { return this.errorParamCellHtml(param.name, resolution, chip); }
+    return this.resolvingParamCellHtml(param, chip);
+}
+
+private staleParamCellHtml(param: TypeParam, resolution: Extract<ParamResolution, { status: 'stale' }>, chip: string): string {
+    return this.paramCellHtml(
+        param.name, resolvedParamText(resolution.value),
+        'Re-resolving after a document change', ' oi-cparam-stale', chip,
+    );
+}
+
+private resolvingParamCellHtml(param: TypeParam, chip: string): string {
+    return this.paramCellHtml(param.name, 'resolving\u2026', undefined, ' oi-cparam-resolving', chip);
+}
+
+private errorParamCellHtml(name: string, resolution: Extract<ParamResolution, { status: 'error' }>, chip: string): string {
+    const last = resolution.lastValue !== undefined
+        ? `<span class="oi-cparam-val oi-cparam-stale">${resolution.lastValue}</span>`
+        : '';
+    return this.paramCellHtml(name, esc(resolution.message), resolution.message, ' oi-cparam-error', `${last}${chip}`);
+}
+
+private paramCellHtml(name: string, valueHtml: string, title?: string, cls = '', suffix = ''): string {
+    const titleAttr = title ? ` title="${esc(title)}"` : '';
+    return `<span class="oi-cparam${cls}" data-param-name="${esc(name)}"${titleAttr}>` +
+        `<span class="oi-cparam-name">${esc(name)}</span>=<span class="oi-cparam-val">${valueHtml}</span>${suffix}</span>`;
 }
 
 private clearArrSep(): void {
@@ -3249,33 +3414,8 @@ private wireInstanceCards(sec: HTMLElement): void {
             card,
             '.act-btn-edit',
             '.act-btn-del',
-            btn => {
-                this._editingPinId = btn.dataset.pinId!;
-                const editedPin = this._pins.find(p => p.id === this._editingPinId);
-                this._editingPinDraftTypeId = editedPin?.typeId ?? null;
-                this._pinSourceDraft = editedPin?.addressSource
-                    ? { mode: 'script', scriptPath: editedPin.addressSource.scriptPath }
-                    : { mode: 'fixed', scriptPath: '' };
-                this._pinParamSourceDrafts.clear();
-                for (const [name, source] of Object.entries(editedPin?.paramSources ?? {})) {
-                    this._pinParamSourceDrafts.set(name, { mode: 'script', scriptPath: source.scriptPath });
-                }
-                this._expanded.delete(this._editingPinId);
-                this.cb.onRequestScripts?.();
-                this.render();
-            },
-            btn => {
-                const idx = parseInt(btn.dataset.idx!);
-                const pin = this._pins[idx];
-                if (pin) {
-                    this._expanded.delete(pin.id);
-                    this._addressResolutions.delete(pin.id);
-                    this.clearPinParamResolutions(pin.id);
-                }
-                this._pins = withoutTypeInstance(this._pins, idx);
-                this.cb.onPinsChange?.(this._pins);
-                this.render();
-            },
+            btn => this.startEditingPin(btn.dataset.pinId!),
+            btn => this.deletePinAt(btn.dataset.idx!),
         );
         card.querySelectorAll<HTMLElement>('.act-btn-view-type').forEach(btn => {
             btn.addEventListener('click', e => {
@@ -3435,6 +3575,40 @@ private wireInstanceCards(sec: HTMLElement): void {
         this.cb.onSelectRange?.(addr, size);
     }
 
+    /** Open the full-width instance editor seeded from the saved pin. */
+    private startEditingPin(pinId: string): void {
+        this._editingPinId = pinId;
+        const editedPin = this._pins.find(p => p.id === pinId);
+        this._editingPinDraftTypeId = editedPin ? editedPin.typeId : null;
+        this._pinSourceDraft = addressSourceDraftOf(editedPin);
+        this._pinParamSourceDrafts.clear();
+        this.loadParamSourceDrafts(editedPin);
+        this._expanded.delete(pinId);
+        this.cb.onRequestScripts?.();
+        this.render();
+    }
+
+    private loadParamSourceDrafts(pin: TypeInstance | undefined): void {
+        const sources = pin ? pin.paramSources : undefined;
+        for (const [name, source] of Object.entries(sources ?? {})) {
+            this._pinParamSourceDrafts.set(name, { mode: 'script', scriptPath: source.scriptPath });
+        }
+    }
+
+    /** Delete one instance card by list index, dropping its transient state first. */
+    private deletePinAt(rawIdx: string): void {
+        const idx = parseInt(rawIdx);
+        const pin = this._pins[idx];
+        if (pin) {
+            this._expanded.delete(pin.id);
+            this._addressResolutions.delete(pin.id);
+            this.clearPinParamResolutions(pin.id);
+        }
+        this._pins = withoutTypeInstance(this._pins, idx);
+        this.cb.onPinsChange?.(this._pins);
+        this.render();
+    }
+
 
 /** View-type preview toggle — always-visible card action button (`.act-btn-view-type`). */
 private toggleTypePreview(btn: HTMLElement): void {
@@ -3526,25 +3700,44 @@ private showFieldMenu(innerHtml: string, x: number, y: number, onCommand: (cmd: 
 }
 
 private instanceAtAddress(addr: number, pinIdx: number | undefined, allDefs: TypeDef[]): TypeInstance | undefined {
+    return this.pinCoveringAddress(addr, pinIdx, allDefs);
+}
+
+/** Pin whose decoded byte range covers `addr` (explicit list index wins when given). */
+private pinCoveringAddress(addr: number, pinIdx: number | undefined, defs: TypeDef[]): TypeInstance | undefined {
     if (typeof pinIdx === 'number' && pinIdx >= 0) { return this._pins[pinIdx]; }
-    return this._pins.find(pin => {
-        const def = allDefs.find(candidate => candidate.id === pin.typeId);
-        if (!def) { return false; }
-        const baseAddr = this.instanceAddress(pin);
-        if (baseAddr === null) { return false; }
-        const size = typeByteSize(def, this._types, this.pinLayoutParams(pin, def) ?? {});
-        return addr >= baseAddr && addr < baseAddr + size;
-    });
+    return this._pins.find(pin => this.pinCoversAddress(pin, addr, defs));
+}
+
+private pinCoversAddress(pin: TypeInstance, addr: number, defs: TypeDef[]): boolean {
+    const def = this.typeDefIn(defs, pin.typeId);
+    const baseAddr = this.instanceAddress(pin);
+    if (!def || baseAddr === null) { return false; }
+    return addressInRange(addr, baseAddr, this.instanceByteSize(def, pin));
+}
+
+private instanceByteSize(def: TypeDef, pin: TypeInstance): number {
+    return typeByteSize(def, this._types, this.pinLayoutParams(pin, def) ?? {});
+}
+
+private typeDefIn(defs: readonly TypeDef[], typeId: string): TypeDef | undefined {
+    return defs.find(candidate => candidate.id === typeId);
 }
 
 private instanceRowsAtAddress(addr: number, pinIdx: number | undefined, allDefs: TypeDef[]): DecodedField[] {
     const pin = this.instanceAtAddress(addr, pinIdx, allDefs);
     if (!pin) { return []; }
-    const def = allDefs.find(candidate => candidate.id === pin.typeId);
-    const baseAddr = pin ? this.instanceAddress(pin) : null;
+    const def = this.typeDefIn(allDefs, pin.typeId);
+    const baseAddr = this.instanceAddress(pin);
     if (!def || baseAddr === null) { return []; }
-    const rows = decodeType(def, baseAddr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types, this.pinLayoutParams(pin, def) ?? {});
-    return rows.filter(row => baseAddr + row.byteOffset === addr);
+    return this.decodeInstanceRows(def, pin, baseAddr).filter(row => baseAddr + row.byteOffset === addr);
+}
+
+private decodeInstanceRows(def: TypeDef, pin: TypeInstance, baseAddr: number): DecodedField[] {
+    return decodeType(
+        def, baseAddr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types,
+        this.pinLayoutParams(pin, def) ?? {},
+    );
 }
 
 private sourceRowsAtAddress(
@@ -4280,34 +4473,21 @@ private setScalarDisplayType(type: ColType, ctx: FieldValMenuContext): void {
 }
 
 private findCopySourcePin(bs: number, pinIdx: number | undefined, defs: TypeDef[]): TypeInstance | undefined {
-    if (typeof pinIdx === 'number' && pinIdx >= 0) {
-        return this._pins[pinIdx];
-    }
-    return this._pins.find(p => {
-        const def = defs.find(d => d.id === p.typeId);
-        if (!def) { return false; }
-        const baseAddr = this.instanceAddress(p);
-        if (baseAddr === null) { return false; }
-        const size = typeByteSize(def, this._types, this.pinLayoutParams(p, def) ?? {});
-        return bs >= baseAddr && bs < baseAddr + size;
-    });
+    return this.pinCoveringAddress(bs, pinIdx, defs);
 }
 
 private findCopySourceRows(bs: number, pinIdx: number | undefined, opts: FieldValMenuOptions = {}): CopySourceRows | undefined {
     const explicit = this.findExplicitCopySourceRows(pinIdx, opts);
     if (explicit) { return explicit; }
-    const all = allTypes(this._types);
-    const pin = this.findCopySourcePin(bs, pinIdx, all);
-    if (!pin) { return undefined; }
-    const def = all.find(d => d.id === pin.typeId);
+    const pin = this.findCopySourcePin(bs, pinIdx, allTypes(this._types));
+    return pin ? this.copySourceRowsForPin(pin) : undefined;
+}
+
+private copySourceRowsForPin(pin: TypeInstance): CopySourceRows | undefined {
+    const def = this.typeDefById(pin.typeId);
     const baseAddr = this.instanceAddress(pin);
     if (!def || baseAddr === null) { return undefined; }
-    return {
-        pin,
-        rows: decodeType(def, baseAddr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types, this.pinLayoutParams(pin, def) ?? {}),
-        typeId: def.id,
-        baseAddr,
-    };
+    return { pin, rows: this.decodeInstanceRows(def, pin, baseAddr), typeId: def.id, baseAddr };
 }
 
 private findExplicitCopySourceRows(pinIdx: number | undefined, opts: FieldValMenuOptions): CopySourceRows | undefined {
@@ -4316,13 +4496,20 @@ private findExplicitCopySourceRows(pinIdx: number | undefined, opts: FieldValMen
     const pin = this.copySourcePinFromIndex(pinIdx);
     const def = this.typeDefById(context.typeId);
     if (!pin || !def) { return undefined; }
-    const params = pin.typeId === def.id ? (this.pinLayoutParams(pin, def) ?? {}) : undefined;
     return {
         pin,
-        rows: decodeType(def, context.baseAddr, this.cb.readByte, this._endian, this._bitFieldAllocation, this._types, params),
+        rows: decodeType(
+            def, context.baseAddr, this.cb.readByte, this._endian, this._bitFieldAllocation,
+            this._types, this.explicitLayoutParams(pin, def),
+        ),
         typeId: def.id,
         baseAddr: context.baseAddr,
     };
+}
+
+/** Layout params only when the source pin actually uses the decoded type. */
+private explicitLayoutParams(pin: TypeInstance, def: TypeDef): Readonly<Record<string, number>> | undefined {
+    return pin.typeId === def.id ? (this.pinLayoutParams(pin, def) ?? {}) : undefined;
 }
 
 private explicitSourceContext(opts: FieldValMenuOptions): { typeId: string; baseAddr: number } | undefined {
@@ -4521,13 +4708,247 @@ private clearSelectionState(): void {
     private pointerTargetTypeDef(row: DecodedField): TypeDef | undefined { return pointerTargetTypeDef(this.renderCtx(), row); }
 }
 
+/** Last successful address carried by a resolution (dimmed after a failed/stale refresh). */
+function lastAddressValue(resolution: AddressResolution | undefined): number | undefined {
+    if (!resolution) { return undefined; }
+    return carriedAddress(resolution);
+}
+
+function carriedAddress(resolution: AddressResolution): number | undefined {
+    if (resolution.status === 'resolved' || resolution.status === 'stale') { return resolution.addr; }
+    return resolution.status === 'error' ? resolution.lastAddr : undefined;
+}
+
+/** Last successful size carried by a resolution (dimmed after a failed/stale refresh). */
+function lastParamValue(resolution: ParamResolution | undefined): number | undefined {
+    if (!resolution) { return undefined; }
+    return carriedParamValue(resolution);
+}
+
+function carriedParamValue(resolution: ParamResolution): number | undefined {
+    if (resolution.status === 'resolved' || resolution.status === 'stale') { return resolution.value; }
+    return resolution.status === 'error' ? resolution.lastValue : undefined;
+}
+
+/** Previous-run address only: a failed batch entry never re-carries an earlier failure. */
+function previousAddressValue(resolution: AddressResolution | undefined): number | undefined {
+    if (!resolution) { return undefined; }
+    return resolution.status === 'resolved' || resolution.status === 'stale' ? resolution.addr : undefined;
+}
+
+/** Previous-run size only: a failed batch entry never re-carries an earlier failure. */
+function previousParamValue(resolution: ParamResolution | undefined): number | undefined {
+    if (!resolution) { return undefined; }
+    return resolution.status === 'resolved' || resolution.status === 'stale' ? resolution.value : undefined;
+}
+
+/** Error resolution for a failed address batch entry (keeps the previous address when known). */
+function addressFailureResolution(
+    result: Extract<InstanceAddressResult, { ok: false }>,
+    generation: number,
+    lastAddr: number | undefined,
+): AddressResolution {
+    const failed: { status: 'error'; message: string; generation: number; errorType?: string; lastAddr?: number } = {
+        status: 'error',
+        message: result.error || 'Invalid address from script',
+        generation,
+    };
+    if (result.errorType) { failed.errorType = result.errorType; }
+    if (lastAddr !== undefined) { failed.lastAddr = lastAddr; }
+    return failed;
+}
+
+/** Error resolution for a failed size batch entry (keeps the previous value when known). */
+function paramFailureResolution(
+    result: Extract<InstanceParamResult, { ok: false }>,
+    generation: number,
+    lastValue: number | undefined,
+): ParamResolution {
+    const failed: { status: 'error'; message: string; generation: number; errorType?: string; lastValue?: number } = {
+        status: 'error',
+        message: result.error || 'Invalid size from script',
+        generation,
+    };
+    if (result.errorType) { failed.errorType = result.errorType; }
+    if (lastValue !== undefined) { failed.lastValue = lastValue; }
+    return failed;
+}
+
+/** Parameter names with an authored script source that are not overridden by a manual value. */
+function activeParamNames(pin: TypeInstance): string[] {
+    return Object.keys(pin.paramSources ?? {}).filter(param => !hasOwnParamValue(pin, param));
+}
+
+function hasOwnParamValue(pin: TypeInstance, param: string): boolean {
+    return Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, param);
+}
+
+/** 8-digit uppercase hex without the `0x` prefix. */
+function formatHexAddr(addr: number): string {
+    return addr.toString(16).toUpperCase().padStart(8, '0');
+}
+
+/** Role chip shared by the address cell and the parameter cells. */
+function scriptChipHtml(scriptPath: string): string {
+    return `<span class="oi-script-chip" title="${esc(scriptPath)}">Script</span>`;
+}
+
+/** Stale parameter text: the last value, or an ellipsis before the first success. */
+function resolvedParamText(value: number | undefined): string {
+    return value !== undefined ? String(value) : '\u2026';
+}
+
+function lockedTitleAttr(locked: boolean): string {
+    return locked ? ' title="Pointer-created instances must use a fixed address"' : '';
+}
+
+/** One address-source `<option>` with its selected/disabled attributes. */
+function sourceOptionHtml(value: string, label: string, selected: boolean, disabled: boolean): string {
+    return `<option value="${value}"${selected ? ' selected' : ''}${disabled ? ' disabled' : ''}>${label}</option>`;
+}
+
+function hasParams(def: TypeDef): boolean {
+    return (def.params?.length ?? 0) > 0;
+}
+
+/** Whether a script address source is present but has no script picked yet. */
+function missingScriptPath(source: { scriptPath: string } | null): boolean {
+    return Boolean(source && !source.scriptPath);
+}
+
+/** Address-source draft for the instance form, seeded from the saved pin. */
+function addressSourceDraftOf(pin: TypeInstance | undefined): PinSourceDraft {
+    if (!pin || !pin.addressSource) { return { mode: 'fixed', scriptPath: '' }; }
+    return { mode: 'script', scriptPath: pin.addressSource.scriptPath };
+}
+
+/** Instance-form name for a card header (missing defs render as `?`). */
+function typeNameOf(def: TypeDef | undefined): string {
+    return def ? def.name : '?';
+}
+
+function addressInRange(addr: number, baseAddr: number, size: number): boolean {
+    return addr >= baseAddr && addr < baseAddr + size;
+}
+
+/** Store a validated form parameter value; returns the row error when invalid. */
+function storeParamValue(raw: string, name: string, values: Record<string, number>): string | undefined {
+    const value = Number(raw);
+    if (!Number.isFinite(value) || !Number.isInteger(value)) {
+        return `Parameter "${name}" must be a positive integer.`;
+    }
+    values[name] = value;
+    return undefined;
+}
+
+/** Optional numeric default read from a parameter row (`undefined` when blank/invalid). */
+function readParamDefault(raw: string | undefined): number | undefined {
+    const text = raw?.trim() ?? '';
+    if (text === '') { return undefined; }
+    const value = Number(text);
+    return Number.isFinite(value) ? value : undefined;
+}
+
+/** Rewrite field `countParam` references after a parameter rename. */
+function renameParamRefs(draft: TypeDef, oldName: string, newName: string): void {
+    if (!oldName || oldName === newName) { return; }
+    for (const field of draft.fields.filter(candidate => candidate.countParam === oldName)) {
+        field.countParam = newName;
+    }
+}
+
+/** Seed the literal array count on first activation of an array cell. */
+function seedArrayCount(cell: HTMLElement): void {
+    const inp = cell.querySelector<HTMLInputElement>('.ofe-count-inp')!;
+    if (!inp.value) { inp.value = '2'; }
+    inp.focus();
+    inp.select();
+}
+
+/** Manual parameter value when the instance carries its own (never a default/script value). */
+function manualParamValue(pin: TypeInstance, name: string): number | undefined {
+    return hasOwnParamValue(pin, name) ? pin.paramValues?.[name] : undefined;
+}
+
+/** Deep-copy a type definition into an editable draft (arrays and nested children cloned). */
+function cloneTypeDefDraft(existing: TypeDef): TypeDef {
+    return {
+        id: existing.id, name: existing.name, packed: existing.packed ?? false,
+        kind: typeDefKind(existing),
+        baseType: existing.baseType,
+        endian: existing.endian, allocation: existing.allocation,
+        fields: existing.fields.map(f => ({ ...f })),
+        bitFields: existing.bitFields?.map(c => ({ ...c })),
+        entries: existing.entries?.map(e => ({ ...e })),
+        params: existing.params?.map(p => ({ ...p })),
+    };
+}
+
+function isIndexInRange(index: number, length: number): boolean {
+    return index >= 0 && index < length;
+}
+
+/** Error text for deleting a parameter a field still binds to, or null when unreferenced. */
+function paramReferenceError(draft: TypeDef, param: TypeParam): string | null {
+    const field = draft.fields.find(candidate => candidate.countParam === param.name);
+    return field
+        ? `Parameter "${param.name}" is used by field "${field.name}" \u2014 change its count first.`
+        : null;
+}
+
+function emptyParamConfig(): { values: Record<string, number>; sources: Record<string, { scriptPath: string }>; errors: string[] } {
+    return { values: {}, sources: {}, errors: [] };
+}
+
+/** One deduped picker option for a role-tagged script. */
+type ScriptOption = { path: string; label: string };
+
+/** Role-tagged scripts as picker options (deduped by path, first wins). */
+function roleScriptOptions(scripts: readonly OverlayScriptInfo[], role: ScriptRole): ScriptOption[] {
+    const seen = new Set<string>();
+    const options: ScriptOption[] = [];
+    for (const script of scripts) {
+        if (script.roles.includes(role)) { addScriptOption(options, seen, scriptPickerPath(script)); }
+    }
+    return options;
+}
+
+function addScriptOption(options: ScriptOption[], seen: Set<string>, path: string): void {
+    if (!path || seen.has(path)) { return; }
+    seen.add(path);
+    options.push({ path, label: path });
+}
+
+function scriptPickerPath(script: OverlayScriptInfo): string {
+    return script.relativePath || script.filePath;
+}
+
+/** Options markup for a role picker; an unknown current selection stays visible as "(not found)". */
+function scriptOptionsHtml(options: ScriptOption[], selected: string, emptyLabel: string): string {
+    const list = withSelectedOption(options, selected);
+    if (list.length === 0) { return `<option value="">${emptyLabel}</option>`; }
+    return list.map(option =>
+        `<option value="${esc(option.path)}"${option.path === selected ? ' selected' : ''}>${esc(option.label)}</option>`,
+    ).join('');
+}
+
+function withSelectedOption(options: ScriptOption[], selected: string): ScriptOption[] {
+    if (!selected || options.some(option => option.path === selected)) { return options; }
+    return [{ path: selected, label: `${selected} (not found)` }, ...options];
+}
+
 /** Whether a transient parameter-resolution key still has a live authored source. */
 function pinParamSourceExists(pin: TypeInstance, key: string): boolean {
-    const sep = key.indexOf('\u0000');
-    if (sep < 0 || key.slice(0, sep) !== pin.id) { return false; }
-    const param = key.slice(sep + 1);
+    const param = paramFromResolutionKey(pin, key);
+    if (param === null) { return false; }
     if (!pin.paramSources?.[param]?.scriptPath?.trim()) { return false; }
-    return !Object.prototype.hasOwnProperty.call(pin.paramValues ?? {}, param);
+    return !hasOwnParamValue(pin, param);
+}
+
+/** Parameter half of a resolution key, or null when the key belongs to another instance. */
+function paramFromResolutionKey(pin: TypeInstance, key: string): string | null {
+    const sep = key.indexOf('\u0000');
+    return sep >= 0 && key.slice(0, sep) === pin.id ? key.slice(sep + 1) : null;
 }
 
 /** Escape a parameter name for use inside a quoted attribute selector. */
