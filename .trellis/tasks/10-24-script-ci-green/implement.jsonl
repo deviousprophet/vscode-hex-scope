@@ -1,5 +1,0 @@
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required gates, fallow-fix workflow, CRAP/complexity authoring patterns, test placement and quality rules."}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Boundary normalization and validation contracts that the refactored sanitizers must preserve."}
-{"file": ".trellis/spec/frontend/scripting.md", "reason": "Script runner, API surface, permissions, and sidebar contract touched by the scripting refactors."}
-{"file": ".trellis/spec/frontend/overlay-model.md", "reason": "Overlay validation, codec, and instance persistence contract for overlayNormalization/overlayCodec/overlayInstancesModel."}
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "DOM rendering and listener-wiring rules for overlay/integrity panel helper extraction."}

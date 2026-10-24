@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify the required gate, fallow-fix completion, and test-quality rules were honored."}
-{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Confirm extracted helpers land in the right layer and dependency direction."}
-{"file": ".trellis/spec/frontend/component-sidebar-overlay-panel.md", "reason": "Check the biggest refactor (overlayPanel) still honors the component contract."}
-{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Deduplication decisions for the 11 clone groups."}
