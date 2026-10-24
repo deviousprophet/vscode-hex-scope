@@ -91,9 +91,23 @@ The section header is the collapse control (VS Code model): every `.sb-section-h
 ## Button Standards
 
 - **Toggle groups** (endian, bit layout, compact-tabs): inherit from `.compact-tabs button` — font-size 10px, active state with `var(--btn-bg)`/`var(--btn-fg)`. Do NOT override font-size per-context.
-- **Primary actions** (Add, Apply): `font-size: 10px; font-weight: 600;` with accent border/background.
-- **Ghost/secondary**: transparent background, `var(--addr-fg)` color, `var(--border)` border.
+- **Primary actions** (`.sb-btn-primary`: form Save/Add submit, Fix all, Run, Allow once): `font-size: 10px; font-weight: 600;` with accent border/background.
+- **Ghost/secondary** (`.sb-btn-secondary`): transparent background, `var(--addr-fg)` color, `var(--border)` border. Reserved for neutral actions (`Open`, `Copy path`, `Reveal`, `Cancel`, `Show hidden`, `Refresh`, `Open scripts folder`, `Open setup guide`) — never for a create action.
 - **Icon buttons** (edit/delete): 18×18px, `font-size: 11px`, opacity-reveal on parent hover.
+
+### Create-Affordance Convention
+
+Every "bring something into existence" control in the sidebar has one shape. The object/action being created is named in the tooltip, never in the visible label.
+
+| Aspect | Rule |
+|---|---|
+| Visible label | `＋ Add` — fullwidth `＋` (U+FF0B) + space + `Add`. Nothing else. |
+| Meaning | `title` + `aria-label`, sentence case, noun/action specific (`Add field`, `Create an integrity script`, …). Disabled controls keep a reason tooltip (`No types defined`). |
+| Variant | `.sb-btn-add` (dashed accent) in every context; header actions add `.sb-section-action` (compact contract, `max-height: 22px`). |
+| Placement | Top-level object creation → section-header action. Row/entry creation inside an open form → inline body button. |
+| Reachability | Header action stays reachable while collapsed; clicking it expands its section before/while opening body UI. |
+
+Consequence: `.sb-btn-secondary` is reserved for neutral actions; a create control never uses it. Menu rows, headings and hints are not buttons and stay descriptive (`Browse examples…`, `Add all examples`, `＋ Add check`).
 
 ## Layout Properties
 

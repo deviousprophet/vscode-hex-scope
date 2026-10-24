@@ -143,6 +143,38 @@ suite('IntegrityPanel mount + render', () => {
         assert.strictEqual(document.getElementById('integrity-check-list')?.textContent, 'No integrity checks configured.');
     });
 
+    test('add action lives in the Checks header with ＋ Add + Add check tooltip', () => {
+        const add = document.getElementById('integrity-add-btn') as HTMLButtonElement;
+        assert.ok(add, 'header add action mounted');
+        assert.strictEqual(add.textContent, '\uff0b Add');
+        assert.strictEqual(add.title, 'Add check');
+        assert.strictEqual(add.getAttribute('aria-label'), 'Add check');
+        assert.ok(add.classList.contains('sb-btn-add'), 'uses the create primitive');
+        assert.ok(add.classList.contains('sb-section-action'), 'uses the compact header contract');
+        assert.ok(add.closest('.sb-section-actions'), 'lives in the Integrity Checks section header');
+        assert.strictEqual(document.querySelector('#integrity-main-body #integrity-add-btn'), null, 'body no longer carries the add button');
+    });
+
+    test('add action expands the collapsed Checks section before opening the form', () => {
+        const section = document.getElementById('integrity-main')!;
+        section.querySelector<HTMLElement>('.sb-section-head')!.click();
+        assert.ok(section.classList.contains('collapsed'), 'section collapsed');
+        click(dom, document.getElementById('integrity-add-btn'));
+        assert.ok(!section.classList.contains('collapsed'), 'add action expands the section');
+        assert.ok(integrityForm('add'), 'add form open');
+    });
+
+    test('header add listener is mounted once: re-renders never duplicate it', () => {
+        const originalRender = panel.render.bind(panel);
+        let renders = 0;
+        panel.render = () => { renders++; originalRender(); };
+        panel.render();
+        panel.render();
+        renders = 0;
+        click(dom, document.getElementById('integrity-add-btn'));
+        assert.strictEqual(renders, 1, 'one click runs the add handler exactly once');
+    });
+
     test('fresh check without a result renders Not configured status', () => {
         setBytesInSegment(0x1000, [1, 2, 3, 4]);
         panel.setChecks({ schemaVersion: 1, checks: [{ algorithm: 'crc16-ccitt-false', startAddress: 0x1000, endAddress: 0x1001, autoFixStoredValue: false }] });
@@ -159,7 +191,9 @@ suite('IntegrityPanel mount + render', () => {
         assert.strictEqual((form.querySelector('[data-draft-control="algorithm"]') as HTMLSelectElement).value, 'crc32-iso-hdlc');
         assert.strictEqual((form.querySelector('[data-draft-control="start"]') as HTMLInputElement).value, '00001000');
         assert.strictEqual((form.querySelector('[data-draft-control="end"]') as HTMLInputElement).value, '00001002');
-        assert.ok((document.getElementById('integrity-add-btn') as HTMLButtonElement).disabled, 'add button disabled while form open');
+        const addBtn = document.getElementById('integrity-add-btn') as HTMLButtonElement;
+        assert.ok(addBtn.closest('.sb-section-actions'), 'add button lives in the section header');
+        assert.ok(addBtn.disabled, 'add button disabled while form open');
     });
 });
 
@@ -907,7 +941,7 @@ suite('IntegrityPanel script checks', () => {
         assert.strictEqual(cb.persisted.length, 0);
     });
 
-    test('an empty script picker offers Create and Open scripts folder instead of a dead option', () => {
+    test('an empty script picker offers ＋ Add and Open scripts folder instead of a dead option', () => {
         panel.setAvailableScripts([], true);
         click(dom, document.getElementById('integrity-add-btn'));
         const form = integrityForm('add');
@@ -919,8 +953,12 @@ suite('IntegrityPanel script checks', () => {
         const openFolder = form.querySelector<HTMLElement>('[data-open-scripts-folder]')!;
         assert.ok(create, 'empty picker exposes the create action');
         assert.strictEqual(create.dataset.createScript, 'integrity');
-        assert.strictEqual(create.textContent?.trim(), 'Create integrity script');
+        assert.strictEqual(create.textContent?.trim(), '\uff0b Add');
+        assert.strictEqual(create.getAttribute('title'), 'Create an integrity script');
+        assert.strictEqual(create.getAttribute('aria-label'), 'Create an integrity script');
+        assert.ok(create.classList.contains('sb-btn-add'), 'create actions use the add treatment');
         assert.strictEqual(openFolder.textContent?.trim(), 'Open scripts folder');
+        assert.ok(openFolder.classList.contains('sb-btn-secondary'), 'neutral actions keep the secondary treatment');
         assert.match(form.querySelector('.integrity-script-hint')!.textContent!, /Create one/);
 
         cb.createdScripts = [];

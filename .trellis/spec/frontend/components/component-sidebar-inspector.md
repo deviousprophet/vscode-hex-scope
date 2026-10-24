@@ -48,6 +48,7 @@ class InspectorPanel {
 - `setSelection` is the `updateInspector` parity path only; `syncLabelForm` is the `updateLabelFormSel` parity path and is host-driven from hex-view selection (not from match navigation or overlay-field selection).
 - Label mutations report `onLabelsChange`; the host persists (`saveLabels`) and invalidates (memory + labels rerender). Confirm-on-warning is component UI state.
 - Collapse toggle is the shared `SidebarSections` whole-header control (two sections: `insp`, `labels`); the internal Bits block uses its own local `.sb-inner-toggle` disclosure.
+- The Labels add entry point is the section-header action `#btn-add-lbl` (`sb-btn sb-btn-add sb-section-action`, visible `＋ Add`, `title`/`aria-label` `Add segment label`), mounted once via the `labels` section's `mountActions`; its click renders the add form into the labels body and expands the section. `renderLabels()` re-renders only the list (no body add button, no per-render listener).
 - Markup is stable per the form contract in `inspectorLabels.ts` (same ids/classes); visual restyles change class rules, not the ids. Untrusted text escaped with `esc()`.
 
 ## Behaviour
@@ -73,7 +74,7 @@ class InspectorPanel {
 
 ## Tests Required
 
-`src/test/webview/components/sidebar/inspectorPanel/inspectorPanel.test.ts`: mount (2 sections, empty states), `setSelection` single + multi (chips, byte line, bit rows, multi-byte), `setEndian` re-decode, `setSegments` (merged permanent rows/jump), `setLabels` (rows/jump), visibility/delete, add form save + validation + confirm-on-warning, edit form, bits sticky-collapse + remount reset, labels collapse/expand in the pane view. Existing `webview.test.ts` inspector/endian/tab-round-trip/segments suites pass unchanged (parity gate).
+`src/test/webview/components/sidebar/inspectorPanel/inspectorPanel.test.ts`: mount (2 sections, empty states), `setSelection` single + multi (chips, byte line, bit rows, multi-byte), `setEndian` re-decode, `setSegments` (merged permanent rows/jump), `setLabels` (rows/jump), visibility/delete, add form save + validation + confirm-on-warning, edit form, bits sticky-collapse + remount reset, labels collapse/expand in the pane view, labels header add action (`#btn-add-lbl` in `.sb-section-actions`, `＋ Add` + `Add segment label`, no body button, click expands the section and renders the form into the labels body). Existing `webview.test.ts` inspector/endian/tab-round-trip/segments suites pass unchanged (parity gate).
 
 ## Anti-patterns
 

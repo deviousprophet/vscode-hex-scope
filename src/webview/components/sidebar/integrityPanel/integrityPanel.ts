@@ -216,7 +216,7 @@ export class IntegrityPanel {
         this._panel = root.id === 's-integrity' ? root : this.ensureIntegrityRoot(root);
         this._panel.innerHTML = '';
         this.sections = new SidebarSections(this._panel, 'integrity', [
-            { id: 'main', label: 'Integrity Checks' },
+            { id: 'main', label: 'Integrity Checks', mountActions: r => this.mountAddCheckAction(r) },
         ]);
         this.render();
     }
@@ -236,6 +236,33 @@ export class IntegrityPanel {
         if (!body) { return; }
         body.innerHTML = this.integrityBodyHtml();
         this.wireRenderedIntegrity(body);
+        this.syncAddButton();
+    }
+
+    /** Header add action state: disabled while the add form is open (listener stays mounted once). */
+    private syncAddButton(): void {
+        const add = this._panel?.querySelector<HTMLButtonElement>('#integrity-add-btn');
+        if (!add) { return; }
+        add.disabled = this.addCheckDraft !== null;
+    }
+
+    /** Integrity Checks header action: the single add entry point (reachable while collapsed). */
+    private mountAddCheckAction(root: HTMLElement): void {
+        const add = document.createElement('button');
+        add.id = 'integrity-add-btn';
+        add.className = 'sb-btn sb-btn-add sb-section-action';
+        add.textContent = '\uff0b Add';
+        add.title = 'Add check';
+        add.setAttribute('aria-label', 'Add check');
+        add.addEventListener('click', () => {
+            this.sections?.setCollapsed('main', false);
+            this.addCheckDraft = this.addDraft();
+            this.editingCheckId = null;
+            this.formLastFocused = null;
+            this.render();
+            document.querySelector<HTMLInputElement>('[data-integrity-form="add"] [data-draft-control="start"]')?.focus();
+        });
+        root.appendChild(add);
     }
 
     /** Push active checks (was setIntegrityChecks). */
@@ -443,7 +470,6 @@ export class IntegrityPanel {
             <div class="integrity-hdr-row">
                 <div class="integrity-hdr-actions">
                     <button id="integrity-fix-all" class="sb-btn sb-btn-primary" type="button"${this.fixAllDisabledAttr()}>Fix all</button>
-                    <button id="integrity-add-btn" class="sb-btn sb-btn-add"${this.addCheckDisabledAttr()}>＋ Add</button>
                 </div>
             </div>
             <div id="integrity-action-error" class="integrity-error" role="alert">${esc(this.actionError)}</div>
@@ -456,12 +482,8 @@ export class IntegrityPanel {
         return this.hasFixableMismatches() ? '' : ' disabled';
     }
 
-    private addCheckDisabledAttr(): string {
-        return this.addCheckDraft ? ' disabled' : '';
-    }
-
     private wireRenderedIntegrity(panel: HTMLElement): void {
-        this.wireHeaderControls();
+        this.wireBodyControls();
         if (this.addCheckDraft) { this.wireCheckForm('add'); }
         this.wireCheckCards(panel);
         this.checks.forEach(check => this.updateCheckCard(check));
@@ -533,7 +555,8 @@ export class IntegrityPanel {
         if (this.availableScripts.length > 0) { return ''; }
         return `
                 <div class="integrity-script-empty-actions">
-                    <button type="button" class="sb-btn sb-btn-secondary integrity-create-script" data-create-script="integrity">Create integrity script</button>
+                    <button type="button" class="sb-btn sb-btn-add integrity-create-script" data-create-script="integrity"
+                        title="Create an integrity script" aria-label="Create an integrity script">\uff0b Add</button>
                     <button type="button" class="sb-btn sb-btn-secondary integrity-open-folder" data-open-scripts-folder>Open scripts folder</button>
                 </div>`;
     }
@@ -566,7 +589,7 @@ export class IntegrityPanel {
         saveLabel: string;
     } {
         if (formId === 'add') {
-            return { formClass: 'integrity-add-form', headerClass: 'integrity-form-hdr-new', title: '＋ New Check', saveLabel: 'Add' };
+            return { formClass: 'integrity-add-form', headerClass: 'integrity-form-hdr-new', title: '＋ Add check', saveLabel: 'Add' };
         }
         return { formClass: 'integrity-edit-form', headerClass: 'integrity-form-hdr-edit', title: '✎ Edit Check', saveLabel: 'Save' };
     }
@@ -607,15 +630,9 @@ export class IntegrityPanel {
 
     // ── Header + card wiring ───────────────────────────────────────
 
-    private wireHeaderControls(): void {
+    /** Body-only controls (the section header actions are mounted once). */
+    private wireBodyControls(): void {
         document.getElementById('integrity-fix-all')?.addEventListener('click', () => this.fixAllMismatches());
-        document.getElementById('integrity-add-btn')?.addEventListener('click', () => {
-            this.addCheckDraft = this.addDraft();
-            this.editingCheckId = null;
-            this.formLastFocused = null;
-            this.render();
-            document.querySelector<HTMLInputElement>('[data-integrity-form="add"] [data-draft-control="start"]')?.focus();
-        });
     }
 
     private wireCheckCards(panel: HTMLElement): void {

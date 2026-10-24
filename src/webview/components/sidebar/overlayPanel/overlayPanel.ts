@@ -277,7 +277,7 @@ mount(root: HTMLElement): void {
         const all = allTypes(this._types);
         this.prepareOverlayPanelState();
 
-        if (this.typePanelForcedOpen()) { this.sections.setCollapsed('types', false); }
+        this.expandForcedSections(this.sections);
 
         this.sections.setLabel('types', this.typePanelTitle());
         this.sections.body('instances')!.innerHTML = this.instancesBodyHtml(
@@ -302,6 +302,17 @@ mount(root: HTMLElement): void {
     /** The type panel stays expanded while the editor or the kind picker is active. */
     private typePanelForcedOpen(): boolean {
         return this.isEditorOpen() || this._choosingKind;
+    }
+
+    /** The Instances panel stays expanded while the add/edit form is open. */
+    private instancesPanelForcedOpen(): boolean {
+        return this.instanceAddBusy();
+    }
+
+    /** Expand the panes whose body UI must stay visible (open editor, picker, or add/edit form). */
+    private expandForcedSections(sections: SidebarSections): void {
+        if (this.instancesPanelForcedOpen()) { sections.setCollapsed('instances', false); }
+        if (this.typePanelForcedOpen()) { sections.setCollapsed('types', false); }
     }
 
     private wireEditorState(sec: HTMLElement): void {
@@ -369,7 +380,8 @@ private mountTypesAction(root: HTMLElement): void {
     add.id = 'om-add-btn';
     add.className = 'sb-btn sb-btn-add sb-section-action';
     add.textContent = '\uff0b Add';
-    add.title = 'New type';
+    add.title = 'Add type';
+    add.setAttribute('aria-label', 'Add type');
     add.addEventListener('click', () => {
         this._editorError = null;
         this._editingType = null;
@@ -715,7 +727,7 @@ private typeEditorHtml(draft: TypeDef, existing: TypeDef | null): string {
         this.paramsSectionHtml(draft) +
         `<div class="oe-field-hdr"><span>Type</span><span>Ptr</span><span>Name</span><span>Endian</span><span>Alloc</span><span>Hide</span><span>[ ]</span><span></span><span></span></div>` +
         `<div id="oe-fields">${fieldRows}</div>` +
-        `<button id="oe-add" class="sb-btn sb-btn-add">+ Add Field</button>` +
+        `<button id="oe-add" class="sb-btn sb-btn-add" title="Add field" aria-label="Add field">\uff0b Add</button>` +
         errorHtml +
         `<div class="oe-btns">` +
         `<button id="oe-save" class="sb-btn sb-btn-primary">Save</button>` +
@@ -744,7 +756,7 @@ private paramsSectionHtml(draft: TypeDef): string {
         `<div class="oe-params">` +
         `<div class="oe-params-hdr">` +
         `<span class="oe-params-lbl">Parameters</span>` +
-        `<button id="oe-param-add" class="sb-btn sb-btn-add" type="button" title="Add a size parameter">+ Add parameter</button>` +
+        `<button id="oe-param-add" class="sb-btn sb-btn-add" type="button" title="Add parameter" aria-label="Add parameter">\uff0b Add</button>` +
         `</div>` +
         `<div id="oe-params-list" class="ofe-params-list">${this.paramRowsHtml(draft)}</div>` +
         `<div id="oe-param-error" class="oe-error" hidden></div>` +
@@ -923,7 +935,7 @@ private bitFieldDefEditorHtml(draft: TypeDef): string {
         baseAria: 'Bit-field base width',
         rowsHtml: this.bitFieldChildHeaderHtml() +
             `<div id="oe-bf-def-children" class="ofe-bf-children">${this.bitFieldDefChildRowsHtml(draft)}</div>`,
-        addBtnHtml: `<button id="oe-bf-def-add" class="sb-btn sb-btn-add" title="${addBtnTitle}"${addBtnDisabled}>+ Add bit</button>`,
+        addBtnHtml: `<button id="oe-bf-def-add" class="sb-btn sb-btn-add" title="${addBtnTitle}" aria-label="${addBtnTitle}"${addBtnDisabled}>\uff0b Add</button>`,
     });
 }
 
@@ -1021,6 +1033,7 @@ private refreshBitFieldDefAddButton(sec: HTMLElement, draft: TypeDef): void {
     const { addBtnDisabled, addBtnTitle } = this.bitChildButtonState(this.availableBitFieldDefBits(draft));
     btn.disabled = addBtnDisabled !== '';
     btn.title = addBtnTitle;
+    btn.setAttribute('aria-label', addBtnTitle);
 }
 
 private bitFieldChildIndex(btn: HTMLElement): number | null {
@@ -1112,7 +1125,7 @@ private enumDefEditorHtml(draft: TypeDef): string {
         baseAria: 'Enum base width',
         rowsHtml: this.enumEntryHeaderHtml() +
             `<div id="oe-enum-entries" class="ofe-enum-entries">${this.enumEntryRowsHtml(draft)}</div>`,
-        addBtnHtml: `<button id="oe-enum-add" class="sb-btn sb-btn-add" title="Add enum entry">+ Add entry</button>`,
+        addBtnHtml: `<button id="oe-enum-add" class="sb-btn sb-btn-add" title="Add entry" aria-label="Add entry">\uff0b Add</button>`,
     });
 }
 
@@ -1290,7 +1303,7 @@ private fieldRowsHtml(draft: TypeDef): string {
 /**
  * Incremental editor refresh: rebuild only the `#oe-fields` row container
  * instead of the whole editor. The scroll container (.oe-form) is never
- * replaced, so its scrollTop survives — no jump to the top on Add Field /
+ * replaced, so its scrollTop survives — no jump to the top on Add field /
  * Add bit / move / delete. Then re-wire row-level controls and refresh the
  * live C preview.
  */
@@ -2130,7 +2143,7 @@ private addressEmptyActionsHtml(fromScript: boolean, empty: boolean): string {
     if (!empty) { return ''; }
     return (
         `<div class="oa-row oa-script-empty-row"${fromScript ? '' : ' hidden'}>` +
-        `<button type="button" class="sb-btn sb-btn-secondary oa-create-script" data-create-script="address">Create instance address script</button>` +
+        `<button type="button" class="sb-btn sb-btn-add oa-create-script" data-create-script="address" title="Create an instance address script" aria-label="Create an instance address script">\uff0b Add</button>` +
         `<button type="button" class="sb-btn sb-btn-secondary oa-open-scripts-folder" data-open-scripts-folder>Open scripts folder</button>` +
         `</div>`
     );
@@ -2317,7 +2330,7 @@ private sizeEmptyActionsHtml(): string {
     if (this.sizeScripts().length > 0) { return ''; }
     return (
         `<div class="oa-row oa-params-empty-row">` +
-        `<button type="button" class="sb-btn sb-btn-secondary oa-create-script" data-create-script="size">Create array size script</button>` +
+        `<button type="button" class="sb-btn sb-btn-add oa-create-script" data-create-script="size" title="Create an array size script" aria-label="Create an array size script">\uff0b Add</button>` +
         `<button type="button" class="sb-btn sb-btn-secondary oa-open-scripts-folder" data-open-scripts-folder>Open scripts folder</button>` +
         `</div>`
     );
@@ -2532,7 +2545,7 @@ private showHiddenToggleHtml(): string {
     private kindChooserHtml(): string {
         return (
             `<div id="om-kind-picker" class="om-kind-picker">` +
-            `<div class="om-kind-hdr">New type</div>` +
+            `<div class="om-kind-hdr">Add type</div>` +
             `<div class="om-kind-tiles">` +
             this.kindTileHtml('struct', 'Struct', 'A C-like layout of named fields') +
             this.kindTileHtml('bitfield', 'Bit-field', 'A reusable unsigned storage unit split into named bits') +
@@ -4993,7 +5006,7 @@ function applyShowHiddenButtonState(btn: Element | null, show: boolean): void {
 }
 
 function pinFormHeader(pin: TypeInstance | null): string {
-    return pin ? '\u270E Edit Instance' : '\uff0b New Instance';
+    return pin ? '\u270E Edit Instance' : '\uff0b Add instance';
 }
 
 function pinFormClass(pin: TypeInstance | null): string {
@@ -5001,5 +5014,5 @@ function pinFormClass(pin: TypeInstance | null): string {
 }
 
 function pinFormConfirmLabel(pin: TypeInstance | null): string {
-    return pin ? 'Save' : 'Confirm';
+    return pin ? 'Save' : 'Add';
 }

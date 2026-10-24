@@ -205,7 +205,7 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 - API calls from user scripts use synchronous RPC via `Atomics.wait`+`SharedArrayBuffer` — the Worker posts a `{ type: 'api', id, method, args }` message, blocks with `Atomics.wait`, and the main thread responds via `Atomics.notify`
 - Cross-realm Promise check: sandbox-created Promises are not `instanceof` the host's `Promise`. Use duck-type check (`typeof result.then === 'function'`) instead
 - `.ts` files compiled with dynamic `import('esbuild')` — no mtime caching, compile every run
-- **JS-first TypeScript decision**: `.ts` is an advanced local-dev path. `compilerAvailable()` (scriptCompiler.ts) mirrors the optional esbuild resolve into `scriptInfo.compilerAvailable` on every rescan; the panel keeps `.ts` Run disabled (`.disabled-ts` + action row) when unavailable and runs `.ts` normally when available. The action row's **Create JavaScript version** copies the file to its `.js` sibling with a manual-conversion header (`createJsVersion`/`jsVersionBody` in manageScripts.ts): exclusive `wx` write, never overwrites, never rewrites the source, trust-gated, opens the result, rescan. **Open setup guide** posts `openScriptingGuide` → `docs/SCRIPTING.md`
+- **JS-first TypeScript decision**: `.ts` is an advanced local-dev path. `compilerAvailable()` (scriptCompiler.ts) mirrors the optional esbuild resolve into `scriptInfo.compilerAvailable` on every rescan; the panel keeps `.ts` Run disabled (`.disabled-ts` + action row) when unavailable and runs `.ts` normally when available. The action row's **＋ Add** button (tooltip *Create a JavaScript version*) copies the file to its `.js` sibling with a manual-conversion header (`createJsVersion`/`jsVersionBody` in manageScripts.ts): exclusive `wx` write, never overwrites, never rewrites the source, trust-gated, opens the result, rescan. **Open setup guide** posts `openScriptingGuide` → `docs/SCRIPTING.md`
 - Timeout kills Worker via `worker.terminate()` after 30s (configurable per call). Also uses `setTimeout` directly (not Promise-based) to avoid Electron microtask edge cases
 - **Inline approval, no modal**: `VSCodeScriptHost.confirm(type, detail)` is unchanged, but the session implementation checks the grant store first and otherwise posts `scriptPermissionRequest` to the webview. There is no `vscode.window.showWarningMessage` for script permissions
 - **Grant key**: absolute script path + the script file's fingerprint (mtime from `scriptFingerprint()` / `scanScripts`) + capability. `check` matches an exact entry or a same-fingerprint `*`
@@ -239,7 +239,7 @@ instance. Resolved values are transient; only `paramSources` is persisted.
 | Condition | Result |
 |---|---|
 | Script file not found | `ScriptOutput.error` set, logs the error |
-| .ts but esbuild unavailable | Host compile errors "Use .js or install esbuild"; the panel never offers Run — the card shows the action row (Open setup guide / Create JavaScript version) |
+| .ts but esbuild unavailable | Host compile errors "Use .js or install esbuild"; the panel never offers Run — the card shows the action row (Open setup guide / ＋ Add — *Create a JavaScript version*) |
 | `.ts` + `compilerAvailable: true` | Run enabled like a `.js` script; no action row |
 | `.ts` action-row conversion | `createJsVersion` writes a `.js` sibling with a conversion header; never overwrites an existing `.js`; untrusted workspace warns and writes nothing |
 | Script exports no `run` function | Error: "Script must export a 'run' function" (host/command path only; the panel never offers Run for a known provider) |
@@ -355,7 +355,7 @@ PROVIDERS (3)                       ← group button, count, aria-expanded
 | Role chip | Job language (`Instance address`, `Array size`, `Integrity check`), raw role in `data-role`; also shown on a both-kind card |
 | Unknown marker | Warning glyph + `Inspect exports` hint; Open is the only action |
 | Details chevron | `.script-details-toggle` toggling `.script-details` (roles, capabilities, entries, fingerprint, last run, active grants + Open / Copy path / Reveal / Manage permissions). Expanded state is session-local and survives rescans |
-| TS action row | `.script-ts-help` on trusted `.ts` cards when `compilerAvailable` is false: Open setup guide + Create JavaScript version |
+| TS action row | `.script-ts-help` on trusted `.ts` cards when `compilerAvailable` is false: Open setup guide + ＋ Add (tooltip *Create a JavaScript version*) |
 | Run/Cancel button | `.script-run-btn` exists only on action/both cards, right-aligned, fixed-width slot |
 | Result area | Embedded below the details row on runnable cards only |
 
@@ -397,26 +397,23 @@ PROVIDERS (3)                       ← group button, count, aria-expanded
 #### Toolbar header
 
 ```
-Scripts (3)  [↻]
+Scripts  [＋ Add] [↻]
 ```
 
-- Replaces the `sb-section` collapsible pattern inherited from Inspector
-- Shows script count badge
-- Refresh ↻ button re-scans `.hexscope/scripts/` directory
-- A `.script-new-bar` above the list holds the **＋ New** split button: the primary reports `onCreateScript()` (host template picker), the caret toggles `.script-new-popup` with the four templates, a separator, then **Browse examples…** (`onBrowseExampleScripts`) and **Add all examples** (`onAddExampleScripts`)
-- Single section pane (fills the panel, no sash) — the section header toggles the whole pane like every other sidebar section
+- Single section pane (fills the panel, no sash) — the section header toggles the whole pane like every other sidebar section; the header carries no count badge
+- `＋ Add` is the single create entry point (`.sb-btn-add` + compact `.sb-section-action`). Clicking it expands the section and toggles the body-top `.script-add-popup` chooser: the four templates, a separator, then **Browse examples…** (`onBrowseExampleScripts`) and **Add all examples** (`onAddExampleScripts`). Choosing a template reports `onCreateScript(templateId)`; the panel never calls it without a template (the host quick-pick serves the command palette)
+- Refresh ↻ re-scans `.hexscope/scripts/`
 
 #### Empty state
 
 ```
 No scripts found in .hexscope/scripts/
-[Create script]  [Browse examples…]
+Use ＋ Add above to create a script or add examples.
 ```
 
-The path tells the user where to create files; **Create script** reports `onCreateScript()`
-(the host asks which template) and **Browse examples…** reports `onBrowseExampleScripts`
-(selective catalog picker). Both report via callbacks — the component never runs the copy
-or builds template bodies.
+The hint points at the header trigger; the empty state has no create/browse buttons. Both
+creation paths report via callbacks — the component never runs the copy or builds template
+bodies.
 
 #### Output streaming
 
@@ -456,7 +453,7 @@ staged writes. Informational only — there is no Apply & Save / Discard control
 | D3 | TS compilation cache | No mtime cache — compile every run |
 | D4 | Output streaming | Real-time first 100 calls, then debounced batch |
 | D5 | Batch flush method | `setTimeout(flush, 0)` debounce |
-| D6 | TS file when esbuild missing | JS-first: Run stays disabled, but the card adds an actionable row (Open setup guide / Create JavaScript version). With esbuild available, `.ts` runs normally |
+| D6 | TS file when esbuild missing | JS-first: Run stays disabled, but the card adds an actionable row (Open setup guide / ＋ Add — *Create a JavaScript version*). With esbuild available, `.ts` runs normally |
 | D7 | Cancellation mechanism | `worker.terminate()` via `AbortController` |
 | D8 | Cancel result behavior | Keep previous results; partial + banner if no prior run |
 | D9 | Script ordering | Actions group first (alphabetical), then Providers (alphabetical); collapsible groups |

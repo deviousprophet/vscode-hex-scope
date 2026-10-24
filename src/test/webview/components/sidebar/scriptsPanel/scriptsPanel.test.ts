@@ -271,14 +271,16 @@ suite('ScriptsPanel mount + render', () => {
         assert.ok(badge.hidden, 'count badge hidden when no scripts');
     });
 
-    test('empty state points at the New split button instead of duplicating its actions', () => {
+    test('empty state points at the header Add trigger instead of duplicating its actions', () => {
         assert.strictEqual(document.querySelector('.script-empty [data-create-script]'), null, 'no duplicate create button');
         assert.strictEqual(document.querySelector('.script-empty [data-browse-examples]'), null, 'no duplicate browse button');
-        assert.strictEqual(document.querySelectorAll('[data-create-script]').length, 0, 'create lives only in the New split button');
-        assert.strictEqual(document.querySelectorAll('[data-browse-examples]').length, 0, 'browse lives only in the New menu');
+        assert.strictEqual(document.querySelectorAll('[data-create-script]').length, 0, 'create lives only in the header chooser');
+        assert.strictEqual(document.querySelectorAll('[data-browse-examples]').length, 0, 'browse lives only in the chooser');
         assert.strictEqual(cb.browsed, 0, 'the empty state wires no browse action');
-        assert.ok(document.querySelector('.script-empty-hint')?.textContent?.includes('New'), 'the empty state points at ＋ New');
-        assert.ok(document.getElementById('scripts-new'), 'the single create entry point is present');
+        const hint = document.querySelector('.script-empty-hint')?.textContent ?? '';
+        assert.ok(hint.includes('\uFF0B Add'), 'the empty state points at ＋ Add');
+        assert.ok(!hint.includes('\uFF0B New'), 'the empty state drops the retired New vocabulary');
+        assert.ok(document.getElementById('scripts-add'), 'the single create entry point is present');
     });
 
     test('header has no separate install action', () => {
@@ -292,47 +294,65 @@ suite('ScriptsPanel mount + render', () => {
         assert.strictEqual(cb.requested, 1);
     });
 
-    test('New split button: primary reports no template, the caret lists the four templates', () => {
-        const primary = document.getElementById('scripts-new')!;
-        const caret = document.getElementById('scripts-new-menu')!;
-        const popup = document.querySelector<HTMLElement>('.script-new-popup')!;
-        assert.ok(primary, 'primary New button exists');
-        assert.ok(caret, 'template caret exists');
-        assert.ok(popup.hidden, 'the template chooser starts closed');
-        assert.strictEqual(caret.getAttribute('aria-expanded'), 'false');
-        assert.ok(primary.classList.contains('sb-btn-secondary'), 'New rides sb-btn-secondary');
+    test('header Add trigger is a compact sb-btn-add action with the noun in its tooltip', () => {
+        const trigger = document.getElementById('scripts-add')!;
+        assert.ok(trigger, 'header Add trigger exists');
+        assert.strictEqual(trigger.textContent, '\uFF0B Add', 'the visible label is exactly ＋ Add');
+        assert.ok(trigger.classList.contains('sb-btn-add'), 'create rides sb-btn-add');
+        assert.ok(trigger.classList.contains('sb-section-action'), 'the header create action is compact');
+        assert.ok(!trigger.classList.contains('sb-btn-secondary'), 'create is not a neutral action');
+        assert.strictEqual(trigger.title, 'Add script');
+        assert.strictEqual(trigger.getAttribute('aria-label'), 'Add script');
+        assert.strictEqual(trigger.getAttribute('aria-haspopup'), 'true');
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+        const actions = trigger.parentElement!;
+        assert.strictEqual(actions.querySelectorAll('button').length, 2, 'Add + Refresh only');
+        assert.strictEqual(actions.children[0].id, 'scripts-add', 'Add precedes Refresh');
+        assert.strictEqual(actions.children[1].id, 'scripts-refresh');
+        assert.strictEqual(document.getElementById('scripts-new-menu'), null, 'the caret split is gone');
+    });
 
-        cb.created = [];
-        click(dom, primary);
-        assert.deepStrictEqual(cb.created, [undefined], 'the primary action lets the host pick the template');
+    test('header Add trigger opens the in-flow chooser with the four templates', () => {
+        const trigger = document.getElementById('scripts-add')!;
+        const popup = document.querySelector<HTMLElement>('.script-add-popup')!;
+        assert.ok(popup.hidden, 'the chooser starts closed');
+        click(dom, trigger);
+        assert.strictEqual(popup.hidden, false, 'the header trigger opens the chooser');
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
+        assert.deepStrictEqual(cb.created, [], 'opening the chooser creates nothing');
 
-        click(dom, caret);
-        assert.strictEqual(popup.hidden, false, 'caret opens the chooser');
-        assert.strictEqual(caret.getAttribute('aria-expanded'), 'true');
-        const options = Array.from(popup.querySelectorAll<HTMLElement>('.script-new-option[data-template]'));
+        const options = Array.from(popup.querySelectorAll<HTMLElement>('.script-add-option[data-template]'));
         assert.deepStrictEqual(options.map(option => option.dataset.template), ['action', 'integrity', 'address', 'size']);
         assert.deepStrictEqual(options.map(option => option.textContent?.trim()), [
             'New action script', 'New integrity check', 'New instance address script', 'New array size script',
         ]);
 
-        click(dom, caret);
-        assert.ok(popup.hidden, 'the caret toggles the chooser closed');
-
-        click(dom, caret);
-        click(dom, options[2]);
-        assert.deepStrictEqual(cb.created, [undefined, 'address'], 'choosing a template reports it');
-        assert.ok(popup.hidden, 'choosing closes the chooser');
+        click(dom, trigger);
+        assert.ok(popup.hidden, 'the trigger toggles the chooser closed');
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
     });
 
-    test('New caret menu lists the catalog actions under a separator', () => {
-        const caret = document.getElementById('scripts-new-menu')!;
-        const popup = document.querySelector<HTMLElement>('.script-new-popup')!;
-        click(dom, caret);
+    test('choosing a template reports its id and closes the chooser', () => {
+        const trigger = document.getElementById('scripts-add')!;
+        const popup = document.querySelector<HTMLElement>('.script-add-popup')!;
+        click(dom, trigger);
+        const options = Array.from(popup.querySelectorAll<HTMLElement>('.script-add-option[data-template]'));
+        click(dom, options[2]);
+        assert.deepStrictEqual(cb.created, ['address'], 'choosing a template reports it');
+        assert.ok(popup.hidden, 'choosing closes the chooser');
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+        assert.ok(!cb.created.includes(undefined), 'the panel never asks the host to pick a template');
+    });
+
+    test('chooser lists the catalog actions under a separator', () => {
+        const trigger = document.getElementById('scripts-add')!;
+        const popup = document.querySelector<HTMLElement>('.script-add-popup')!;
+        click(dom, trigger);
         const rows = Array.from(popup.querySelectorAll<HTMLElement>('[data-example-action]'));
         assert.deepStrictEqual(rows.map(row => row.dataset.exampleAction), ['browse', 'all']);
         assert.deepStrictEqual(rows.map(row => row.textContent?.trim()), ['Browse examples\u2026', 'Add all examples']);
         const children = Array.from(popup.children);
-        const sepIdx = children.findIndex(child => child.classList.contains('script-new-sep'));
+        const sepIdx = children.findIndex(child => child.classList.contains('script-add-sep'));
         assert.ok(sepIdx >= 0, 'a separator row exists');
         assert.strictEqual(children[sepIdx].getAttribute('role'), 'separator');
         assert.strictEqual(sepIdx, 4, 'the catalog rows follow the four templates');
@@ -345,44 +365,51 @@ suite('ScriptsPanel mount + render', () => {
         assert.ok(popup.hidden, 'choosing a catalog row closes the chooser');
 
         cb.added = 0;
-        click(dom, caret);
+        click(dom, trigger);
         click(dom, rows[1]);
         assert.strictEqual(cb.added, 1, 'Add all examples reports onAddExampleScripts');
         assert.deepStrictEqual(cb.created, [], 'the bulk row never creates from a template');
         assert.ok(popup.hidden, 'choosing closes the chooser');
     });
 
-    test('New caret menu closes on an outside click and toggles from the caret alone', () => {
-        const caret = document.getElementById('scripts-new-menu')!;
-        const popup = document.querySelector<HTMLElement>('.script-new-popup')!;
-        click(dom, caret);
-        assert.strictEqual(popup.hidden, false, 'caret opens the chooser');
-        assert.deepStrictEqual(cb.created, [], 'opening the caret creates nothing');
-        assert.strictEqual(cb.browsed, 0, 'opening the caret browses nothing');
-        assert.strictEqual(cb.added, 0, 'opening the caret installs nothing');
+    test('chooser closes on an outside click and the header trigger expands a collapsed section', () => {
+        const trigger = document.getElementById('scripts-add')!;
+        const popup = document.querySelector<HTMLElement>('.script-add-popup')!;
+        click(dom, trigger);
+        assert.strictEqual(popup.hidden, false, 'the trigger opens the chooser');
+        assert.deepStrictEqual(cb.created, [], 'opening creates nothing');
+        assert.strictEqual(cb.browsed, 0, 'opening browses nothing');
+        assert.strictEqual(cb.added, 0, 'opening installs nothing');
 
         // The shared section header stops clicks on its actions, so the outside
         // click must land on the panel body (a real user click away from the menu).
         click(dom, document.body);
         assert.ok(popup.hidden, 'a click outside the chooser closes it');
-        assert.strictEqual(caret.getAttribute('aria-expanded'), 'false', 'aria-expanded follows the outside close');
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false', 'aria-expanded follows the outside close');
 
-        click(dom, caret);
-        assert.strictEqual(popup.hidden, false, 'the caret reopens after an outside close');
-        click(dom, caret);
-        assert.ok(popup.hidden, 'the caret alone toggles the chooser shut');
+        // Reachability: a collapsed section still shows the trigger, which expands it.
+        const section = document.getElementById('scripts-main')!;
+        click(dom, section.querySelector<HTMLElement>('.sb-section-head'));
+        assert.ok(section.classList.contains('collapsed'), 'section collapsed for the reachability check');
+        click(dom, trigger);
+        assert.ok(!section.classList.contains('collapsed'), 'the header Add trigger expands its section');
+        assert.strictEqual(popup.hidden, false, 'and opens the chooser');
     });
 
     test('render is idempotent: re-render keeps a single shell', () => {
+        click(dom, document.getElementById('scripts-add'));
+        assert.strictEqual(document.querySelector<HTMLElement>('.script-add-popup')!.hidden, false, 'chooser open before the re-render');
         panel.render();
         assert.strictEqual(document.querySelectorAll('#s-scripts').length, 1);
         assert.strictEqual(document.querySelectorAll('#s-scripts .sb-section').length, 1);
         assert.strictEqual(document.querySelectorAll('#scripts-refresh').length, 1);
         assert.strictEqual(document.querySelectorAll('#scripts-add-examples').length, 0, 'no separate header install action');
-        assert.strictEqual(document.querySelectorAll('#scripts-new').length, 1);
-        assert.strictEqual(document.querySelectorAll('.script-new-popup').length, 1);
-        assert.strictEqual(document.querySelectorAll('[data-example-action]').length, 2, 'one browse + one bulk row in the New menu');
+        assert.strictEqual(document.querySelectorAll('#scripts-add').length, 1);
+        assert.strictEqual(document.querySelectorAll('.script-add-popup').length, 1);
+        assert.strictEqual(document.querySelectorAll('[data-example-action]').length, 2, 'one browse + one bulk row in the chooser');
         assert.strictEqual(document.querySelectorAll('[data-browse-examples]').length, 0, 'no duplicate browse action');
+        assert.ok(document.querySelector<HTMLElement>('.script-add-popup')!.hidden, 're-render rebuilds the chooser closed');
+        assert.strictEqual(document.getElementById('scripts-add')!.getAttribute('aria-expanded'), 'false', 'aria-expanded resets with the rebuilt chooser');
     });
 });
 
@@ -1751,7 +1778,12 @@ suite('ScriptsPanel TypeScript path', () => {
         assert.ok(help, 'actionable row replaces the silent dead end');
         click(dom, help.querySelector('[data-ts-guide]'));
         assert.strictEqual(cb.guides, 1, 'setup guide action is wired');
-        click(dom, help.querySelector('[data-ts-convert]'));
+        const convert = help.querySelector<HTMLElement>('[data-ts-convert]')!;
+        assert.strictEqual(convert.textContent?.trim(), '\uff0b Add', 'convert action reads ＋ Add');
+        assert.strictEqual(convert.getAttribute('title'), 'Create a JavaScript version');
+        assert.strictEqual(convert.getAttribute('aria-label'), 'Create a JavaScript version');
+        assert.ok(convert.classList.contains('sb-btn-add'), 'convert action uses the add treatment');
+        click(dom, convert);
         assert.deepStrictEqual(cb.jsVersions, ['D:\\sample\\crc-check.ts'], 'create-JS action reports the path');
         assert.strictEqual(cardFor(A).querySelector('.script-ts-help'), null, '.js cards get no TS row');
     });

@@ -102,7 +102,7 @@ export function isPointerBlocked(field: TypeField): boolean {
 export function bitChildButtonState(remainingBits: number): { addBtnDisabled: string; addBtnTitle: string } {
     return {
         addBtnDisabled: remainingBits > 0 ? '' : ' disabled',
-        addBtnTitle: remainingBits > 0 ? 'Add bit-field child' : 'No bits remaining in parent',
+        addBtnTitle: remainingBits > 0 ? 'Add bit' : 'No bits remaining in parent',
     };
 }
 
