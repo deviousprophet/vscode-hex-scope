@@ -2283,6 +2283,22 @@ suite('OverlayPanel deep-render harness', () => {
         assert.match(elementText(document.querySelector('.oi-field .oi-f-val')!), /0x3412/);
     });
 
+    test('header create actions show ＋ Add with noun tooltips', async () => {
+        S.types = [scalarDef];
+        S.typeInstances = [];
+        await createMountedPanel();
+
+        const instancesAdd = document.getElementById('oi-add-btn') as HTMLButtonElement;
+        assert.strictEqual(instancesAdd.textContent?.trim(), '\uff0b Add');
+        assert.strictEqual(instancesAdd.title, 'Add instance');
+        assert.strictEqual(instancesAdd.getAttribute('aria-label'), 'Add instance');
+
+        const typesAdd = document.getElementById('om-add-btn') as HTMLButtonElement;
+        assert.strictEqual(typesAdd.textContent?.trim(), '\uff0b Add');
+        assert.strictEqual(typesAdd.title, 'Add type');
+        assert.strictEqual(typesAdd.getAttribute('aria-label'), 'Add type');
+    });
+
     test('＋ Add opens a three-tile kind picker; cancel creates nothing', async () => {
         await createMountedPanel();
 
@@ -2293,6 +2309,7 @@ suite('OverlayPanel deep-render harness', () => {
         click(dom, document.getElementById('om-add-btn'));
         const picker = document.getElementById('om-kind-picker');
         assert.ok(picker, 'kind picker should render in the Types body');
+        assert.strictEqual(picker!.querySelector('.om-kind-hdr')?.textContent, 'Add type', 'picker heading uses add vocabulary');
         const tiles = Array.from(picker!.querySelectorAll<HTMLElement>('.om-kind-tile'));
         assert.deepStrictEqual(tiles.map(t => t.dataset.kind), ['struct', 'bitfield', 'enum'], 'three kind tiles');
         assert.strictEqual(document.getElementById('oe-name'), null, 'no editor opens before a tile is picked');
@@ -2548,6 +2565,8 @@ suite('OverlayPanel deep-render harness', () => {
         S.typeInstances = [];
         await createMountedPanel();
         click(dom, document.getElementById('oi-add-btn'));
+        assert.strictEqual(document.querySelector('.oa-form-hdr')?.textContent, '\uff0b Add instance', 'create header uses add vocabulary');
+        assert.strictEqual(document.getElementById('oa-confirm')?.textContent?.trim(), 'Add', 'create submit reads Add');
         const nameInp = document.getElementById('oa-name') as HTMLInputElement | null;
         const addrInp = document.getElementById('oa-addr') as HTMLInputElement | null;
         assert.ok(nameInp && addrInp, 'add form inputs should render');
@@ -2558,6 +2577,19 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(S.typeInstances[0].typeId, 'scalar');
         assert.strictEqual(S.typeInstances[0].addr, 0x1000);
         assert.strictEqual(S.typeInstances[0].name, 'newInst');
+    });
+
+    test('Instances section expands when adding while collapsed', async () => {
+        S.types = [scalarDef];
+        S.typeInstances = [];
+        await createMountedPanel();
+
+        click(dom, document.querySelector<HTMLElement>('#oi-instances .sb-section-head'));
+        assert.ok(document.getElementById('oi-instances')!.classList.contains('collapsed'), 'instances starts collapsed');
+
+        click(dom, document.getElementById('oi-add-btn'));
+        assert.ok(!document.getElementById('oi-instances')!.classList.contains('collapsed'), 'adding expands the Instances section');
+        assert.ok(document.getElementById('oi-add-form'), 'add form renders after the forced expand');
     });
 
     test('setSelection fills the open add-form address', async () => {
@@ -2575,6 +2607,8 @@ suite('OverlayPanel deep-render harness', () => {
         await createMountedPanel();
         click(dom, document.querySelector('.sb-card .act-btn-edit'));
         assert.ok(document.getElementById('oi-add-form'), 'inline edit form should open');
+        assert.strictEqual(document.querySelector('.oa-form-hdr')?.textContent, '\u270E Edit Instance', 'edit header keeps edit vocabulary');
+        assert.strictEqual(document.getElementById('oa-confirm')?.textContent?.trim(), 'Save', 'edit submit stays Save');
         assert.strictEqual((document.getElementById('oa-name') as HTMLInputElement).value, 'inst', 'name prefilled');
         assert.strictEqual((document.getElementById('oa-addr') as HTMLInputElement).value, '00000000', 'addr prefilled');
         (document.getElementById('oa-name') as HTMLInputElement).value = 'renamed';
@@ -3138,15 +3172,18 @@ suite('OverlayPanel deep-render harness', () => {
 
         // Seed is uint32 with one child (1 bit) → room remains.
         assert.strictEqual(addBtn().disabled, false, 'uint32 seed has room for more bits');
+        assert.strictEqual(addBtn().title, 'Add bit', 'enabled add button names the object');
 
         const baseSel = document.getElementById('oe-base-type') as HTMLSelectElement;
         baseSel.value = 'uint8';
         baseSel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
         setWidth(document.querySelector<HTMLInputElement>('.ofe-bf-child-width')!, '8');
         assert.strictEqual(addBtn().disabled, true, '8/8 bits allocated disables Add bit');
+        assert.strictEqual(addBtn().title, 'No bits remaining in parent', 'disabled keeps the reason tooltip');
 
         setWidth(document.querySelector<HTMLInputElement>('.ofe-bf-child-width')!, '1');
         assert.strictEqual(addBtn().disabled, false, 'freeing bits re-enables Add bit without save/reopen');
+        assert.strictEqual(addBtn().title, 'Add bit', 'reason tooltip clears when re-enabled');
     });
 
     test('editing a type preserves a legacy type allocation it can no longer edit', async () => {
@@ -3169,7 +3206,37 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(saved!.allocation, 'msb', 'legacy type allocation is preserved through save');
     });
 
-    test('Add Field mutates rows in place without replacing the editor container', async () => {
+    test('body create buttons show ＋ Add with noun tooltips', async () => {
+        S.types = [];
+        S.typeInstances = [];
+        await createMountedPanel();
+
+        openKindEditor('struct');
+        const fieldAdd = document.getElementById('oe-add') as HTMLButtonElement;
+        assert.strictEqual(fieldAdd.textContent?.trim(), '\uff0b Add', 'field button reads ＋ Add');
+        assert.strictEqual(fieldAdd.title, 'Add field');
+        assert.strictEqual(fieldAdd.getAttribute('aria-label'), 'Add field');
+        const paramAdd = document.getElementById('oe-param-add') as HTMLButtonElement;
+        assert.strictEqual(paramAdd.textContent?.trim(), '\uff0b Add', 'parameter button reads ＋ Add');
+        assert.strictEqual(paramAdd.title, 'Add parameter');
+        assert.strictEqual(paramAdd.getAttribute('aria-label'), 'Add parameter');
+
+        click(dom, document.getElementById('oe-cancel'));
+        openKindEditor('bitfield');
+        const bitAdd = document.getElementById('oe-bf-def-add') as HTMLButtonElement;
+        assert.strictEqual(bitAdd.textContent?.trim(), '\uff0b Add', 'bit button reads ＋ Add');
+        assert.strictEqual(bitAdd.title, 'Add bit');
+        assert.strictEqual(bitAdd.getAttribute('aria-label'), 'Add bit');
+
+        click(dom, document.getElementById('oe-cancel'));
+        openKindEditor('enum');
+        const entryAdd = document.getElementById('oe-enum-add') as HTMLButtonElement;
+        assert.strictEqual(entryAdd.textContent?.trim(), '\uff0b Add', 'entry button reads ＋ Add');
+        assert.strictEqual(entryAdd.title, 'Add entry');
+        assert.strictEqual(entryAdd.getAttribute('aria-label'), 'Add entry');
+    });
+
+    test('Add field mutates rows in place without replacing the editor container', async () => {
         S.types = [];
         S.typeInstances = [];
         await createMountedPanel();
@@ -3186,12 +3253,12 @@ suite('OverlayPanel deep-render harness', () => {
         formEl!.scrollTop = 120;
 
         click(dom, document.getElementById('oe-add'));
-        assert.strictEqual(document.getElementById('oe-fields'), fieldsEl, 'Add Field does not replace #oe-fields');
-        assert.strictEqual(document.getElementById('oi-types-body'), formEl, 'Add Field does not replace the scroll container');
-        assert.strictEqual(document.getElementById('oe-name'), nameInp, 'Add Field does not replace the name input');
-        assert.strictEqual(document.getElementById('oe-packed'), packedBtn, 'Add Field does not replace the packed toggle');
-        assert.strictEqual(formEl!.scrollTop, 120, 'Add Field keeps the scroll position');
-        assert.strictEqual(document.querySelectorAll('.field-row').length, 2, 'Add Field appends a row');
+        assert.strictEqual(document.getElementById('oe-fields'), fieldsEl, 'Add field does not replace #oe-fields');
+        assert.strictEqual(document.getElementById('oi-types-body'), formEl, 'Add field does not replace the scroll container');
+        assert.strictEqual(document.getElementById('oe-name'), nameInp, 'Add field does not replace the name input');
+        assert.strictEqual(document.getElementById('oe-packed'), packedBtn, 'Add field does not replace the packed toggle');
+        assert.strictEqual(formEl!.scrollTop, 120, 'Add field keeps the scroll position');
+        assert.strictEqual(document.querySelectorAll('.field-row').length, 2, 'Add field appends a row');
         assert.ok(document.querySelector('.oe-preview'), 'preview stays mounted after incremental edits');
     });
 
@@ -4340,7 +4407,10 @@ suite('OverlayPanel deep-render harness', () => {
         assert.strictEqual(addressEmpty.hidden, false);
         const createAddress = addressEmpty.querySelector<HTMLElement>('[data-create-script]')!;
         assert.strictEqual(createAddress.dataset.createScript, 'address');
-        assert.strictEqual(createAddress.textContent?.trim(), 'Create instance address script');
+        assert.strictEqual(createAddress.textContent?.trim(), '\uff0b Add');
+        assert.strictEqual(createAddress.getAttribute('title'), 'Create an instance address script');
+        assert.strictEqual(createAddress.getAttribute('aria-label'), 'Create an instance address script');
+        assert.ok(createAddress.classList.contains('sb-btn-add'), 'create action uses the add variant');
         click(dom, createAddress);
         assert.deepStrictEqual(created, ['address'], 'the create action reports the address role');
         click(dom, addressEmpty.querySelector('[data-open-scripts-folder]'));
@@ -4350,6 +4420,10 @@ suite('OverlayPanel deep-render harness', () => {
         assert.ok(paramsEmpty, 'the empty size picker exposes actions');
         const createSize = paramsEmpty.querySelector<HTMLElement>('[data-create-script]')!;
         assert.strictEqual(createSize.dataset.createScript, 'size');
+        assert.strictEqual(createSize.textContent?.trim(), '\uff0b Add');
+        assert.strictEqual(createSize.getAttribute('title'), 'Create an array size script');
+        assert.strictEqual(createSize.getAttribute('aria-label'), 'Create an array size script');
+        assert.ok(createSize.classList.contains('sb-btn-add'), 'size create action uses the add variant');
         click(dom, createSize);
         assert.deepStrictEqual(created, ['address', 'size']);
         click(dom, paramsEmpty.querySelector('[data-open-scripts-folder]'));

@@ -96,6 +96,26 @@ suite('Inspector mount + sections', () => {
         assert.ok(document.querySelector('#insp-bits'), 'bits block lives inside Inspector');
         assert.strictEqual(document.querySelector('#s-labels .sb-empty')?.textContent, 'No labels defined');
     });
+
+    test('labels add action is a compact header control with ＋ Add + tooltip', () => {
+        const add = document.getElementById('btn-add-lbl') as HTMLButtonElement;
+        assert.ok(add, 'add action mounted');
+        assert.strictEqual(add.textContent, '\uff0b Add');
+        assert.strictEqual(add.title, 'Add segment label');
+        assert.strictEqual(add.getAttribute('aria-label'), 'Add segment label');
+        assert.ok(add.classList.contains('sb-btn-add'), 'uses the create primitive');
+        assert.ok(add.classList.contains('sb-section-action'), 'uses the compact header contract');
+        assert.ok(add.closest('.sb-section-actions'), 'lives in the Labels section header');
+        assert.strictEqual(document.querySelector('#s-labels-body #btn-add-lbl'), null, 'body no longer carries the button');
+    });
+
+    test('labels add action expands the section and renders the form into the labels body', () => {
+        const section = document.getElementById('s-labels')!;
+        assert.ok(section.classList.contains('collapsed'), 'labels start collapsed');
+        document.getElementById('btn-add-lbl')!.click();
+        assert.ok(!section.classList.contains('collapsed'), 'click expands the Labels section');
+        assert.ok(document.querySelector('#s-labels-body .lbl-form'), 'form renders into the labels body');
+    });
 });
 
 suite('Inspector selection + endian', () => {

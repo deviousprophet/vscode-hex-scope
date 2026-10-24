@@ -76,7 +76,12 @@ export class InspectorPanel implements InspectorLabelFormHost {
         this.bitsCollapsed = false;
         this.sections = new SidebarSections(root, 's', [
             { id: 'insp', label: 'Inspector' },
-            { id: 'labels', label: 'Labels', defaultCollapsed: true },
+            {
+                id: 'labels',
+                label: 'Labels',
+                defaultCollapsed: true,
+                mountActions: r => this.mountLabelsAddAction(r),
+            },
         ]);
         this.renderInspectorShell();
         this.renderLabels();
@@ -359,14 +364,24 @@ export class InspectorPanel implements InspectorLabelFormHost {
         // Form teardown choke point: any labels rerender clears the draft preview.
         this.cb.onLabelDraftChange?.(null);
         const itemsHtml = labelItemsHtml(this.labels, this.segments, this.segmentNames);
-        body.innerHTML = `${itemsHtml}
-        <button class="sb-btn sb-btn-add" id="btn-add-lbl">+ Add Segment Label</button>`;
+        body.innerHTML = itemsHtml;
 
         this.wireLabelActions(body);
         this.wireLabelVisibility(body);
         this.wireLabelJump(body);
         this.wireLabelJumpPermanent(body);
-        this.wireLabelAdd(body);
+    }
+
+    /** Labels header action: the single add entry point (reachable while collapsed). */
+    private mountLabelsAddAction(root: HTMLElement): void {
+        const add = document.createElement('button');
+        add.id = 'btn-add-lbl';
+        add.className = 'sb-btn sb-btn-add sb-section-action';
+        add.textContent = '\uff0b Add';
+        add.title = 'Add segment label';
+        add.setAttribute('aria-label', 'Add segment label');
+        add.addEventListener('click', () => renderLabelForm(this));
+        root.appendChild(add);
     }
 
     private wireLabelActions(sec: HTMLElement): void {
@@ -475,10 +490,6 @@ export class InspectorPanel implements InspectorLabelFormHost {
 
     private jumpToSegment(start: number): void {
         if (Number.isFinite(start)) { this.cb.onJumpTo?.(start); }
-    }
-
-    private wireLabelAdd(sec: HTMLElement): void {
-        sec.querySelector<HTMLElement>('#btn-add-lbl')?.addEventListener('click', () => renderLabelForm(this));
     }
 }
 

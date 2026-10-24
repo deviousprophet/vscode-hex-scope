@@ -1,11 +1,11 @@
 /* ── Scripts ──────────────────────────────────────────────────── */
-/* Header (title/count/refresh) is the framework section header in
-   sidebar.css: 8px header→body gap, no border separator (non-collapsible).
+/* Header (title, ＋ Add trigger, refresh) is the framework section header in
+   sidebar.css: 8px header→body gap, no border separator.
    Result-block collapse below remains panel-owned. */
 
 /* Refresh — rides .sb-btn-secondary + .sb-section-action (compact contract); no local sizing. */
 
-/* Empty state — the shared .sb-empty text plus a pointer at the New split button. */
+/* Empty state — the shared .sb-empty text plus a pointer at the header Add trigger. */
 .script-empty {
     display: flex;
     flex-direction: column;
@@ -17,28 +17,16 @@
     opacity: .8;
 }
 
-/* New split button — bar above the list; the caret expands the template chooser
-   in flow (same pattern as the prompt's More options menu), so no clipping. */
-.script-new-bar {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
-    padding: 6px 8px; border-bottom: 1px solid var(--border);
+/* Add chooser — in-flow block at the top of the body, under the header trigger.
+   The 22px section header clips overflow, so the popup cannot anchor there.
+   Template rows + catalog actions stay descriptive; the trigger owns ＋ Add. */
+.script-add-popup {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 4px 8px; border-bottom: 1px solid var(--border);
 }
-.script-new-split { display: inline-flex; }
-.script-new-btn.sb-btn {
-    border-top-right-radius: 0; border-bottom-right-radius: 0;
-    font-size: 11px; padding: 2px 10px; line-height: 1.5;
-}
-.script-new-caret.sb-btn {
-    border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none;
-    font-size: 10px; padding: 2px 6px; line-height: 1.5;
-}
-.script-new-popup {
-    flex-basis: 100%;
-    display: flex; flex-direction: column; gap: 2px; margin-top: 2px;
-}
-.script-new-popup[hidden] { display: none; }
+.script-add-popup[hidden] { display: none; }
 /* Separator between the four templates and the catalog actions. */
-.script-new-sep { height: 1px; background: var(--border); margin: 2px 0; }
+.script-add-sep { height: 1px; background: var(--border); margin: 2px 0; }
 
 /* Filter bar — text filter + kind chips above the list. Hidden while the empty
    state shows. Filtering only toggles [hidden] on cards/groups, so result areas,
@@ -276,16 +264,16 @@
 .script-perm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .script-perm-menu { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .script-perm-menu[hidden] { display: none; }
-/* Shared option-row styling: the prompt's More-options menu and the New template chooser. */
+/* Shared option-row styling: the prompt's More-options menu and the Add chooser. */
 .script-perm-option,
-.script-new-option {
+.script-add-option {
     text-align: left; background: rgba(255,255,255,.04); border: 1px solid var(--border);
     color: var(--fg); font-size: 11px; padding: 4px 8px; border-radius: 3px; cursor: pointer;
 }
 .script-perm-option:hover,
-.script-new-option:hover { background: rgba(255,255,255,.08); }
+.script-add-option:hover { background: rgba(255,255,255,.08); }
 .script-perm-option:focus-visible,
-.script-new-option:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: 1px; }
+.script-add-option:focus-visible { outline: 1px solid var(--info-fg, #4fc3f7); outline-offset: 1px; }
 
 /* Details chevron — compact card-level toggle for the expandable details row. */
 .script-details-toggle {

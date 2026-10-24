@@ -48,12 +48,13 @@ and Providers (picking one opens the file) and offers:
 - **Reveal a script in Explorer…** — shows a script picker and reveals the chosen file in the Explorer view (only offered when scripts exist),
 - **Delete a script…** — shows a script picker, asks for a modal confirmation, then permanently removes the file and revokes that script's stored permissions (only offered when scripts exist).
 
-The Scripts panel has the same creation path: the **＋ New** split button opens the template
-picker, and its caret menu lists the four templates plus **Browse examples…** and **Add all
-examples** (see [Start from an example](#start-from-an-example)). The empty state has a
-**Create script** button and a **Browse examples…** button. Empty provider pickers in the
-Overlay and Integrity panels offer **Create … script** and **Open scripts folder** next to
-their disabled placeholder.
+The Scripts panel creates scripts from its section header: **＋ Add** opens a chooser at the
+top of the section body listing the four templates plus **Browse examples…** and **Add all
+examples** (see [Start from an example](#start-from-an-example)); the empty state points at
+**＋ Add**. The **HexScope: New Script** command (and **HexScope: Manage Scripts**) keeps
+its own QuickPick for the same templates. Empty provider pickers in the Overlay and
+Integrity panels offer **＋ Add** (create the matching script) and **Open scripts folder**
+next to their disabled placeholder.
 
 Creation asks for a file name (prefilled by the template), refuses names that are not a
 plain `.js`/`.ts` file, never overwrites an existing file (a clear message names the
@@ -64,9 +65,9 @@ matching group without a manual refresh.
 ## Start from an example
 
 **HexScope: Add Example Scripts** copies a working catalog into `.hexscope/scripts/`
-(also reachable from the Scripts panel's **＋ New** caret menu as **Add all examples**, and
-from **HexScope: Manage Scripts** as **Add all examples**). The panel's empty state and New
-menu also offer **Browse examples…** for a selective copy — see below. The command:
+(also reachable from the Scripts panel's **＋ Add** chooser as **Add all examples**, and
+from **HexScope: Manage Scripts** as **Add all examples**). The panel's chooser also offers
+**Browse examples…** for a selective copy — see below. The command:
 
 - refuses to run in an untrusted workspace,
 - creates `.hexscope/scripts/` and `.hexscope/scripts/types/` as needed,
@@ -98,7 +99,7 @@ is type-checked in CI (`npm run check-examples`), so it cannot drift from the AP
 
 - The compact filter bar above the list combines a text filter (matches script name or
   path) with kind chips (`All`, `Actions`, `Providers`). Filtering only hides cards:
-  embedded results, run history, the Permissions section, and the **＋ New** button all
+  embedded results, run history, the Permissions section, and the **＋ Add** action all
   stay intact, and a group with no visible cards disappears. A one-line **No scripts
   match the filter** state appears when nothing matches.
 - Each card's chevron expands a details row: roles, declared capabilities, **Used by**
@@ -750,7 +751,7 @@ panel reports the decision on the card itself:
 - Without it, the Run button stays disabled and the card shows a **TypeScript needs
   esbuild, which is not bundled** row with two actions:
   - **Open setup guide** — this guide,
-  - **Create JavaScript version** — writes a `.js` sibling (for example `crc-check.ts` →
+  - **＋ Add** (tooltip *Create a JavaScript version*) — writes a `.js` sibling (for example `crc-check.ts` →
     `crc-check.js`) that starts with a header comment and then the untouched source.
     It never overwrites an existing file and never modifies the `.ts` source; review the
     types and imports manually, then run the `.js` copy. Like the other creation flows,

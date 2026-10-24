@@ -216,9 +216,6 @@
 }
 .label-act:hover { color: var(--fg); background: rgba(255,255,255,.08); }
 
-/* Add-label button uses the shared .sb-btn-add primitive; keep the full-width row filler */
-#s-labels .sb-btn-add { width: 100%; margin-top: 8px; }
-
 /* ── Label inline form ───────────────────────────────────────── */
 .lbl-form    { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
 /* Form title — framework .sb-section-label look (10px/700/uppercase/.07em),

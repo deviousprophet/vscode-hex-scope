@@ -1,6 +1,7 @@
 /** Scripts Panel — self-contained sidebar panel for the script runner.
-Owns the full `#s-scripts` shell: framework section header (title/count/refresh
-action), the New split button, the filter bar (search + kind chips), script cards
+Owns the full `#s-scripts` shell: framework section header (title, the
+header Add trigger + list refresh), the body-top template chooser, the filter bar
+(search + kind chips), script cards
 (name button/ext/role chips/capability badges/used-by chip/status dot/run-cancel
 state machine, the expandable details row with used-by links, the TypeScript
 action row), the card context menu (Open/Copy path/Reveal/Delete/Details/
@@ -53,9 +54,9 @@ export interface ScriptsCallbacks {
     onRevokeAllScriptPermissions?: (scope?: ScriptGrantScope, scriptPath?: string) => void;
     /** Selective example install: host posts browseExampleScripts (checked catalog rows only). */
     onBrowseExampleScripts?: () => void;
-    /** Bulk example install (New menu's "Add all examples"): host posts addExampleScripts. */
+    /** Bulk example install (the Add chooser's "Add all examples"): host posts addExampleScripts. */
     onAddExampleScripts?: () => void;
-    /** Create a script from a template; without a template the host asks which one. */
+    /** Create a script from a template (the panel always names one; the host quick-pick serves the command palette). */
     onCreateScript?: (template?: ScriptTemplateId) => void;
     /** Copy a script's absolute path to the clipboard (host posts copyText). */
     onCopyPath?: (scriptPath: string) => void;
@@ -163,7 +164,7 @@ export class ScriptsPanel {
     private readonly collapsedGroups = new Set<ScriptGroupKey>();
     /** Inline per-command approval surface (one prompt at a time). */
     private readonly prompt: PermissionPrompt;
-    /** Outside-click closer for the New template chooser (attached only while open). */
+    /** Outside-click closer for the Add template chooser (attached only while open). */
     private menuDocHandler: ((event: Event) => void) | null = null;
     /** Host-reported esbuild availability; absent payloads keep `.ts` blocked (legacy default). */
     private compilerAvailable = false;
@@ -207,7 +208,7 @@ export class ScriptsPanel {
         if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null; }
         for (const timer of this.confirmTimers) { clearTimeout(timer); }
         this.confirmTimers.clear();
-        this.setNewMenu(false);
+        this.setAddMenu(false);
         this.prompt.dispose();
     }
 
@@ -224,9 +225,11 @@ export class ScriptsPanel {
     render(): void {
         const body = this.sections?.body('main');
         if (!body) { return; }
-        body.innerHTML = `${this.newBarHtml()}${this.filterBarHtml()}<div class="script-list">${this.scriptListHtml()}</div>`;
-        this.wireNewBar(body);
+        body.innerHTML = `${this.addChooserHtml()}${this.filterBarHtml()}<div class="script-list">${this.scriptListHtml()}</div>`;
+        this.wireAddChooser(body);
         this.wireFilterBar(body);
+        // The chooser node was rebuilt closed; drop any stale outside-click listener.
+        this.setAddMenu(false);
         const list = body.querySelector<HTMLElement>('.script-list');
         if (list) { this.wireScriptList(list); }
         this.syncFilterBar();
@@ -305,39 +308,35 @@ export class ScriptsPanel {
         if (bar) { bar.hidden = this.currentScripts.length === 0; }
     }
 
-    // ── New split button + template chooser ────────────────────────
+    // ── Header Add trigger + body template chooser ─────────────────
 
-    /** New split button: primary opens the host template picker; the caret lists templates in place. */
-    private newBarHtml(): string {
+    /**
+     * In-flow chooser at the top of the body. The 22px section header clips
+     * overflow, so the menu cannot anchor there; the header trigger mounts once
+     * and only syncs `aria-expanded` while this markup is rebuilt by render().
+     */
+    private addChooserHtml(): string {
         const options = SCRIPT_TEMPLATES.map(template =>
-            `<button type="button" class="script-new-option" role="menuitem" data-template="${esc(template.id)}"
+            `<button type="button" class="script-add-option" role="menuitem" data-template="${esc(template.id)}"
                 title="${esc(template.description)}">${esc(template.name)}</button>`
         ).join('');
         return `
-        <div class="script-new-bar">
-            <span class="script-new-split">
-                <button type="button" id="scripts-new" class="sb-btn sb-btn-secondary script-new-btn"
-                    title="Create a script from a template">\uFF0B New</button>
-                <button type="button" id="scripts-new-menu" class="sb-btn sb-btn-secondary script-new-caret"
-                    aria-haspopup="true" aria-expanded="false" title="New script or example" aria-label="New script or example">\u25BE</button>
-            </span>
-            <div class="script-new-popup" role="menu" hidden>${options}
-                <div class="script-new-sep" role="separator"></div>
-                <button type="button" class="script-new-option" role="menuitem" data-example-action="browse"
-                    title="Copy selected bundled examples">Browse examples\u2026</button>
-                <button type="button" class="script-new-option" role="menuitem" data-example-action="all"
-                    title="Copy the whole bundled catalog">Add all examples</button>
-            </div>
+        <div class="script-add-popup" role="menu" hidden>${options}
+            <div class="script-add-sep" role="separator"></div>
+            <button type="button" class="script-add-option" role="menuitem" data-example-action="browse"
+                title="Copy selected bundled examples">Browse examples\u2026</button>
+            <button type="button" class="script-add-option" role="menuitem" data-example-action="all"
+                title="Copy the whole bundled catalog">Add all examples</button>
         </div>`;
     }
 
-    private wireNewBar(body: HTMLElement): void {
-        body.querySelector('#scripts-new')?.addEventListener('click', () => this.cb.onCreateScript?.());
-        body.querySelector('#scripts-new-menu')?.addEventListener('click', () => this.toggleNewMenu());
-        body.querySelectorAll<HTMLElement>('.script-new-option[data-template]').forEach(option => {
+    private wireAddChooser(body: HTMLElement): void {
+        body.querySelectorAll<HTMLElement>('.script-add-option[data-template]').forEach(option => {
             option.addEventListener('click', () => {
-                this.setNewMenu(false);
-                this.cb.onCreateScript?.(option.dataset.template as ScriptTemplateId | undefined);
+                const template = option.dataset.template as ScriptTemplateId | undefined;
+                if (!template) { return; }
+                this.setAddMenu(false);
+                this.cb.onCreateScript?.(template);
             });
         });
         const exampleActions: Record<string, () => void> = {
@@ -348,33 +347,35 @@ export class ScriptsPanel {
             const action = exampleActions[row.dataset.exampleAction ?? ''];
             if (!action) { return; }
             row.addEventListener('click', () => {
-                this.setNewMenu(false);
+                this.setAddMenu(false);
                 action();
             });
         });
     }
 
-    private toggleNewMenu(): void {
-        const popup = this._panel?.querySelector<HTMLElement>('.script-new-popup');
-        this.setNewMenu(Boolean(popup?.hidden));
+    /** Header trigger: expand the section first, then toggle the body chooser. */
+    private toggleAddMenu(): void {
+        this.sections?.setCollapsed('main', false);
+        const popup = this._panel?.querySelector<HTMLElement>('.script-add-popup');
+        this.setAddMenu(Boolean(popup?.hidden));
     }
 
-    private setNewMenu(open: boolean): void {
-        const popup = this._panel?.querySelector<HTMLElement>('.script-new-popup');
-        const caret = this._panel?.querySelector<HTMLElement>('#scripts-new-menu');
+    private setAddMenu(open: boolean): void {
+        const popup = this._panel?.querySelector<HTMLElement>('.script-add-popup');
+        const trigger = this._panel?.querySelector<HTMLElement>('#scripts-add');
         if (popup) { popup.hidden = !open; }
-        caret?.setAttribute('aria-expanded', String(open));
-        this.syncMenuDocListener(open, popup ?? null, caret ?? null);
+        trigger?.setAttribute('aria-expanded', String(open));
+        this.syncMenuDocListener(open, popup ?? null, trigger ?? null);
     }
 
     /** Close the chooser when the user clicks anywhere outside it. */
-    private syncMenuDocListener(open: boolean, popup: HTMLElement | null, caret: HTMLElement | null): void {
+    private syncMenuDocListener(open: boolean, popup: HTMLElement | null, trigger: HTMLElement | null): void {
         if (!open) {
             this.detachMenuDocListener();
             return;
         }
-        if (!this.menuListenerReady(popup, caret)) { return; }
-        this.menuDocHandler = this.outsideMenuHandler(popup, caret);
+        if (!this.menuListenerReady(popup, trigger)) { return; }
+        this.menuDocHandler = this.outsideMenuHandler(popup, trigger);
         document.addEventListener('click', this.menuDocHandler);
     }
 
@@ -386,30 +387,45 @@ export class ScriptsPanel {
     }
 
     /** The chooser has both anchors and no listener is attached yet. */
-    private menuListenerReady(popup: HTMLElement | null, caret: HTMLElement | null): popup is HTMLElement {
-        return popup !== null && caret !== null && this.menuDocHandler === null;
+    private menuListenerReady(popup: HTMLElement | null, trigger: HTMLElement | null): popup is HTMLElement {
+        return popup !== null && trigger !== null && this.menuDocHandler === null;
     }
 
-    /** Outside-click close: clicks inside the chooser (or its caret) keep it open. */
-    private outsideMenuHandler(popup: HTMLElement, caret: HTMLElement | null): (event: Event) => void {
+    /** Outside-click close: clicks inside the chooser (or its header trigger) keep it open. */
+    private outsideMenuHandler(popup: HTMLElement, trigger: HTMLElement | null): (event: Event) => void {
         return event => {
-            if (this.menuContains(event.target, popup, caret)) { return; }
-            this.setNewMenu(false);
+            if (this.menuContains(event.target, popup, trigger)) { return; }
+            this.setAddMenu(false);
         };
     }
 
-    /** True when the click landed inside the chooser popup or its caret. */
-    private menuContains(target: EventTarget | null, popup: HTMLElement, caret: HTMLElement | null): boolean {
+    /** True when the click landed inside the chooser popup or its header trigger. */
+    private menuContains(target: EventTarget | null, popup: HTMLElement, trigger: HTMLElement | null): boolean {
         const node = target as Node | null;
         if (!node) { return false; }
-        return popup.contains(node) || Boolean(caret?.contains(node));
+        return popup.contains(node) || Boolean(trigger?.contains(node));
     }
 
-    /** Framework header actions: the list refresh (compact controls, mounted once). */
+    /** Framework header actions: the Add trigger + list refresh (compact controls, mounted once). */
     private mountToolbarActions(root: HTMLElement): void {
+        root.appendChild(this.addTrigger());
         root.appendChild(this.toolbarButton(
             'scripts-refresh', 'Refresh script list', '\u21BB', () => this.cb.onRequestList?.(),
         ));
+    }
+
+    /** Header `＋ Add` trigger for the body template chooser (mounted once). */
+    private addTrigger(): HTMLButtonElement {
+        const btn = document.createElement('button');
+        btn.id = 'scripts-add';
+        btn.className = 'sb-btn sb-btn-add sb-section-action';
+        btn.title = 'Add script';
+        btn.setAttribute('aria-label', 'Add script');
+        btn.setAttribute('aria-haspopup', 'true');
+        btn.setAttribute('aria-expanded', 'false');
+        btn.textContent = '\uFF0B Add';
+        btn.addEventListener('click', () => this.toggleAddMenu());
+        return btn;
     }
 
     private toolbarButton(id: string, label: string, glyph: string, onClick: () => void): HTMLButtonElement {
@@ -716,7 +732,7 @@ export class ScriptsPanel {
         if (this.currentScripts.length === 0) {
             return `<div class="sb-empty script-empty">
         <div>No scripts found in .hexscope/scripts/</div>
-        <div class="script-empty-hint">Use <strong>\uFF0B New</strong> above to create a script or add examples.</div>
+        <div class="script-empty-hint">Use <strong>\uFF0B Add</strong> above to create a script or add examples.</div>
     </div>`;
         }
         const { actions, providers } = this.groupedScripts();
@@ -836,8 +852,8 @@ export class ScriptsPanel {
             <span class="script-ts-note" title="The extension never bundles esbuild; TypeScript is an advanced local-dev path.">TypeScript needs esbuild, which is not bundled.</span>
             <button type="button" class="sb-btn sb-btn-secondary script-ts-btn" data-ts-guide
                 title="Open the scripting guide's TypeScript section">Open setup guide</button>
-            <button type="button" class="sb-btn sb-btn-secondary script-ts-btn" data-ts-convert
-                title="Create a .js copy next to the script (never overwrites)">Create JavaScript version</button>
+            <button type="button" class="sb-btn sb-btn-add script-ts-btn" data-ts-convert
+                title="Create a JavaScript version" aria-label="Create a JavaScript version">\uff0b Add</button>
         </div>`;
     }
 

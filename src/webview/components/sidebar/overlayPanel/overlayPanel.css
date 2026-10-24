@@ -13,7 +13,7 @@
 /* Spacing now comes from the primitives (sidebar.css): .sb-btn 2px 8px,
    .sb-btn-add 5px 8px. Only non-spacing adaptations stay here. */
 .oa-row .sb-select { flex: 1; min-width: 0; }
-/* Add Field: compact, centered in the form, not full-width. */
+/* Add field: compact, centered in the form, not full-width. */
 .oe-form > .sb-btn-add { align-self: center; width: auto; padding: 3px 12px; }
 #oi-add-btn { flex-shrink: 0; }
 #om-close-btn { flex-shrink: 0; }
@@ -127,7 +127,7 @@
 
 /* The section body (.sb-pane .sb-body) stays the only scroll container for
    the editor, like every other sidebar section: the whole form (name, type
-   default, field rows, Add Field, Save/Cancel, C preview) flows in it and
+   default, field rows, Add field, Save/Cancel, C preview) flows in it and
    scrolls together. The wrapper does not stretch to fill the pane —
    `min-height:100%` against a flex-derived body height proved unreliable
    across machines (void + premature scrollbar); short forms top-align
@@ -518,7 +518,7 @@
     border-radius: 4px; padding: 8px; margin-bottom: 8px;
 }
 
-/* Form mode header (+ New Instance / ? Edit Instance) */
+/* Form mode header (＋ Add instance / ✎ Edit Instance) */
 .oa-form-hdr {
     font-size: 10px; font-weight: 600; font-family: var(--font-ui);
     padding-bottom: 5px;
