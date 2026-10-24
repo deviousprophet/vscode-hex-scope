@@ -5,12 +5,16 @@
 
 /* Refresh — rides .sb-btn-secondary + .sb-section-action (compact contract); no local sizing. */
 
-/* Empty state — the shared .sb-empty text plus the Create / Browse examples actions. */
+/* Empty state — the shared .sb-empty text plus a pointer at the New split button. */
 .script-empty {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
+}
+.script-empty-hint {
+    font-size: 11px;
+    opacity: .8;
 }
 
 /* New split button — bar above the list; the caret expands the template chooser
@@ -35,14 +39,6 @@
 .script-new-popup[hidden] { display: none; }
 /* Separator between the four templates and the catalog actions. */
 .script-new-sep { height: 1px; background: var(--border); margin: 2px 0; }
-
-.script-browse-examples.sb-btn,
-.script-create.sb-btn {
-    font-style: normal;
-    font-size: 11px;
-    padding: 2px 8px;
-    line-height: 1.5;
-}
 
 /* Filter bar — text filter + kind chips above the list. Hidden while the empty
    state shows. Filtering only toggles [hidden] on cards/groups, so result areas,

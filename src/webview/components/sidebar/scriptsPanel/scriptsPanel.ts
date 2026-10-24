@@ -716,10 +716,7 @@ export class ScriptsPanel {
         if (this.currentScripts.length === 0) {
             return `<div class="sb-empty script-empty">
         <div>No scripts found in .hexscope/scripts/</div>
-        <button type="button" class="sb-btn sb-btn-secondary script-create" data-create-script
-            title="Create a script from a template">Create script</button>
-        <button type="button" class="sb-btn sb-btn-secondary script-browse-examples" data-browse-examples
-            title="Copy selected bundled examples">Browse examples\u2026</button>
+        <div class="script-empty-hint">Use <strong>\uFF0B New</strong> above to create a script or add examples.</div>
     </div>`;
         }
         const { actions, providers } = this.groupedScripts();
@@ -853,12 +850,6 @@ export class ScriptsPanel {
     }
 
     private wireScriptList(container: HTMLElement): void {
-        container.querySelectorAll<HTMLButtonElement>('[data-browse-examples]').forEach(btn => {
-            btn.addEventListener('click', () => this.cb.onBrowseExampleScripts?.());
-        });
-        container.querySelectorAll<HTMLButtonElement>('[data-create-script]').forEach(btn => {
-            btn.addEventListener('click', () => this.cb.onCreateScript?.());
-        });
         container.querySelectorAll<HTMLButtonElement>('[data-group-toggle]').forEach(btn => {
             btn.addEventListener('click', () => this.toggleGroup(btn));
         });

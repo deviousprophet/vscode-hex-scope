@@ -271,16 +271,14 @@ suite('ScriptsPanel mount + render', () => {
         assert.ok(badge.hidden, 'count badge hidden when no scripts');
     });
 
-    test('empty state offers the "Browse examples\u2026" action', () => {
-        const btn = document.querySelector<HTMLButtonElement>('.script-empty [data-browse-examples]');
-        assert.ok(btn, 'empty-state browse button exists');
-        assert.strictEqual(btn!.textContent?.trim(), 'Browse examples\u2026');
-        assert.strictEqual(btn!.tagName, 'BUTTON', 'a native button is the keyboard entry point');
-        assert.strictEqual(document.querySelector('.script-empty [data-add-examples]'), null, 'no bulk install button in the empty state');
-        cb.browsed = 0;
-        click(dom, btn);
-        assert.strictEqual(cb.browsed, 1, 'empty-state action reports onBrowseExampleScripts');
-        assert.strictEqual(cb.requested, 0, 'browsing is not a list refresh');
+    test('empty state points at the New split button instead of duplicating its actions', () => {
+        assert.strictEqual(document.querySelector('.script-empty [data-create-script]'), null, 'no duplicate create button');
+        assert.strictEqual(document.querySelector('.script-empty [data-browse-examples]'), null, 'no duplicate browse button');
+        assert.strictEqual(document.querySelectorAll('[data-create-script]').length, 0, 'create lives only in the New split button');
+        assert.strictEqual(document.querySelectorAll('[data-browse-examples]').length, 0, 'browse lives only in the New menu');
+        assert.strictEqual(cb.browsed, 0, 'the empty state wires no browse action');
+        assert.ok(document.querySelector('.script-empty-hint')?.textContent?.includes('New'), 'the empty state points at ＋ New');
+        assert.ok(document.getElementById('scripts-new'), 'the single create entry point is present');
     });
 
     test('header has no separate install action', () => {
@@ -375,18 +373,6 @@ suite('ScriptsPanel mount + render', () => {
         assert.ok(popup.hidden, 'the caret alone toggles the chooser shut');
     });
 
-    test('empty state offers Create script next to Browse examples', () => {
-        const btn = document.querySelector<HTMLButtonElement>('.script-empty [data-create-script]')!;
-        assert.ok(btn, 'empty-state create button exists');
-        assert.strictEqual(btn.textContent?.trim(), 'Create script');
-        assert.strictEqual(btn.tagName, 'BUTTON', 'a native button is the keyboard entry point');
-        cb.created = [];
-        click(dom, btn);
-        assert.deepStrictEqual(cb.created, [undefined], 'the host asks which template to use');
-        assert.strictEqual(cb.requested, 0, 'creating is not a list refresh');
-        assert.strictEqual(cb.browsed, 0, 'creating never opens the example picker');
-    });
-
     test('render is idempotent: re-render keeps a single shell', () => {
         panel.render();
         assert.strictEqual(document.querySelectorAll('#s-scripts').length, 1);
@@ -396,7 +382,7 @@ suite('ScriptsPanel mount + render', () => {
         assert.strictEqual(document.querySelectorAll('#scripts-new').length, 1);
         assert.strictEqual(document.querySelectorAll('.script-new-popup').length, 1);
         assert.strictEqual(document.querySelectorAll('[data-example-action]').length, 2, 'one browse + one bulk row in the New menu');
-        assert.strictEqual(document.querySelectorAll('[data-browse-examples]').length, 1, 'one empty-state browse action');
+        assert.strictEqual(document.querySelectorAll('[data-browse-examples]').length, 0, 'no duplicate browse action');
     });
 });
 
@@ -439,17 +425,6 @@ suite('ScriptsPanel setScripts', () => {
         assert.ok(badge().hidden);
         panel.setScripts([], true);
         assert.ok(badge().hidden);
-    });
-
-    test('empty-state browse action follows the script list', () => {
-        panel.setScripts(SCRIPTS, true);
-        assert.strictEqual(document.querySelectorAll('[data-browse-examples]').length, 0, 'no browse action while scripts exist');
-        panel.setScripts([], true);
-        const btn = document.querySelector<HTMLButtonElement>('[data-browse-examples]')!;
-        assert.ok(btn, 'browse action returns with the empty state');
-        cb.browsed = 0;
-        click(dom, btn);
-        assert.strictEqual(cb.browsed, 1, 're-rendered empty state stays wired');
     });
 
     test('untrusted workspace disables run buttons with tooltip', () => {
