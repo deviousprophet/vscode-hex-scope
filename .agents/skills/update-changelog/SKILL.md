@@ -151,6 +151,13 @@ Only non-empty sections appear. If `[Unreleased]` already exists, compare its to
 
 Promote the `[Unreleased]` content (fill from the range if empty), replace the `[Unreleased]` heading, and leave no empty `[Unreleased]` section — a future update run re-creates it.
 
+### Release packaging
+
+Release builds keep `[Unreleased]` out of what users see:
+
+- `package.yml` runs `.github/scripts/strip-unreleased-changelog.mjs` before `vsce package`, so the VSIX changelog starts at the newest dated release section.
+- `extract-release-notes.mjs` only accepts a dated `## [X.Y.Z] - YYYY-MM-DD` section and refuses `Unreleased`; tagging without a promoted section fails the Release job.
+
 ### Style rules
 
 - One user-visible outcome per bullet; a single crisp sentence; split run-ons.

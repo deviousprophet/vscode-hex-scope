@@ -28,10 +28,11 @@ function runGit(args) {
   }
 }
 
-function extractChangelogBody(changelog, version) {
+function extractReleaseBody(changelog, version) {
   const lines = changelog.split(/\r?\n/);
   const headingPattern = /^## \[([^\]]+)\](?:\s+[-\u2013\u2014]\s+.*)?\s*$/;
-  const startIndex = lines.findIndex((line) => headingPattern.exec(line)?.[1] === version);
+  const releaseHeadingPattern = /^## \[([^\]]+)\]\s+-\s+(\d{4}-\d{2}-\d{2})\s*$/;
+  const startIndex = lines.findIndex((line) => releaseHeadingPattern.exec(line)?.[1] === version);
 
   if (startIndex === -1) {
     return undefined;
@@ -52,14 +53,17 @@ const version = tag.replace(/^v/, "");
 if (!version) {
   fail(`Release tag "${tag}" does not contain a version.`);
 }
+if (/^unreleased$/i.test(version)) {
+  fail("Refusing to publish the [Unreleased] section; tag a dated version instead.");
+}
 
 if (!existsSync(changelogPath)) {
   fail("CHANGELOG.md was not found.");
 }
 
-const changelogBody = extractChangelogBody(readFileSync(changelogPath, "utf8"), version);
+const changelogBody = extractReleaseBody(readFileSync(changelogPath, "utf8"), version);
 if (!changelogBody) {
-  fail(`CHANGELOG.md does not contain a non-empty section for ${version}.`);
+  fail(`CHANGELOG.md does not contain a dated release section for ${version} (expected "## [${version}] - YYYY-MM-DD"). Promote the [Unreleased] section before tagging.`);
 }
 
 const previousTag = runGit(["describe", "--tags", "--abbrev=0", `${tag}^{commit}^`, "--match", "v*"]);
