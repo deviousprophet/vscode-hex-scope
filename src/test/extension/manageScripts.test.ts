@@ -43,6 +43,9 @@ import type { ScriptInfo } from '../../core/scripting/types';
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 
+/** Platform-safe fake path whose basename is always `hello.js`. */
+const FAKE_HELLO_PATH = path.join('D:\\ws', 'hello.js');
+
 const ACTION: ScriptInfo = {
     name: 'hello.js',
     filePath: 'D:\\ws\\.hexscope\\scripts\\hello.js',
@@ -558,7 +561,7 @@ suite('manage scripts delete flow', () => {
 
     test('an untrusted workspace refuses before the confirm and the unlink', async () => {
         const { deps, captured } = makePanelDeleteDeps({ trusted: false });
-        assert.strictEqual(await runPanelDeleteScript('D:\\ws\\hello.js', deps), false);
+        assert.strictEqual(await runPanelDeleteScript(FAKE_HELLO_PATH, deps), false);
         assert.deepStrictEqual(captured.warnings, [UNTRUSTED_DELETE_MESSAGE]);
         assert.deepStrictEqual(captured.confirmed, []);
         assert.deepStrictEqual(captured.unlinked, []);
@@ -583,7 +586,7 @@ suite('manage scripts delete flow', () => {
 
     test('another unlink failure warns and keeps the grants', async () => {
         const { deps, captured } = makePanelDeleteDeps({ unlink: () => 'EPERM: operation not permitted' });
-        assert.strictEqual(await runPanelDeleteScript('D:\\ws\\hello.js', deps), false);
+        assert.strictEqual(await runPanelDeleteScript(FAKE_HELLO_PATH, deps), false);
         assert.deepStrictEqual(captured.warnings, ['HexScope: could not delete hello.js: EPERM: operation not permitted']);
         assert.deepStrictEqual(captured.revoked, []);
         assert.deepStrictEqual(captured.infos, []);
