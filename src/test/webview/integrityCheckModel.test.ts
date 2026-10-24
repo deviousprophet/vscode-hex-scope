@@ -18,19 +18,26 @@ suite('integrity check model', () => {
 
         assert.strictEqual(check.id, 7);
         assert.deepStrictEqual(blankIntegrityDraft(), {
+            kind: 'builtin',
             algorithm: 'crc32-iso-hdlc',
+            scriptPath: '',
             name: '',
             startRaw: '',
             endRaw: '',
             storedRaw: '',
         });
+        assert.strictEqual(check.kind, 'builtin');
+        assert.strictEqual(check.scriptPath, '');
         assert.strictEqual(check.autoFixStoredValue, false);
         assert.strictEqual(check.result, null);
+        assert.strictEqual(check.stale, false);
+        assert.strictEqual(check.requestId, 0);
         assert.strictEqual(check.timer, null);
     });
 
     test('round-trips saved checksum configs through drafts and check state', () => {
         const draft = draftFromIntegrityConfig({
+            kind: 'builtin',
             algorithm: 'crc16-ccitt-false',
             startAddress: 0x1000,
             endAddress: 0x1003,
@@ -38,6 +45,7 @@ suite('integrity check model', () => {
             autoFixStoredValue: true,
         });
         const check = makeIntegrityCheck(1, {
+            kind: 'builtin',
             algorithm: 'crc16-ccitt-false',
             startAddress: 0x1000,
             endAddress: 0x1003,
@@ -46,7 +54,9 @@ suite('integrity check model', () => {
         });
 
         assert.deepStrictEqual(draft, {
+            kind: 'builtin',
             algorithm: 'crc16-ccitt-false',
+            scriptPath: '',
             name: '',
             startRaw: '0x00001000',
             endRaw: '0x00001003',
@@ -55,6 +65,7 @@ suite('integrity check model', () => {
         assert.deepStrictEqual(integrityCheckConfigFromState(check), {
             ok: true,
             value: {
+                kind: 'builtin',
                 algorithm: 'crc16-ccitt-false',
                 startAddress: 0x1000,
                 endAddress: 0x1003,
@@ -64,25 +75,71 @@ suite('integrity check model', () => {
         });
     });
 
+    test('round-trips script configs including stored settings', () => {
+        const config = {
+            kind: 'script' as const,
+            scriptPath: '.hexscope/scripts/verify-integrity.ts',
+            startAddress: 0x1000,
+            endAddress: 0x10FF,
+            storedAddress: 0x1100,
+            autoFixStoredValue: true,
+            name: 'Signed header',
+        };
+        const draft = draftFromIntegrityConfig(config);
+        assert.deepStrictEqual(draft, {
+            kind: 'script',
+            algorithm: 'crc32-iso-hdlc',
+            scriptPath: '.hexscope/scripts/verify-integrity.ts',
+            name: 'Signed header',
+            startRaw: '0x00001000',
+            endRaw: '0x000010FF',
+            storedRaw: '0x00001100',
+        });
+
+        const check = makeIntegrityCheck(3, config);
+        assert.strictEqual(check.kind, 'script');
+        assert.strictEqual(check.scriptPath, config.scriptPath);
+        assert.deepStrictEqual(integrityCheckConfigFromState(check), { ok: true, value: config });
+    });
+
+    test('rejects a script check without a path', () => {
+        const check = makeIntegrityCheck(1, {
+            kind: 'script',
+            scriptPath: '.hexscope/scripts/verify.js',
+            startAddress: 0,
+            endAddress: 3,
+            autoFixStoredValue: false,
+        });
+        check.scriptPath = '   ';
+        const config = integrityCheckConfigFromState(check);
+        assert.ok(!config.ok);
+        if (!config.ok) { assert.match(config.error, /Script path is required/); }
+    });
+
     test('retains stored fields when applying a hash draft', () => {
         const check = makeIntegrityCheck(1, {
+            kind: 'builtin',
             algorithm: 'crc16-ccitt-false',
             startAddress: 0,
             endAddress: 3,
             storedAddress: 8,
             autoFixStoredValue: true,
         });
-        check.result = { algorithm: 'crc16-ccitt-false', value: 'ABCD', byteCount: 4 };
+        check.result = { kind: 'builtin', algorithm: 'crc16-ccitt-false', value: 'ABCD', byteCount: 4 };
         check.expectedBytes = new Uint8Array([0xab, 0xcd]);
         check.storedBytes = new Uint8Array([0, 0]);
         check.error = 'old';
         check.meta = 'old';
         check.calculating = true;
+        check.stale = true;
+        check.requestId = 9;
         check.suppressAutoFixOnNextResult = true;
         check.suppressedAutoFixMismatch = 'old';
 
         applyIntegrityDraft(check, {
+            kind: 'builtin',
             algorithm: 'sha-256',
+            scriptPath: '',
             name: 'Boot image',
             startRaw: '00000000',
             endRaw: '00000003',
@@ -97,12 +154,15 @@ suite('integrity check model', () => {
         assert.strictEqual(check.error, '');
         assert.strictEqual(check.meta, '');
         assert.strictEqual(check.calculating, false);
+        assert.strictEqual(check.stale, false);
+        assert.strictEqual(check.requestId, 0);
         assert.strictEqual(check.suppressAutoFixOnNextResult, false);
         assert.strictEqual(check.suppressedAutoFixMismatch, '');
     });
 
     test('round-trips stored hash configs through drafts and check state', () => {
         const check = makeIntegrityCheck(1, {
+            kind: 'builtin',
             algorithm: 'sha-512',
             startAddress: 0x1000,
             endAddress: 0x10FF,
@@ -112,6 +172,7 @@ suite('integrity check model', () => {
         assert.deepStrictEqual(integrityCheckConfigFromState(check), {
             ok: true,
             value: {
+                kind: 'builtin',
                 algorithm: 'sha-512',
                 startAddress: 0x1000,
                 endAddress: 0x10FF,
@@ -123,6 +184,7 @@ suite('integrity check model', () => {
 
     test('builds check sets and reports indexed validation errors', () => {
         const valid = makeIntegrityCheck(1, {
+            kind: 'builtin',
             algorithm: 'sha-256',
             startAddress: 0x10,
             endAddress: 0x20,
@@ -137,6 +199,7 @@ suite('integrity check model', () => {
             value: {
                 schemaVersion: 1,
                 checks: [{
+                    kind: 'builtin',
                     algorithm: 'sha-256',
                     startAddress: 0x10,
                     endAddress: 0x20,
@@ -152,12 +215,14 @@ suite('integrity check model', () => {
 
     test('clears result and autofix suppression independently', () => {
         const check = makeIntegrityCheck(1);
-        check.result = { algorithm: 'sha-1', value: 'AA', byteCount: 1 };
+        check.result = { kind: 'builtin', algorithm: 'sha-1', value: 'AA', byteCount: 1 };
         check.expectedBytes = new Uint8Array([0xaa]);
         check.storedBytes = new Uint8Array([0xbb]);
         check.error = 'err';
         check.meta = 'meta';
         check.calculating = true;
+        check.stale = true;
+        check.requestId = 3;
         check.suppressAutoFixOnNextResult = true;
         check.suppressedAutoFixMismatch = 'key';
 
@@ -170,12 +235,15 @@ suite('integrity check model', () => {
         assert.strictEqual(check.error, '');
         assert.strictEqual(check.meta, '');
         assert.strictEqual(check.calculating, false);
+        assert.strictEqual(check.stale, false);
+        assert.strictEqual(check.requestId, 0);
         assert.strictEqual(check.suppressAutoFixOnNextResult, false);
         assert.strictEqual(check.suppressedAutoFixMismatch, '');
     });
 
     test('round-trips a custom name config → draft → state → config', () => {
         const draft = draftFromIntegrityConfig({
+            kind: 'builtin',
             algorithm: 'sha-256',
             startAddress: 0x10,
             endAddress: 0x20,

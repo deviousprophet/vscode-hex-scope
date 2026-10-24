@@ -26,7 +26,9 @@ async function getCompiler(): Promise<CompileFn | null> {
 }
 
 export function isScriptFile(name: string): boolean {
-    return name.endsWith('.js') || name.endsWith('.ts');
+    const lower = name.toLowerCase();
+    if (lower.endsWith('.d.ts')) { return false; }
+    return lower.endsWith('.js') || lower.endsWith('.ts');
 }
 
 function needsCompile(name: string): boolean {
@@ -43,4 +45,9 @@ export async function compileScript(source: string, filePath: string): Promise<s
     const c = await getCompiler();
     if (!c) { throw new Error('TypeScript compiler (esbuild) unavailable. Use .js or run npm install.'); }
     return c(source);
+}
+
+/** Whether the optional TypeScript compiler (esbuild) resolves in this installation. */
+export async function compilerAvailable(): Promise<boolean> {
+    return (await getCompiler()) !== null;
 }

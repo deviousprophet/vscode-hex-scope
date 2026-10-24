@@ -22,9 +22,12 @@ import { countTypeFieldRefs } from './core/overlay/overlayCodec';
 import {
     messageType,
     RECORD_PAGE_SIZE,
+    SCRIPT_PERMISSION_TIMEOUT_MS,
     showHiddenFieldsOrDefault,
     type ProfileSummary,
     type ProviderToWebviewMessage,
+    type ScriptCapability,
+    type ScriptPermissionScope,
     type WebviewToProviderMessage,
 } from './webviewProtocol';
 import {
@@ -55,8 +58,15 @@ import {
 } from './hexScopeStorage';
 import { migrateLegacyData } from './hexScopeMigration';
 
-import { scanScripts, execute } from './core/scripting/scriptRunner';
-import { VSCodeScriptHost } from './scriptHost';
+import { scanScripts, execute, scriptFingerprint } from './core/scripting/scriptRunner';
+import { compilerAvailable as scriptingCompilerAvailable } from './core/scripting/scriptCompiler';
+import { VSCodeScriptHost, scriptWritePlan } from './scriptHost';
+import { scriptGrantStoreFor, ScriptPermissionBroker, type ScriptGrantStore } from './scriptPermissions';
+import { resolveIntegrityScriptPath, runIntegrityScript, withRelativeScriptPaths, type IntegrityScriptRunOutcome } from './integrityScriptRunner';
+import { runInstanceAddresses, runInstanceParams, withRelativeAddressSources } from './instanceAddressRunner';
+import { addExampleScriptsAt, extensionBrowseDeps, openScriptingGuide, runBrowseExampleScripts } from './addExampleScripts';
+import { confirmDeleteScript, createJsVersion, deleteScriptFile, hostCreateDeps, hostJsVersionDeps, openScriptsFolder, requestCreateScript, runPanelDeleteScript } from './manageScripts';
+import { createScriptsWatcher } from './scriptWatcher';
 
 function hasParseErrors(result: Pick<ParseResult, 'checksumErrors' | 'malformedLines'>): boolean {
     return result.checksumErrors > 0 || result.malformedLines > 0;
@@ -135,6 +145,7 @@ async function postToWebview(webview: vscode.Webview, msg: ProviderToWebviewMess
 
 type IncomingProviderMessage = WebviewToProviderMessage;
 type RecordPageRequest = Extract<WebviewToProviderMessage, { type: 'requestRecordPage' }>;
+type IntegrityCheckRequest = Extract<WebviewToProviderMessage, { type: 'runIntegrityScript' }>;
 
 class LoadProgressReporter {
     private lastAt = 0;
@@ -192,6 +203,11 @@ function parseHexInWorker(
 
 function parseErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Failed to read file.';
+}
+
+/** Save-failure detail for the panel's write summary (raw message, never swallowed). */
+function saveErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
 
 async function readDocumentSource(
@@ -456,10 +472,254 @@ export class HexEditorSession {
         let disposed = false;
         let activeLoad: AbortController | null = new AbortController();
         let currentAbort: AbortController | null = null;
+        let addressAbort: AbortController | null = null;
+        // One Worker at a time: user-initiated runs and instance address batches
+        // are serialized so they cannot compete for the single-run UI.
+        let scriptQueue: Promise<unknown> = Promise.resolve();
+        const enqueueScript = <T>(task: () => Promise<T>): Promise<T> => {
+            const run = scriptQueue.then(task, task);
+            scriptQueue = run.then(() => undefined, () => undefined);
+            return run;
+        };
         let pendingExternalReload: { raw: string; parseResult: CompactParseResult; generation: number } | null = null;
         let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+        let permissionBroker: ScriptPermissionBroker | null = null;
         const resources = new DisposableStore();
         resources.add(token.onCancellationRequested(() => activeLoad?.abort()));
+
+        /** Post the revocable grant list (script + session + workspace) for the panel's Permissions section. */
+        const postPermissions = (): void => {
+            void postToWebview(webviewPanel.webview, {
+                type: 'scriptPermissions',
+                grants: grantStore().listGrants(),
+            });
+        };
+
+        /** Lazily-created approval bridge (grant hit → allow, else one inline prompt). */
+        const permissionBrokerFor = (): ScriptPermissionBroker => {
+            if (!permissionBroker) {
+                permissionBroker = new ScriptPermissionBroker(
+                    grantStore(),
+                    request => void postToWebview(webviewPanel.webview, request),
+                    SCRIPT_PERMISSION_TIMEOUT_MS,
+                );
+            }
+            return permissionBroker;
+        };
+
+        /**
+         * Shared approval path for every script host. `readOnly` blocks writes
+         * for role scripts; `signal` aborts a pending prompt when the run/batch
+         * is cancelled.
+         */
+        const confirmScript = async (
+            scriptPath: string,
+            type: 'write' | 'exec' | 'fetch',
+            detail: string,
+            options: { readOnly?: boolean; signal?: AbortSignal } = {},
+        ): Promise<boolean> => {
+            if (deniedScriptCall(options, type)) { return false; }
+            const fingerprint = scriptFingerprint(scriptPath);
+            const grants = grantStore();
+            if (grants.revokeStaleFingerprint(scriptPath, fingerprint)) { postPermissions(); }
+            const allow = await permissionBrokerFor().confirm({
+                capability: type,
+                detail,
+                scriptPath,
+                scriptName: path.basename(scriptPath),
+                fingerprint,
+            });
+            return allow && !scriptCallBlocked(options);
+        };
+
+        /** Denials resolved before any prompt is posted. */
+        const deniedScriptCall = (options: { readOnly?: boolean; signal?: AbortSignal }, type: string): boolean =>
+            scriptCallBlocked(options) || writesBlocked(options, type);
+
+        /** Disposed sessions and aborted runs never prompt (or allow) a script call. */
+        const scriptCallBlocked = (options: { signal?: AbortSignal }): boolean =>
+            disposed || options.signal?.aborted === true;
+
+        /** Role scripts (`readOnly`) never write, so a write request is denied up front. */
+        const writesBlocked = (options: { readOnly?: boolean }, type: string): boolean =>
+            options.readOnly === true && type === 'write';
+
+        /** A script-owned save reports the failure so the panel's write summary flips to `failed`. */
+        const reportScriptSaveFailure = (scriptPath: string | undefined, error: unknown): void => {
+            if (!scriptPath) { return; }
+            void postToWebview(webviewPanel.webview, {
+                type: 'scriptSaveFailed',
+                scriptPath,
+                message: saveErrorMessage(error),
+            });
+        };
+
+        /** Persist a save plan. False when a script-owned write failed and the panel was notified. */
+        const persistSavePlan = async (plan: SplicePlan, scriptPath: string | undefined): Promise<boolean> => {
+            try {
+                await writePlanToFile(document.uri, plan);
+                return true;
+            } catch (error) {
+                // A user-initiated save keeps its existing propagating error path.
+                if (!scriptPath) { throw error; }
+                reportScriptSaveFailure(scriptPath, error);
+                return false;
+            }
+        };
+
+        /** Live parsed document for a script task, or null when disposed/unparsed. */
+        const liveDocument = (): CompactParseResult | null => {
+            if (!parseResult || disposed) { return null; }
+            return parseResult;
+        };
+
+        /** True while a queued task still has a live document to report against. */
+        const sessionAlive = (): boolean => !!parseResult && !disposed;
+
+        /** Release the in-flight instance-batch slot when this batch is still the current one. */
+        const releaseAddressBatch = (batchAbort: AbortController): void => {
+            if (addressAbort === batchAbort) { addressAbort = null; }
+        };
+
+        /** Read-only approval path for role scripts: writes are denied without a prompt. */
+        const roleConfirm = (signal?: AbortSignal) =>
+            (scriptPath: string, type: 'write' | 'exec' | 'fetch', detail: string): Promise<boolean> =>
+                confirmScript(scriptPath, type, detail, { readOnly: true, signal });
+
+        /** Session fields a batch resolver needs; the request's entries stay per-message. */
+        interface BatchResolveInput {
+            root: string;
+            segments: MemorySegment[];
+            edits: Array<[number, number]>;
+            trusted: boolean;
+            signal: AbortSignal;
+            confirm: (scriptPath: string, type: 'write' | 'exec' | 'fetch', detail: string) => Promise<boolean>;
+        }
+
+        /**
+         * Queue one instance-resolution batch behind the script queue. A
+         * generation that moved on answers stale without running a script, and
+         * a batch aborted while running posts `stale: true` instead of dropping
+         * silently; the panel discards both.
+         */
+        const runInstanceBatch = async <Result>(
+            msg: { requestId: number; generation: number; edits: Array<[number, number]> },
+            resolve: (input: BatchResolveInput) => Promise<Result[]>,
+            post: (payload: { stale?: boolean; results: Result[] }) => void,
+        ): Promise<void> => {
+            const live = liveDocument();
+            if (!live) { return; }
+            const batchAbort = new AbortController();
+            addressAbort = batchAbort;
+            if (msg.generation !== currentGeneration) {
+                releaseAddressBatch(batchAbort);
+                post({ stale: true, results: [] });
+                return;
+            }
+            const signal = batchAbort.signal;
+            const results = await resolve({
+                root,
+                segments: live.segments,
+                edits: msg.edits,
+                trusted: vscode.workspace.isTrusted,
+                signal,
+                confirm: roleConfirm(signal),
+            });
+            releaseAddressBatch(batchAbort);
+            if (disposed) { return; }
+            post(batchPayload(signal.aborted, results));
+        };
+
+        /** The panel's stale-request answer for an integrity check. */
+        const postStaleCheck = (msg: IntegrityCheckRequest): void => {
+            void postToWebview(webviewPanel.webview, {
+                type: 'integrityScriptResult',
+                requestId: msg.requestId,
+                checkId: msg.checkId,
+                generation: msg.generation,
+                error: 'Stale request: the document changed.',
+                errorType: 'cancel',
+            });
+        };
+
+        /** Post the completed check outcome: validated result, or the row-level failure. */
+        const postCheckOutcome = (msg: IntegrityCheckRequest, outcome: IntegrityScriptRunOutcome): void => {
+            void postToWebview(webviewPanel.webview, outcome.ok
+                ? {
+                    type: 'integrityScriptResult',
+                    requestId: msg.requestId,
+                    checkId: msg.checkId,
+                    generation: msg.generation,
+                    result: outcome.value,
+                }
+                : {
+                    type: 'integrityScriptResult',
+                    requestId: msg.requestId,
+                    checkId: msg.checkId,
+                    generation: msg.generation,
+                    error: outcome.error,
+                    errorType: outcome.errorType,
+                });
+        };
+
+        /** Queued half of `runIntegrityScript`: re-check staleness, run, post the outcome. */
+        const dispatchIntegrityCheck = async (msg: IntegrityCheckRequest): Promise<void> => {
+            const live = liveDocument();
+            if (!live) { return; }
+            if (msg.generation !== currentGeneration) {
+                postStaleCheck(msg);
+                return;
+            }
+            const outcome = await runIntegrityScript({
+                root,
+                scriptPath: msg.scriptPath,
+                segments: live.segments,
+                edits: msg.edits,
+                trusted: vscode.workspace.isTrusted,
+                startAddress: msg.startAddress,
+                endAddress: msg.endAddress,
+                storedAddress: msg.storedAddress,
+                storedLength: msg.storedLength,
+                confirm: async (type, detail) => {
+                    const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
+                    return scriptPath ? confirmScript(scriptPath, type, detail, { readOnly: true }) : false;
+                },
+            });
+            if (sessionAlive()) { postCheckOutcome(msg, outcome); }
+        };
+
+        /** One user-script run: host wiring, execution, and the result posts. */
+        const executeUserScript = async (
+            scriptPath: string,
+            segments: MemorySegment[],
+            selectionRange: { start: number; end: number } | undefined,
+            signal: AbortSignal,
+        ): Promise<void> => {
+            const post = (text: string) => void postToWebview(webviewPanel.webview, { type: 'scriptOutput', scriptPath, text });
+            const host = new VSCodeScriptHost(segments, {
+                output: post,
+                confirm: (type, detail) => confirmScript(scriptPath, type, detail, { signal }),
+                selectionRange,
+                workspaceRoot: root,
+            });
+            const output = await execute(scriptPath, host, undefined, signal, vscode.workspace.isTrusted);
+            const plan = scriptWritePlan(output.error, host.pendingWrites);
+            // Approved writes commit as one transaction only on a clean run.
+            if (plan.commit.length > 0) {
+                void postToWebview(webviewPanel.webview, { type: 'scriptWritesCommit', scriptPath, writes: plan.commit });
+            }
+            void postToWebview(webviewPanel.webview, {
+                type: 'scriptResult', scriptPath, result: output,
+                error: output.error ?? '', errorType: output.errorType,
+                pendingWriteCount: plan.pendingWriteCount,
+                discardedWriteCount: plan.discardedWriteCount,
+            });
+        };
+
+        /** Drop the run's abort controller once its signal is no longer current. */
+        const clearCurrentAbort = (signal: AbortSignal): void => {
+            if (currentAbort?.signal === signal) { currentAbort = null; }
+        };
 
         webviewPanel.webview.options = { enableScripts: true };
         webviewPanel.webview.html = this._getHtml(webviewPanel.webview, document.uri);
@@ -477,8 +737,11 @@ export class HexEditorSession {
         resources.add(incomingDisposable);
         resources.add(() => {
             disposed = true;
+            permissionBroker?.denyPending();
             activeLoad?.abort();
             activeLoad = null;
+            addressAbort?.abort();
+            addressAbort = null;
             raw = '';
             parseResult = null;
             pendingExternalReload = null;
@@ -525,6 +788,8 @@ export class HexEditorSession {
         // binding key into bindings.json.
         const root = resolveHexScopeRoot(document.uri);
         const relPath = perFileRelativePath(root, document.uri);
+        /** Host-lifetime, workspace-root-keyed grant store (session grants survive editor close/reopen). */
+        const grantStore = (): ScriptGrantStore => scriptGrantStoreFor(root, this._context.workspaceState);
 
         let registryStore: JsonStore<ProfileRecord[]> | null = null;
         let typePoolStore: JsonStore<TypeDef[]> | null = null;
@@ -988,14 +1253,20 @@ export class HexEditorSession {
                         typeDeletionDeclined = false;
                         return;
                     }
-                    await withBoundProfile(current => ({ ...current, typeInstances: msg.pins }));
+                    // Script paths persist workspace-relative; a conflicting or
+                    // empty address source is dropped rather than written.
+                    await withBoundProfile(current => ({
+                        ...current,
+                        typeInstances: withRelativeAddressSources(root, msg.pins),
+                    }));
                 });
             },
             saveIntegrityChecks: async msg => {
                 const state = normalizeIntegrityCheckSet(msg.state);
                 if (!state) { return; }
+                const normalized = withRelativeScriptPaths(root, state);
                 await enqueuePerFileOp(async () => {
-                    await withBoundProfile(current => ({ ...current, activeChecks: state }));
+                    await withBoundProfile(current => ({ ...current, activeChecks: normalized }));
                 });
             },
             saveEndian: async msg => {
@@ -1139,7 +1410,7 @@ export class HexEditorSession {
                 // ASCII/same-length safe; otherwise fall back to a whole write.
                 // No materialize (every record) and no full reparse.
                 const plan = buildSplicePlan(raw, editMap, format);
-                await writePlanToFile(document.uri, plan);
+                if (!(await persistSavePlan(plan, msg.scriptPath))) { return; }
                 markSelfWrite();
                 raw = plan.newRaw;
                 foldEditsIntoSegments(parseResult.segments, editMap);
@@ -1172,39 +1443,169 @@ export class HexEditorSession {
                 const folder = vscode.workspace.getWorkspaceFolder(document.uri);
                 const root = folder ? folder.uri.fsPath : path.dirname(document.uri.fsPath);
                 const trusted = vscode.workspace.isTrusted;
-                const scripts = scanScripts(root, trusted);
-                void postToWebview(webviewPanel.webview, { type: 'scriptInfo', trusted, scripts });
+                const scripts = scanScripts(root, trusted).map(script => ({
+                    ...script,
+                    relativePath: path.relative(root, script.filePath).split(path.sep).join('/'),
+                }));
+                const grants = grantStore();
+                if (grants.revokeMissing(scripts.map(script => script.filePath))) { postPermissions(); }
+                // Edited scripts lose their approvals; the list refreshes with them.
+                for (const script of scripts) {
+                    grants.revokeStaleFingerprint(script.filePath, script.fingerprint);
+                }
+                // The panel keeps `.ts` Run blocked (with the JS-first action row) when
+                // this installation has no esbuild; a local dev install can run `.ts`.
+                const compilerAvailable = await scriptingCompilerAvailable();
+                void postToWebview(webviewPanel.webview, { type: 'scriptInfo', trusted, scripts, compilerAvailable });
+                postPermissions();
             },
-            runScript: async msg => {
-                if (!parseResult) { return; }
-                if (disposed) { return; }
-                currentAbort = new AbortController();
-                const scriptPath = msg.scriptPath;
-                const signal = currentAbort.signal;
-                const post = (text: string) => void postToWebview(webviewPanel.webview, { type: 'scriptOutput', scriptPath, text });
-                const host = new VSCodeScriptHost(parseResult.segments, {
-                    output: post,
-                    confirm: async (type, detail) => {
-                        const btn = await vscode.window.showWarningMessage(
-                            `Script "${scriptPath}" wants to ${type}: ${detail}`, { modal: true }, 'Allow');
-                        return btn === 'Allow';
+            runScript: msg => {
+                // A user run wins the single worker slot: stop any address batch now.
+                addressAbort?.abort();
+                addressAbort = null;
+                return enqueueScript(async () => {
+                    const live = liveDocument();
+                    if (!live) { return; }
+                    currentAbort = new AbortController();
+                    const signal = currentAbort.signal;
+                    await executeUserScript(msg.scriptPath, live.segments, msg.selectionRange, signal);
+                    clearCurrentAbort(signal);
+                });
+            },
+            scriptPermissionResponse: async msg => {
+                permissionBrokerFor().respond(msg);
+                postPermissions();
+            },
+            revokeScriptPermission: async msg => {
+                // Tolerant default for pre-scope payloads: older webviews only ever
+                // listed (and revoked) workspace grants.
+                grantStore().revokeGrant(msg.scope ?? 'workspace', msg.scriptPath, msg.capability);
+                postPermissions();
+            },
+            revokeAllScriptPermissions: async msg => {
+                const grants = grantStore();
+                if (msg.scriptPath) { grants.revokeAllForScript(msg.scriptPath); }
+                else { grants.revokeAll(msg.scope); }
+                postPermissions();
+            },
+            addExampleScripts: async () => {
+                // The panel's root is the same one requestScriptList scans; install there,
+                // then rescan so the new cards appear without a manual refresh.
+                const installed = await addExampleScriptsAt(root, this._context);
+                if (installed && installed.added.length > 0) {
+                    await messageHandlers.requestScriptList?.({ type: 'requestScriptList' });
+                }
+            },
+            browseExampleScripts: async () => {
+                // Selective install (panel New menu): the picker copies only the checked
+                // catalog rows, then the same rescan makes the new cards appear.
+                const installed = await runBrowseExampleScripts(extensionBrowseDeps(this._context, root));
+                if (installed && installed.added.length > 0) {
+                    await messageHandlers.requestScriptList?.({ type: 'requestScriptList' });
+                }
+            },
+            createScript: async msg => {
+                // Session root = the folder requestScriptList scans (workspace folder,
+                // else the document directory). Create, then rescan so the new card
+                // appears without a manual refresh.
+                const created = await requestCreateScript(hostCreateDeps(root), msg.template);
+                if (created) { await messageHandlers.requestScriptList?.({ type: 'requestScriptList' }); }
+            },
+            openScriptsFolder: async () => {
+                await openScriptsFolder({
+                    root,
+                    trusted: vscode.workspace.isTrusted,
+                    warn: message => { void vscode.window.showWarningMessage(message); },
+                    reveal: async dir => { await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir)); },
+                });
+            },
+            runIntegrityScript: async msg => {
+                if (!sessionAlive()) { return; }
+                if (msg.generation !== currentGeneration) {
+                    postStaleCheck(msg);
+                    return;
+                }
+                // Queue behind any user run so worker use stays serialized. A slow
+                // check must not block webview messages; the panel discards stale
+                // generations.
+                void enqueueScript(() => dispatchIntegrityCheck(msg));
+            },
+            resolveInstanceAddresses: msg => {
+                // A newer batch supersedes the in-flight one immediately.
+                addressAbort?.abort();
+                return enqueueScript(() => runInstanceBatch(
+                    msg,
+                    input => runInstanceAddresses({ entries: msg.entries, ...input }),
+                    payload => {
+                        void postToWebview(webviewPanel.webview, {
+                            type: 'instanceAddressesResolved',
+                            requestId: msg.requestId,
+                            generation: msg.generation,
+                            ...payload,
+                        });
                     },
-                    selectionRange: msg.selectionRange,
+                ));
+            },
+            resolveInstanceParams: msg => {
+                // A newer batch supersedes the in-flight one immediately.
+                addressAbort?.abort();
+                return enqueueScript(() => runInstanceBatch(
+                    msg,
+                    input => runInstanceParams({ entries: msg.entries, ...input }),
+                    payload => {
+                        void postToWebview(webviewPanel.webview, {
+                            type: 'instanceParamsResolved',
+                            requestId: msg.requestId,
+                            generation: msg.generation,
+                            ...payload,
+                        });
+                    },
+                ));
+            },
+            openScript: async msg => {
+                const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
+                if (!scriptPath) { return; }
+                const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(scriptPath));
+                await vscode.window.showTextDocument(doc, { preview: true });
+            },
+            revealScript: async msg => {
+                const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
+                if (!scriptPath) { return; }
+                await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(scriptPath));
+            },
+            deleteScript: async msg => {
+                // Card-menu delete: modal confirm, trust-gated unlink (ENOENT =
+                // already gone), grants revoked, then the same rescan the watcher
+                // runs so the card disappears without waiting for it.
+                const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
+                if (!scriptPath) { return; }
+                await runPanelDeleteScript(scriptPath, {
+                    trusted: vscode.workspace.isTrusted,
+                    confirm: confirmDeleteScript,
+                    deleteFile: deleteScriptFile,
+                    revokeGrants: target => { grantStore().revokeAllForScript(target); },
+                    warn: message => { void vscode.window.showWarningMessage(message); },
+                    info: message => { void vscode.window.showInformationMessage(message); },
+                    rescan: async () => { await messageHandlers.requestScriptList?.({ type: 'requestScriptList' }); },
                 });
-                const trusted = vscode.workspace.isTrusted;
-                const output = await execute(scriptPath, host, undefined, signal, trusted);
-                // ponytail: guard with `if (currentAbort?.signal === signal)` if runs can overlap
-                currentAbort = null;
-                void postToWebview(webviewPanel.webview, {
-                    type: 'scriptResult', scriptPath, result: output,
-                    error: output.error ?? '', errorType: output.errorType,
-                    pendingWriteCount: host.pendingWrites.length,
-                    pendingWrites: host.pendingWrites.map(w => [w.address, w.value] as [number, number]),
-                });
+            },
+            convertScriptToJs: async msg => {
+                // JS-first TypeScript path: copy to the `.js` sibling, then rescan so
+                // the runnable card appears without a manual refresh.
+                const scriptPath = resolveIntegrityScriptPath(root, msg.scriptPath);
+                if (!scriptPath) { return; }
+                const created = await createJsVersion(scriptPath, hostJsVersionDeps());
+                if (created) { await messageHandlers.requestScriptList?.({ type: 'requestScriptList' }); }
+            },
+            openScriptingGuide: async () => {
+                await openScriptingGuide(this._context);
             },
             cancelScript: async msg => {
+                permissionBroker?.denyPending();
                 currentAbort?.abort();
                 currentAbort = null;
+                addressAbort?.abort();
+                addressAbort = null;
             },
             closePanel: async () => {
                 webviewPanel.dispose();
@@ -1220,6 +1621,14 @@ export class HexEditorSession {
             const type = messageType(msg) as WebviewToProviderMessage['type'] | undefined;
             if (type) { await messageHandlers[type]?.(msg); }
         };
+
+        // ── Live script discovery ─────────────────────────────────────
+        // Edits/create/delete in `.hexscope/scripts` trigger a debounced rescan
+        // that reposts `scriptInfo`; the panel re-renders without a tab switch
+        // and moves existing result areas by path. Disposed with the session.
+        resources.add(createScriptsWatcher(root, () => {
+            messageHandlers.requestScriptList?.({ type: 'requestScriptList' }).catch(() => undefined);
+        }));
 
         resources.add(webviewPanel.onDidChangeViewState(e => {
             if (e.webviewPanel.active) {
@@ -1278,6 +1687,11 @@ ${cssLinks}
 </body>
 </html>`;
     }
+}
+
+/** Payload shared by both instance-resolution replies: `stale` marks a superseded batch. */
+function batchPayload<Result>(aborted: boolean, results: Result[]): { stale?: boolean; results: Result[] } {
+    return aborted ? { stale: true, results } : { results };
 }
 
 function shouldFlushBeforeSwitch(current: ProfileRecord | null | undefined, bound: string | null, profileId: string | null): boolean {

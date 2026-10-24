@@ -1360,7 +1360,7 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         assert.ok(!profilesText.includes('"structPins"'), 'writers emit only the new profile key');
         assert.ok(!profilesText.includes('structId'), 'writers emit only the new instance key');
         assert.ok(!profilesText.includes('sourceStructId'), 'writers emit only the new pointer-source key');
-        assert.deepStrictEqual(profile!.activeChecks.checks.map(c => c.algorithm), ['crc16-ccitt-false'], 'empty index activeChecks folds the first integrity template in');
+        assert.deepStrictEqual(profile!.activeChecks.checks.map(c => c.kind === 'builtin' ? c.algorithm : 'script'), ['crc16-ccitt-false'], 'empty index activeChecks folds the first integrity template in');
 
         // Legacy tree stays in place (revert safety).
         assert.strictEqual((await readJson(vscode.Uri.file(path.join(dir, 'index.json')))).status, 'ok', 'legacy tree untouched');
@@ -1391,7 +1391,7 @@ suite('hexScopeMigration — one-time legacy transfer', () => {
         const bindingRows = payloadOf(bindings, 'bindings') as Array<{ fileKey: string; profileId: string }>;
         const recs = await collectProfileRecords(testRoot);
         const profile = recs.find(r => r.id === bindingRows[0].profileId);
-        assert.deepStrictEqual(profile!.activeChecks.checks.map(c => c.algorithm), ['md5'], 'first template folded in');
+        assert.deepStrictEqual(profile!.activeChecks.checks.map(c => c.kind === 'builtin' ? c.algorithm : 'script'), ['md5'], 'first template folded in');
         assert.strictEqual(recs.length, 2, 'file profile + P2 unbound template profile');
 
         // Rerun is a no-op (no new profiles/bindings).

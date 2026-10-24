@@ -26,8 +26,24 @@ interface TypeDef { id: string; name: string; fields: TypeField[]; packed?: bool
                       kind?: 'struct' | 'bitfield' | 'enum'; // absent = plain struct
                       baseType?: 'uint8'|'uint16'|'uint32'|'uint64'; // storage width for kind:'bitfield'/'enum'
                       bitFields?: BitFieldChild[];                // kind:'bitfield' children (fields is [])
-                      entries?: EnumEntry[]; }                    // kind:'enum' entries (fields is [])
-interface TypeInstance { id: string; typeId: string; addr: number; name: string; pointerSources?: TypePointerSource[]; }
+                      entries?: EnumEntry[];                      // kind:'enum' entries (fields is [])
+                      params?: TypeParam[]; }                     // size parameters (plain struct only)
+interface TypeParam { name: string; kind: 'size'; default?: number; }
+interface TypeField { /* … */ count: number; countParam?: string; }  // countParam = declared size parameter
+interface TypeInstance { id: string; typeId: string; addr: number; name: string; paramValues?: Record<string, number>;
+                        paramSources?: Record<string, { scriptPath: string }>;  // @script size source per parameter
+                        addressSource?: { scriptPath: string };  // workspace-relative @script address source
+                        pointerSources?: TypePointerSource[]; }
+type AddressResolution = { status: 'resolving' } | { status: 'resolved'; addr: number; generation: number }
+    | { status: 'stale'; addr?: number; generation: number }
+    | { status: 'error'; message: string; generation: number; errorType?: string };
+function effectiveInstanceAddress(pin, resolutions: ReadonlyMap<string, AddressResolution>): number | null;
+function addressSourceError(pin): string | null;
+type LayoutParams = Readonly<Record<string, number>>;
+type LayoutValidation<T> = { ok: true; value: T } | { ok: false; error: string };
+function resolveTypeParams(def: TypeDef, instanceValues?: LayoutParams): LayoutValidation<LayoutParams>;
+function resolvedFieldCount(field: TypeField, params: LayoutParams): number;
+function validateInstanceParamValues(def: TypeDef, values?: LayoutParams): string[];
 function matchEnumEntry(def: TypeDef, value: bigint): EnumEntry | undefined;
 function formatEnumLabel(label: string, value: bigint, hexDigits: number): string;   // "NAME (0x<hexDigits digits>)"
 function enumHexDigits(width: number): number;
@@ -37,16 +53,18 @@ function typeDefKind(def: TypeDef): 'struct' | 'bitfield' | 'enum';  // absent k
 function materializeBitFieldRefs(def: TypeDef, defs?: readonly TypeDef[]): TypeDef;
 function migrateInlineBitFields(defs: TypeDef[]): { defs: TypeDef[]; changed: boolean };
 function validateTypes(defs: TypeDef[], maxDepth = 32): string[];
-function typeByteSize(def: TypeDef, defs?: readonly TypeDef[]): number;
-function decodeType(def, baseAddr, getByte, endian, bitAllocation?, defs?): DecodedField[];
+function typeByteSize(def: TypeDef, defs?: readonly TypeDef[], params?: LayoutParams): number;
+function decodeType(def, baseAddr, getByte, endian, bitAllocation?, defs?, params?: LayoutParams): DecodedField[];
 function parseTypeText(text: string, defs?: readonly TypeDef[]): ParseTypeTextResult;
 function fieldsToText(fields: TypeField[], defs?: readonly TypeDef[]): string;
-function typeDefToC(def: TypeDef, defs?: readonly TypeDef[]): string;
+function typeDefToC(def: TypeDef, defs?: readonly TypeDef[], params?: LayoutParams): string;
 ```
 
 ### 3. Contracts
 
 - Type definitions are global/shared; instances are per file/address.
+- **Script-resolved parameter sizes are transient, like script addresses.** `TypeInstance.paramSources[param] = { scriptPath }` (workspace-relative, posix) declares a `@script size` source; a manual `paramValues[param]` wins, otherwise the source value, otherwise the type default. The resolved value lives only in the webview's transient parameter-resolution map and is never written into the profile. `effectiveInstanceParams(def, pin, resolved)` is the single merge rule shared by sizing, decode, C preview, and the address context. A manual value plus a source for the same parameter is a validation error; a source for an undeclared parameter is rejected. Resolution runs before address resolution, so an address script's `paramValues` already contains the effective values. Errors are per-instance/per-parameter and block only that instance's decode.
+- **Script-resolved addresses are authored sources, never persisted values.** `TypeInstance.addressSource.scriptPath` is stored workspace-relative (posix) and `addr` stays required as the fixed fallback for older builds. The resolved address lives only in the webview's transient `Map<pinId, AddressResolution>`: it is never written into the profile or sent back as authored data, and it is cleared on document close / profile switch. `effectiveInstanceAddress` is the single precedence rule — a resolved source wins over `addr`; while resolving/stale/error there is **no** address, so decode must not fall back to `addr` silently. The host batches every dynamic instance into one `resolveInstanceAddresses` request (one `getAddress` run per instance, `api.context` = instance identity + resolved `paramValues` + `documentSize` + selection, current bytes including pending edits) and the webview discards stale `requestId`/generation responses, marking the last result stale and scheduling one debounced retry. `addressSource` combined with `pointerSources` is rejected; load normalization drops an empty source and drops a source conflicting with pointer metadata without rewriting `addr`.
 - **Persisted key names**: `typeInstances` / `typeId` / `refTypeId` / `sourceTypeId` (data-schema v2). The back-compat read window is retired: the general readers (`normalizeTypeDefsValue`, `candidateTypeInstances`) accept only these keys. The pre-rename aliases (`structPins` / `structId` / `refStructId` / `sourceStructId`) are migration-internal — applied explicitly to the one-time legacy inputs only — see `hexscope-storage.md`; writers emit only the new names.
 - Named types carry a `kind` discriminator on the def (`'struct'` default, `'bitfield'`, `'enum'`); a def without `kind` is a plain struct and loads/sizes/decodes exactly as before. A `kind: 'bitfield'` def owns `baseType` (unsigned) + `bitFields[]` and has `fields: []`. A field references it with `type: 'bitfield'` + `refTypeId`; the children/base width come from the def. Bit-field-in-bit-field nesting and bitfield pointers are rejected by validation.
 - **Materialize seam**: authored defs keep the reference; `decodeType` / `typeByteSize` / `typeDefToC` (and `resolveTypeFieldByPath`) rewrite every `type: 'bitfield'` field into its inline container form (`baseType` + copied children, `refTypeId` cleared) via `materializeBitFieldRefs` before the size/decode/C paths run. Sizing, alignment, decoding, and C output are therefore byte-identical to the equivalent inline container; validation runs on the authored (referenced) form.
@@ -60,6 +78,7 @@ function typeDefToC(def: TypeDef, defs?: readonly TypeDef[]): string;
 
 > **Gotcha**: a `kind: 'bitfield'` def's own optional `endian`/`allocation` keys pass schema/validation but are **not** applied by `materializeBitFieldRefs` — usage-scoped overrides live on the referencing `TypeField`. Do not add def-level bitfield defaults without defining precedence. Also, sizing a `kind: 'bitfield'` def **directly** returns `0` (its `fields` is `[]`): always size/decode through a referencing field, and keep non-`'struct'` kinds out of `pinnableTypes()` / pin-card creation.
 - Field `count` is at least one and has **no upper cap** — the struct editor accepts any positive integer (element count is layout metadata, never allocated up front). Validators only reject `count < 1` / non-integer. Keep it that way: do not reintroduce a hard clamp (e.g. `Math.min(v, 256)`) in editor or parser paths. `isPointer` changes storage to pointer-width/address semantics while `type`/`refTypeId` describe target.
+- **Struct template parameters** (additive; absent keys = today's literal layout, no data-schema bump): a plain-struct `TypeDef` may declare `params: TypeParam[]` (`{ name, kind: 'size', default? }`), a field may bind its element count to one with `countParam`, and a `TypeInstance` stores `paramValues`. Resolution order is explicit instance value → parameter default; missing both is a validation error naming the parameter, never a silent 0/1. `resolveTypeParams` + `resolvedFieldCount` are the single resolution rule shared by sizing, decode, C preview, and validation. `typeByteSize` / `decodeType` / `typeDefToC` take an optional trailing `LayoutParams` (omitted = defaults); a missing/invalid parameter yields count `0` so no unsafe decode runs. Nested templated references resolve their own defaults — the first release rejects a nested reference whose target has any parameter without a default (and applies no per-usage nested values). `count` stays required and mirrors the parameter default (or `1` without one) for old-build fallback/preview while layout uses `countParam` when set. Parameter names are unique C identifiers; defaults/values must be positive safe integers. The instance form validates values with `validateInstanceParamValues` (unknown names, missing values without defaults, zero/negative/fractional) and shows a row-level error instead of decoding. `typeDefToC` emits one `#define` per parameter used by a count and uses the macro in the array dimension — never a fake fixed length; a parameter without a default emits `0` plus a "set per instance" note, and colliding uppercase base names get the type-name prefix (plus a numeric suffix if still colliding). Array headers render the **resolved** count (`items[10]`, symbolic name in the tooltip). Load normalization drops malformed params and dangling `countParam` refs (falling back to `count`) and sanitizes `paramValues` (invalid values dropped, valid siblings kept) without rewriting clean data.
 - `normalizeTypeField` handles legacy shapes before layout/decode. The optional `endian`/`allocation` keys pass through every normalizer untouched (identity metadata, not dropped). The optional `hidden` display flag likewise passes through unchanged: **load is identity-preserving** (a persisted `hidden:false` is kept as-is — no self-heal rewrite), while the **editor omits `false` on save** so saved pools stay minimal (absent = visible). `hidden` is **instance-view only** — it never affects size, offsets, decode, address math, or the C preview. Legacy inline-container migration keeps `hidden` on the referencing field via the same usage-scoped pass-through.
 - A `BitFieldChild` carries the same optional `hidden` flag (`hidden?: boolean`; absent/false = visible) with the same discipline: preserved identity on load, an explicit `false` dropped by `sanitizeBitChild` (the bit-child counterpart of `normalizeOptionalFieldFlags`), and instance-view only. It is **def-level** — authored on the reusable `kind: 'bitfield'` type (or a legacy inline container) so hiding a bit hides it in every referencing type; there is no per-usage override. Materialization spreads the child, so `hidden` survives the `type:'bitfield'` → inline-container rewrite and the pin-safe `withoutBitChildRef` strip (both `...rest`), keeping decode/size/C byte-identical. The render seam drops a hidden child's row (see `overlay-instance-display.md`); a container with all children hidden still renders its header row.
 - `decodeType` resolves both concerns per field as `field.<x> ?? containing-type.<x> ?? nested parents.<x> ?? global` (first explicit value up the chain wins; field beats type beats global) — combined with global `endian` + `bitFieldAllocation`. Bit-field unit reads use effective `endian`; child packing uses effective `allocation`. **Pointer values always decode with the global overlay endian** regardless of overrides. Overrides affect value interpretation only — never offsets/sizes/alignment.
@@ -92,6 +111,17 @@ function typeDefToC(def: TypeDef, defs?: readonly TypeDef[]): string;
 | Dangling bit-child enum ref on load | Ref cleared, child kept. |
 | Deleting a referenced type | Pin-safe flow; orphan pins removed and referencing fields stripped. |
 | `endian` / `allocation` value outside `'le'/'be'` / `'lsb'/'msb'` | Validation error (field or def); schema enum. |
+| Empty/duplicate/non-identifier parameter name, non-`size` kind, or default not a positive safe integer | Validation error. |
+| `countParam` naming no parameter of the containing type | Validation error. |
+| Templated type nested as a field while any parameter lacks a default | Validation error naming the type/field/parameter. |
+| Nested reference to a templated type with defaults | Accepted; layout uses the target's defaults. |
+| Instance value zero/negative/fractional/non-finite, or missing with no default | Instance validation error (row-level, no decode), never a silent 0/1. |
+| Script parameter value zero/negative/fractional/non-safe-integer | Contract error `Invalid size from script`; no decode for that instance. |
+| Script parameter value above `MAX_SCRIPT_PARAM_SIZE` (1,000,000) | Contract error `Size is too large from script`; no decode. |
+| Manual value and script source for the same parameter | Validation error (the editor cannot author both). |
+| Source for an undeclared parameter, or empty path | Validation error / load sanitize (entry dropped). |
+| Parameter resolving, stale, or failed | That instance shows the state and renders no decoded rows; other instances continue. |
+| Duplicate uppercase macro base names in C preview | Type-name-prefixed macros (numeric suffix on residual collision). |
 | Bitfield array in C text | Parse error. |
 | Unknown pointer target | Normalize as `void*`. |
 | Unknown direct field type | Parse error. |
@@ -110,9 +140,10 @@ function typeDefToC(def: TypeDef, defs?: readonly TypeDef[]): string;
 
 ### 6. Tests Required
 
-- `src/test/core/typeDef.test.ts`: byte sizes, align/packed, validation/cycles/depth, nested arrays, endian decode, per-field/per-type endian+allocation overrides (precedence, nested inherit, pointer-global, bitfield unit/child), bitfields, pointers, path resolution, parser/text/C export round-trips, enum sizing/decode (presentation-only, byte-identical to an integer of the base width), enum label formatting (matched/unmatched), enum C preview, inline→reusable migration (dedupe, idempotence, decode/size/C byte-identical).
+- `src/test/core/typeDef.test.ts`: byte sizes, align/packed, validation/cycles/depth, nested arrays, endian decode, per-field/per-type endian+allocation overrides (precedence, nested inherit, pointer-global, bitfield unit/child), bitfields, pointers, path resolution, parser/text/C export round-trips, enum sizing/decode (presentation-only, byte-identical to an integer of the base width), enum label formatting (matched/unmatched), enum C preview, inline→reusable migration (dedupe, idempotence, decode/size/C byte-identical), size-parameter resolution order/validation, size+decode equivalence with literal counts, missing-value no-decode, nested default restriction, and C preview macros (collision-safe, no-default fallback).
 - `src/test/core/overlayNormalization.test.ts`: clean pools preserved (identity, no spurious self-heal); inline bit-field migration (shared def per signature, override preservation, second-run no-op, reuse of an existing signature); a legacy inline bit-child enum ref aliased explicitly on the migration path before the container migration (no stale key re-emitted); a negative test proving the general reader no longer aliases pre-rename refs; enum entry range sanitization; dangling scalar enum / bit-child enum refs handled without breaking load; bit-child `hidden` round-trip (kept, explicit `false` dropped, old pool unchanged, migration keeps containers that differ only by it distinct).
-- `src/test/webview/overlayInstancesModel.test.ts`: full address parsing, injected IDs, uniqueness, immutable edit/remove, dependent removal, pointer reuse/source dedupe.
+- `src/test/webview/overlayInstancesModel.test.ts`: full address parsing, injected IDs, uniqueness, immutable edit/remove, dependent removal, pointer reuse/source dedupe, `addressSource` create/edit/clear, source+pointer rejection, and `effectiveInstanceAddress` precedence/no-fallback; parameter-source create/edit/clear, `effectiveInstanceParams` precedence (manual > resolved > default), resolved-map filtering, and config validation (unknown/empty/collision/missing).
+- `src/test/extension/instanceAddressRunner.test.ts`: context/documentSize/edits overlay, invalid values, partial failure isolation, missing script/export, untrusted block, batch bound, and workspace-relative path normalization; the same for `runInstanceParams` plus sibling context, the defensive size bound, and relative `paramSources`.
 - `src/test/webview/overlayPanel.test.ts` plus `overlay-instance-display.md`: visible rendering/action matrix.
 - `src/test/core/provider-utils.test.ts`: legacy/global definition migration.
 

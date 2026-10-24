@@ -1,6 +1,9 @@
 import { parentPort, receiveMessageOnPort, workerData } from 'node:worker_threads';
 import * as vm from 'node:vm';
-import type { HexScopeAPI, ExecResult, FetchResult, FetchOptions } from './types';
+import type {
+    HexScopeAPI, ExecResult, FetchResult, FetchOptions, ScriptContext, ScriptEntry, ScriptValue,
+} from './types';
+import { normalizeScriptValue } from './contracts';
 
 const lockView = new Int32Array((workerData as { lockBuffer: SharedArrayBuffer }).lockBuffer);
 let callId = 0;
@@ -26,7 +29,11 @@ function rpcCall(method: string, args: unknown[]): unknown {
     }
 }
 
-function buildAPI(collected: { results: Array<{ label: string; value: string }>; log: string[] }, rpcOut: (text: string) => void): HexScopeAPI {
+function buildAPI(
+    collected: { results: Array<{ label: string; value: string }>; log: string[] },
+    rpcOut: (text: string) => void,
+    context: ScriptContext,
+): HexScopeAPI {
     return {
         hex: {
             read: (address: number, length: number): Uint8Array =>
@@ -59,22 +66,29 @@ function buildAPI(collected: { results: Array<{ label: string; value: string }>;
         assert: (condition: boolean, label: string): void => {
             collected.results.push({ label, value: condition ? 'PASS' : 'FAIL' });
         },
+        context,
     };
 }
 
-function sendResult(output: { results: Array<{ label: string; value: string }>; log: string[] }, error?: string, errorType?: string): void {
+function sendResult(
+    output: { results: Array<{ label: string; value: string }>; log: string[] },
+    error?: string,
+    errorType?: string,
+    value?: ScriptValue,
+): void {
     const msg: Record<string, unknown> = { type: 'result', output };
     if (error) { msg.error = error; msg.errorType = errorType; }
+    if (value !== undefined) { msg.value = value; }
     parentPort!.postMessage(msg);
 }
 
-async function awaitThenable(value: unknown): Promise<void> {
+async function awaitThenable<T>(value: T | PromiseLike<T>): Promise<T> {
     const v = value as unknown;
     if (v && typeof (v as Record<string, unknown>).then === 'function') {
-        await (v as Promise<void>);
-    } else {
-        await Promise.resolve();
+        return await (v as PromiseLike<T>);
     }
+    await Promise.resolve();
+    return value as T;
 }
 
 function formatErr(err: unknown): { message: string; type: string } {
@@ -82,17 +96,24 @@ function formatErr(err: unknown): { message: string; type: string } {
     return { message: m, type: m.includes('timed out') ? 'timeout' : 'runtime' };
 }
 
-async function runScript(code: string, timeoutMs: number): Promise<void> {
+async function runEntry(
+    code: string,
+    entry: ScriptEntry,
+    timeoutMs: number,
+    context: ScriptContext,
+): Promise<void> {
     const collected: { results: Array<{ label: string; value: string }>; log: string[] } = { results: [], log: [] };
     const rpcOut = (text: string) => {
         collected.log.push(text);
         parentPort!.postMessage({ type: 'output', text });
     };
-    const api = buildAPI(collected, rpcOut);
+    const api = buildAPI(collected, rpcOut, context);
 
+    const moduleObj: { exports: Record<string, unknown> } = { exports: {} };
     const sandbox = vm.createContext({
-        module: { exports: {} },
-        exports: {},
+        module: moduleObj,
+        // CommonJS alias: `exports.run = fn` must reach `module.exports`.
+        exports: moduleObj.exports,
         console: {
             log: (...args: unknown[]) => rpcOut(args.map(String).join(' ')),
             warn: (...args: unknown[]) => rpcOut(`WARN: ${args.map(String).join(' ')}`),
@@ -105,22 +126,54 @@ async function runScript(code: string, timeoutMs: number): Promise<void> {
 
     new vm.Script(code).runInNewContext(sandbox, { timeout: timeoutMs, breakOnSigint: true });
 
-    const run = (sandbox.module as { exports: Record<string, unknown> }).exports?.run as ((a: unknown) => void | Promise<void>) | undefined;
-    if (typeof run !== 'function') {
-        return sendResult(collected, "Script must export a 'run' function.", 'compile');
+    const fn = entryFunction(moduleObj, entry);
+    if (!fn) {
+        const { message, errorType } = missingExportError(entry);
+        return sendResult(collected, message, errorType);
     }
 
     api.hex.size = rpcCall('hex.size', []) as number;
-    // ponytail: duck-type thenable check because sandbox has its own Promise realm
-    await awaitThenable(run(api));
-    sendResult(collected);
+    const returned = await awaitThenable(fn(api));
+    if (entry === 'run') {
+        sendResult(collected);
+        return;
+    }
+
+    const normalized = normalizeScriptValue(entry, returned);
+    if (!normalized.ok) {
+        return sendResult(collected, normalized.error, 'contract');
+    }
+    sendResult(collected, undefined, undefined, normalized.value);
+}
+
+/** The entry export as a callable, or undefined when it is missing/mistyped. */
+function entryFunction(
+    moduleObj: { exports: Record<string, unknown> },
+    entry: ScriptEntry,
+): ((api: unknown) => unknown) | undefined {
+    const fn = (moduleObj.exports ?? {})[entry];
+    return typeof fn === 'function' ? (fn as (api: unknown) => unknown) : undefined;
+}
+
+/** Why the run failed before executing: `run` is a compile error, roles a contract error. */
+function missingExportError(entry: ScriptEntry): { message: string; errorType: string } {
+    return entry === 'run'
+        ? { message: "Script must export a 'run' function.", errorType: 'compile' }
+        : { message: `Script must export a '${entry}' function.`, errorType: 'contract' };
+}
+
+/** One `run` message: dispatch to the entry runner; anything else is ignored. */
+async function handleMessage(msg: unknown): Promise<void> {
+    const data = msg as {
+        type: string; code: string; entry?: ScriptEntry; timeoutMs: number; context?: ScriptContext;
+    };
+    if (data.type !== 'run') { return; }
+    await runEntry(data.code, data.entry ?? 'run', data.timeoutMs, data.context ?? {});
 }
 
 parentPort.on('message', async (msg: unknown) => {
-    const data = msg as { type: string; code: string; timeoutMs: number };
-    if (data.type !== 'run') { return; }
     try {
-        await runScript(data.code, data.timeoutMs);
+        await handleMessage(msg);
     } catch (err: unknown) {
         const e = formatErr(err);
         sendResult({ results: [], log: [] }, e.message, e.type);

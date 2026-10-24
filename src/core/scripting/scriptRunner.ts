@@ -1,31 +1,84 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Worker } from 'node:worker_threads';
-import type { ScriptHost, HexScopeAPI, ScriptOutput, ScriptErrorType } from './types';
+import type {
+    ScriptHost, HexScopeAPI, ScriptOutput, ScriptErrorType, ScriptEntry, ScriptRole, ScriptContext, ScriptInfo,
+} from './types';
 import { buildAPI } from './apiFactory';
+import { normalizeScriptValue } from './contracts';
 import { isScriptFile, readScript, compileScript } from './scriptCompiler';
+
+export type { ScriptInfo } from './types';
 
 const SCRIPTS_DIR = '.hexscope/scripts';
 const SCRIPT_TIMEOUT_MS = 30_000;
+const HEADER_BYTES = 2048;
 
-export interface ScriptInfo {
-    name: string;
-    filePath: string;
-    capabilities: string[];
-    /** Content-change fingerprint (stat mtime, ms) — the webview uses it to
-        reset capability approvals when a script file is modified. */
-    fingerprint: string;
+/** Content-change fingerprint for one script file (stat mtime, ms as a string).
+    Shared with the permission store so a grant dies when the file is edited. */
+export function scriptFingerprint(filePath: string): string {
+    try {
+        return String(fs.statSync(filePath).mtimeMs);
+    } catch {
+        return '';
+    }
+}
+
+export interface ScriptRunOptions {
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    trusted?: boolean;
+    context?: ScriptContext;
 }
 
 function parseManifest(source: string): string[] {
-    const first2k = source.slice(0, 2048);
     const re = /@requires\s+(\w+)/gi;
     const caps = new Set<string>();
     let m: RegExpExecArray | null;
-    while ((m = re.exec(first2k)) !== null) {
+    while ((m = re.exec(source)) !== null) {
         caps.add(m[1].toLowerCase());
     }
     return [...caps];
+}
+
+function isScriptRole(role: string): role is ScriptRole {
+    return role === 'integrity' || role === 'address' || role === 'size';
+}
+
+function parseRoles(source: string): ScriptRole[] {
+    const re = /@script\s+(\w+)/gi;
+    const roles = new Set<ScriptRole>();
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(source)) !== null) {
+        const role = m[1].toLowerCase();
+        if (isScriptRole(role)) { roles.add(role); }
+    }
+    return [...roles];
+}
+
+/** `@entry run` header override: declare a run entry the source scan cannot see. */
+function hasEntryOverride(source: string): boolean {
+    return /@entry\s+run\b/i.test(source);
+}
+
+/** Remove line and block comments so commented-out exports never classify a script. */
+function stripComments(source: string): string {
+    return source
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/\/\/[^\r\n]*/g, ' ');
+}
+
+/** Export forms the source scan treats as a runnable `run` entry. */
+const RUN_EXPORT_PATTERNS: readonly RegExp[] = [
+    /\bexport\s+(?:async\s+)?function\s+run\b/,
+    /\bexport\s+(?:const|let|var)\s+run\b/,
+    /\bmodule\.exports\s*=\s*\{[^}]*\brun\b[^}]*\}/,
+    /\bexports\.run\s*=/,
+];
+
+function detectsRunExport(source: string): boolean {
+    const code = stripComments(source);
+    return RUN_EXPORT_PATTERNS.some(re => re.test(code));
 }
 
 function errorMessage(err: unknown): string {
@@ -75,15 +128,20 @@ export function scanScripts(workspaceRoot: string, trusted: boolean = true): Scr
             .map(e => {
                 const filePath = path.join(dir, e.name);
                 let capabilities: string[] = [];
-                let fingerprint = '';
+                let roles: ScriptRole[] = [];
+                let hasRun = false;
+                let runExplicit = false;
+                const fingerprint = scriptFingerprint(filePath);
                 try {
-                    fingerprint = String(fs.statSync(filePath).mtimeMs);
-                } catch { /* fingerprint stays '' for unstatable files */ }
-                try {
-                    const header = fs.readFileSync(filePath, 'utf-8').slice(0, 2048);
+                    const header = fs.readFileSync(filePath, 'utf-8').slice(0, HEADER_BYTES);
                     capabilities = parseManifest(header);
+                    roles = parseRoles(header);
+                    runExplicit = hasEntryOverride(header);
+                    hasRun = runExplicit || detectsRunExport(header);
                 } catch { /* if file can't be read, no capabilities */ }
-                return { name: e.name, filePath, capabilities, fingerprint };
+                const info: ScriptInfo = { name: e.name, filePath, capabilities, roles, fingerprint, hasRun };
+                if (runExplicit) { info.runExplicit = true; }
+                return info;
             })
             .sort((a, b) => a.name.localeCompare(b.name));
     } catch {
@@ -96,7 +154,9 @@ async function runInWorker(
     api: HexScopeAPI,
     host: ScriptHost,
     timeoutMs: number,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    entry: ScriptEntry,
+    context: ScriptContext,
 ): Promise<ScriptOutput> {
     const lockBuffer = new SharedArrayBuffer(4);
     const lockView = new Int32Array(lockBuffer);
@@ -135,7 +195,7 @@ async function runInWorker(
                     result.then(
                         v => reply(worker, lockView, id, v),
                         e => reply(worker, lockView, id, undefined, errorMessage(e)),
-                    ).catch(() => { /* reply failed — worker likely terminated */ });
+                    ).catch(() => { /* reply failed - worker likely terminated */ });
                 } else {
                     reply(worker, lockView, id, result);
                 }
@@ -144,12 +204,18 @@ async function runInWorker(
             }
         }
 
-        function handleResult(out: { results: Array<{ label: string; value: string }>; log: string[] }, err?: string, errType?: ScriptErrorType): void {
+        function handleResult(
+            out: { results: Array<{ label: string; value: string }>; log: string[] },
+            err: string | undefined,
+            errType: ScriptErrorType | undefined,
+            rawValue: unknown,
+        ): void {
             for (const r of out.results) { host.setResult(r.label, r.value); }
-            // output was already streamed via individual 'output' messages — don't replay
+            // output was already streamed via individual 'output' messages - don't replay
             const h = snap();
-            if (err) { finish({ ...h, error: err, errorType: errType }); }
-            else { finish(h); }
+            if (err) { finish({ ...h, error: err, errorType: errType }); return; }
+            if (entry === 'run') { finish(h); return; }
+            finish(normalizedOutput(h, entry, rawValue));
         }
 
         worker.on('message', (msg: Record<string, unknown>) => {
@@ -160,6 +226,7 @@ async function runInWorker(
                     msg.output as { results: Array<{ label: string; value: string }>; log: string[] },
                     msg.error as string | undefined,
                     msg.errorType as ScriptErrorType | undefined,
+                    msg.value,
                 ); break;
             }
         });
@@ -174,7 +241,7 @@ async function runInWorker(
             }
         });
 
-        worker.postMessage({ type: 'run', code: jsCode, timeoutMs });
+        worker.postMessage({ type: 'run', code: jsCode, entry, timeoutMs, context });
 
         if (signal) {
             const onAbort = () => finish({ ...snap(), error: 'Cancelled', errorType: 'cancel' });
@@ -190,6 +257,44 @@ function earlyExit(signal: AbortSignal | undefined, trusted: boolean): ScriptOut
     return null;
 }
 
+/** Contract-normalized result: the value, or the row-level contract error. */
+function normalizedOutput(h: ScriptOutput, entry: ScriptEntry, rawValue: unknown): ScriptOutput {
+    const normalized = normalizeScriptValue(entry, rawValue);
+    return normalized.ok
+        ? { ...h, value: normalized.value }
+        : { ...h, error: normalized.error, errorType: 'contract' };
+}
+
+export async function executeEntry(
+    filePath: string,
+    entry: ScriptEntry,
+    host: ScriptHost,
+    options: ScriptRunOptions = {},
+): Promise<ScriptOutput> {
+    const blocked = earlyExit(options.signal, options.trusted ?? true);
+    if (blocked) { return blocked; }
+    return runFile(filePath, entry, host, options);
+}
+
+/** Compile and run one script file; compile/read failures become `compile` errors. */
+async function runFile(
+    filePath: string,
+    entry: ScriptEntry,
+    host: ScriptHost,
+    options: ScriptRunOptions,
+): Promise<ScriptOutput> {
+    const context = options.context ?? {};
+    try {
+        const api = buildAPI(host, context);
+        const jsCode = await compileScript(readScript(filePath), filePath);
+        return await runInWorker(
+            jsCode, api, host, options.timeoutMs ?? SCRIPT_TIMEOUT_MS, options.signal, entry, context,
+        );
+    } catch (err: unknown) {
+        return { results: [], log: [errorMessage(err)], error: errorMessage(err), errorType: 'compile' };
+    }
+}
+
 export async function execute(
     filePath: string,
     host: ScriptHost,
@@ -197,13 +302,5 @@ export async function execute(
     signal?: AbortSignal,
     trusted: boolean = true,
 ): Promise<ScriptOutput> {
-    const blocked = earlyExit(signal, trusted);
-    if (blocked) { return blocked; }
-    try {
-        const api = buildAPI(host);
-        const jsCode = await compileScript(readScript(filePath), filePath);
-        return await runInWorker(jsCode, api, host, timeoutMs, signal);
-    } catch (err: unknown) {
-        return { results: [], log: [errorMessage(err)], error: errorMessage(err), errorType: 'compile' };
-    }
+    return executeEntry(filePath, 'run', host, { timeoutMs, signal, trusted });
 }

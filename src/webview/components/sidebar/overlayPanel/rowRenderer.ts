@@ -3,7 +3,7 @@ Extracted verbatim from overlayPanel.ts (pure move). */
 import { esc, formatHex, formatHexHtml } from '../../../utils';
 import {
     allTypes, bytesToBigUint, decodeField, decodeType, fieldByteSize, normalizeTypeField,
-    resolveTypeFieldByPath, typeByteSize,
+    resolveTypeFieldByPath, typeByteSize, validateInstanceParamValues,
 } from '../../../../core/overlay/overlayCodec.js';
 import type { DecodedField } from '../../../../core/overlay/overlayCodec.js';
 import type { BitFieldAllocation, TypeDef, TypeField, TypeFieldType, TypeInstance, TypeScalarFieldType } from '../../../../core/types';
@@ -26,6 +26,8 @@ type OverlayRenderContext = {
     keyPrefix: string;
     pointerDepth: number;
     hideOffsets: boolean;
+    /** Resolved top-level parameter values for the instance being rendered. */
+    params?: Readonly<Record<string, number>>;
 };
 
 type FieldGroup = { baseName: string; rows: DecodedField[] };
@@ -46,12 +48,15 @@ type FieldGroupInfo = {
     typeName: string;
     summary: string;
     summaryLabel: string;
+    /** Symbolic summary for the tooltip (`u8[ITEM_COUNT]`) when a parameter drives the count. */
+    symbolicSummary: string;
     byteCount: number;
 };
 
 type FieldGroupDeclarationInfo = {
     declaredType: TypeFieldType;
     count: number;
+    countParam?: string;
     typeName: string;
     isPointer: boolean;
 };
@@ -455,7 +460,7 @@ function isCompositeFieldGroup(isBitUnit: boolean, isPlainType: boolean, isArray
     return isArray && !isString;
 }
 
-function fieldGroupSummary(type: TypeFieldType, isArray: boolean, count: number, typeName: string): string {
+function fieldGroupSummary(type: TypeFieldType, isArray: boolean, count: number | string, typeName: string): string {
     if (type === 'struct') {
         return isArray ? `${typeName}[${count}]` : typeName;
     }
@@ -463,7 +468,7 @@ function fieldGroupSummary(type: TypeFieldType, isArray: boolean, count: number,
     return `${scalarType}[${count}]`;
 }
 
-function pointerGroupSummary(type: TypeFieldType, isArray: boolean, count: number, typeName: string): string {
+function pointerGroupSummary(type: TypeFieldType, isArray: boolean, count: number | string, typeName: string): string {
     const base = type === 'struct' ? typeName : pointerScalarSummaryBase(type);
     return isArray ? `${base}*[${count}]` : `${base}*`;
 }
@@ -482,14 +487,14 @@ function fieldGroupByteCount(rows: DecodedField[], isBitUnit: boolean, isArray: 
     return sumDecodedRowBytes(rows);
 }
 
-function describeFieldGroup(rctx: OverlayRenderCtx, def: TypeDef, rows: DecodedField[], baseName: string): FieldGroupInfo {
-    const declared = fieldGroupDeclarationInfo(rctx, def, rows, baseName);
+function describeFieldGroup(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, rows: DecodedField[], baseName: string): FieldGroupInfo {
+    const declared = fieldGroupDeclarationInfo(rctx, ctx, rows, baseName);
     const isArray = declared.count > 1;
     const isPlainType = declared.declaredType === 'struct' && !declared.isPointer;
     const isString = declared.declaredType === 'ascii' && !declared.isPointer;
     const isBitUnit = isBitUnitGroup(rows);
     const isComposite = isCompositeFieldGroup(isBitUnit, isPlainType, isArray, isString);
-    const summary = groupSummaryForDeclaration(declared, isArray);
+    const summary = groupSummaryForDeclaration(declared, isArray, declared.count);
     return {
         declaredType: declared.declaredType,
         count: declared.count,
@@ -502,19 +507,27 @@ function describeFieldGroup(rctx: OverlayRenderCtx, def: TypeDef, rows: DecodedF
         typeName: declared.typeName,
         summary,
         summaryLabel: fieldGroupSummaryLabel(rctx, rows, isBitUnit, isArray, summary),
+        symbolicSummary: symbolicGroupSummary(declared),
         byteCount: fieldGroupByteCount(rows, isBitUnit, isArray, declared.count),
     };
 }
 
-function fieldGroupDeclarationInfo(rctx: OverlayRenderCtx, def: TypeDef, rows: DecodedField[], baseName: string): FieldGroupDeclarationInfo {
-    const declared = resolveTypeFieldByPath(def, baseName, rctx.types);
+/** Symbolic summary for the tooltip: the parameter name when one drives the count. */
+function symbolicGroupSummary(declared: FieldGroupDeclarationInfo): string {
+    const symbolic = declared.countParam !== undefined || declared.count > 1;
+    return groupSummaryForDeclaration(declared, symbolic, declared.countParam ?? declared.count);
+}
+
+function fieldGroupDeclarationInfo(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, rows: DecodedField[], baseName: string): FieldGroupDeclarationInfo {
+    const declared = resolveTypeFieldByPath(ctx.def, baseName, rctx.types, ctx.params);
     return declared ? resolvedFieldGroupDeclarationInfo(declared) : inferredFieldGroupDeclarationInfo(rows);
 }
 
-function resolvedFieldGroupDeclarationInfo(declared: { field: TypeField; typeName?: string }): FieldGroupDeclarationInfo {
+function resolvedFieldGroupDeclarationInfo(declared: { field: TypeField; typeName?: string; count: number }): FieldGroupDeclarationInfo {
     return {
         declaredType: declared.field.type,
-        count: declared.field.count,
+        count: declared.count,
+        countParam: declared.field.countParam,
         typeName: declared.typeName ?? 'struct',
         isPointer: normalizeTypeField(declared.field).isPointer === true,
     };
@@ -530,10 +543,10 @@ function inferredFieldGroupDeclarationInfo(rows: DecodedField[]): FieldGroupDecl
     };
 }
 
-function groupSummaryForDeclaration(declared: FieldGroupDeclarationInfo, isArray: boolean): string {
+function groupSummaryForDeclaration(declared: FieldGroupDeclarationInfo, isArray: boolean, count: number | string): string {
     return declared.isPointer
-        ? pointerGroupSummary(declared.declaredType, isArray, declared.count, declared.typeName)
-        : fieldGroupSummary(declared.declaredType, isArray, declared.count, declared.typeName);
+        ? pointerGroupSummary(declared.declaredType, isArray, count, declared.typeName)
+        : fieldGroupSummary(declared.declaredType, isArray, count, declared.typeName);
 }
 
 function groupRowsByBase(rows: DecodedField[]): FieldGroup[] {
@@ -720,15 +733,28 @@ const BODY_RULES: ReadonlyArray<BodyRule> = [
     ],
 ];
 
-export function renderTypeBody(rctx: OverlayRenderCtx, def: TypeDef, pin: TypeInstance): string {
-    const rows = decodeType(def, pin.addr, rctx.readByte, rctx.endian, rctx.bitFieldAllocation, rctx.types);
+export function renderTypeBody(
+    rctx: OverlayRenderCtx,
+    def: TypeDef,
+    pin: TypeInstance,
+    addrOverride?: number,
+    params?: Readonly<Record<string, number>>,
+): string {
+    const layout = params ?? pin.paramValues;
+    const paramErrors = validateInstanceParamValues(def, layout);
+    if (paramErrors.length > 0) {
+        return `<div class="oi-params-error">${esc(paramErrors[0])}</div>`;
+    }
+    const baseAddr = addrOverride ?? pin.addr;
+    const rows = decodeType(def, baseAddr, rctx.readByte, rctx.endian, rctx.bitFieldAllocation, rctx.types, layout);
     return `<div class="oi-fields">${renderTypeFieldGroups(rctx, {
         def,
         pin,
-        baseAddr: pin.addr,
+        baseAddr,
         keyPrefix: pin.id,
         pointerDepth: 0,
         hideOffsets: false,
+        params: layout,
     }, rows)}</div>`;
 }
 
@@ -791,7 +817,7 @@ function renderTypeChildren(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, t
 
 function renderNestedTypeGroup(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, ng: NestedFieldGroup, parentKey: string): string {
     if (isHiddenDeclaredField(rctx, ctx.def, ng.fullBase)) { return ''; }
-    const info = describeFieldGroup(rctx, ctx.def, ng.rows, ng.fullBase);
+    const info = describeFieldGroup(rctx, ctx, ng.rows, ng.fullBase);
     if (isPointerRows(ng.rows)) {
         return renderPointerRows(rctx, ctx, ng.rows, parentKey, ng.baseRel, info);
     }
@@ -897,7 +923,7 @@ function isHiddenDeclaredField(rctx: OverlayRenderCtx, def: TypeDef, fieldPath: 
 
 function renderTypeFieldGroup(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, g: FieldGroup): string {
     const r0 = g.rows[0];
-    const info = describeFieldGroup(rctx, ctx.def, g.rows, g.baseName);
+    const info = describeFieldGroup(rctx, ctx, g.rows, g.baseName);
     if (isPointerRows(g.rows)) {
         return renderPointerRows(rctx, ctx, g.rows, ctx.keyPrefix, g.baseName, info);
     }
@@ -937,6 +963,7 @@ function fieldHeaderHtml(rctx: OverlayRenderCtx, ctx: OverlayRenderContext, g: F
         ctx.hideOffsets,
         true,
         overrideBadgeHtml(rctx, g.rows[0]),
+        info.symbolicSummary,
     );
 }
 
@@ -963,8 +990,9 @@ function compositeHeaderHtml(
         hideOffset = false,
         includeTitle = false,
         badgeHtml = '',
+        titleLabel = summaryLabel,
     ): string {
-        const title = includeTitle ? ` title="${esc(summaryLabel)}"` : '';
+        const title = includeTitle ? ` title="${esc(titleLabel)}"` : '';
         return (
             `<div class="oi-arr-grp-hdr" data-byte-start="${byteStart}" data-byte-cnt="${byteCount}"` +
             compositeHeaderAttr(byteOffset, hideOffset) + `>` +
@@ -1016,7 +1044,7 @@ function renderPointerArrayRows(
     return compositeGroupHtml(
         key,
         isOpen,
-        compositeHeaderHtml(isOpen, byteStart, info.byteCount, first.byteOffset, groupHeaderName(baseName), info.summary, ctx.hideOffsets, true, overrideBadgeHtml(rctx, first)),
+        compositeHeaderHtml(isOpen, byteStart, info.byteCount, first.byteOffset, groupHeaderName(baseName), info.summary, ctx.hideOffsets, true, overrideBadgeHtml(rctx, first), info.symbolicSummary),
         bodyHtml,
     );
 }

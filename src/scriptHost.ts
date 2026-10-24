@@ -6,6 +6,20 @@ export interface WriteEdit {
     value: number;
 }
 
+/** Approved bytes to commit after a run, plus the counts the result card shows. */
+export interface ScriptWritePlan {
+    commit: Array<[number, number]>;
+    pendingWriteCount: number;
+    discardedWriteCount: number;
+}
+
+/** Only a clean run commits its approved writes; error/timeout/cancel discards them. */
+export function scriptWritePlan(error: string | undefined, pendingWrites: WriteEdit[]): ScriptWritePlan {
+    const writes = pendingWrites.map(w => [w.address, w.value] as [number, number]);
+    if (error) { return { commit: [], pendingWriteCount: 0, discardedWriteCount: writes.length }; }
+    return { commit: writes, pendingWriteCount: writes.length, discardedWriteCount: 0 };
+}
+
 interface SegmentLookup {
     startAddress: number;
     endAddress: number;
@@ -30,9 +44,22 @@ function findSegment(lookup: SegmentLookup[], addr: number): SegmentLookup | und
     return undefined;
 }
 
+const noOutput = (): void => { /* no output hook wired */ };
+const noResult = (): void => { /* no result hook wired */ };
+const denyAll = async (): Promise<boolean> => false;
+
+/** Seed the pending-edit overlay from the webview's staged edits. */
+function applyEdits(
+    target: Map<number, number>,
+    edits: ReadonlyArray<readonly [number, number]> | undefined,
+): void {
+    for (const [address, value] of edits ?? []) { target.set(address, value); }
+}
+
 export class VSCodeScriptHost implements IScriptHost {
     private readonly edits = new Map<number, number>();
     public readonly pendingWrites: WriteEdit[] = [];
+    workspaceRoot?: string;
     private readonly lookup: SegmentLookup[];
     private readonly resultsAcc: Array<{ label: string; value: string }> = [];
     private readonly logAcc: string[] = [];
@@ -48,13 +75,19 @@ export class VSCodeScriptHost implements IScriptHost {
             setResult?: (label: string, value: string) => void;
             confirm?: (type: 'write' | 'exec' | 'fetch', detail: string) => Promise<boolean>;
             selectionRange?: { start: number; end: number };
+            /** Pending webview edits overlaid on the parsed bytes (read-only; not queued as writes). */
+            edits?: ReadonlyArray<readonly [number, number]>;
+            /** Pinned cwd for `exec`; falls back to process.cwd(). */
+            workspaceRoot?: string;
         },
     ) {
         this.lookup = buildLookup(segments);
-        this._outputHook = options.output ?? (() => {});
-        this._resultHook = options.setResult ?? (() => {});
-        this._confirm = options.confirm ?? (async () => false);
+        this._outputHook = options.output ?? noOutput;
+        this._resultHook = options.setResult ?? noResult;
+        this._confirm = options.confirm ?? denyAll;
         this.selectionRange = options.selectionRange;
+        this.workspaceRoot = options.workspaceRoot;
+        applyEdits(this.edits, options.edits);
     }
 
     get totalSize(): number {

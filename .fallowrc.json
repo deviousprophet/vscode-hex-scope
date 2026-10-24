@@ -18,7 +18,10 @@
   ],
   "dynamicallyLoaded": [
     "src/webview/styles/*.css",
-    "src/core/scripting/scriptWorker.ts"
+    "src/core/scripting/scriptWorker.ts",
+    "examples/scripts/*.ts",
+    "examples/scripts/*.js",
+    "examples/scripts/types/*.d.ts"
   ],
   "usedClassMembers": [
     {

@@ -2,7 +2,7 @@
 Extracted verbatim from overlayPanel.ts (pure move). */
 import { esc } from '../../../utils';
 import { FIELD_TYPES, allTypes, isUnsignedScalarType, normalizeTypeField, typeDefKind } from '../../../../core/overlay/overlayCodec.js';
-import type { BitFieldChild, TypeDef, TypeField } from '../../../../core/types';
+import type { BitFieldChild, TypeDef, TypeField, TypeParam } from '../../../../core/types';
 
 /** Max chars for a `struct <name>` option label before truncating (full name in `title`). */
 const TYPE_OPTION_MAX_CHARS = 28;
@@ -124,24 +124,51 @@ function arrayToggleLabel(isArr: boolean): string {
         return isArr ? 'Remove array' : 'Make array';
     }
 
+function fieldArrayCellHtml(f: TypeField, params: readonly TypeParam[]): string {
+    const hasParam = f.countParam !== undefined;
+    const isArray = hasParam || f.count > 1;
+    return (
+        `<div class="ofe-arr-cell${arrayCellClass(hasParam, isArray)}">` +
+        arrayToggleHtml(isArray) +
+        arrayCountInputHtml(f, hasParam, isArray) +
+        countParamSelectHtml(f, params) +
+        `</div>`
+    );
+}
+
+function arrayCellClass(hasParam: boolean, isArray: boolean): string {
+    return `${isArray ? ' is-array' : ''}${hasParam ? ' has-param' : ''}`;
+}
+
+function arrayToggleHtml(isArray: boolean): string {
+    const toggleLabel = arrayToggleLabel(isArray);
+    return `<button class="ofe-arr-toggle${activeClassAttr(isArray)}" title="${toggleLabel}" aria-label="${toggleLabel}">[ ]</button>`;
+}
+
+/** Literal count input: hidden while a parameter supplies the count. */
+function arrayCountInputHtml(f: TypeField, hasParam: boolean, isArray: boolean): string {
+    const value = !hasParam && isArray ? f.count : '';
+    return `<input class="ofe-count-inp sb-input sb-input-sm" type="text" inputmode="numeric" value="${value}" placeholder="N">`;
+}
+
+/** "Count from parameter" select — rendered only when the containing type declares params. */
+function countParamSelectHtml(f: TypeField, params: readonly TypeParam[]): string {
+    if (params.length === 0) { return ''; }
+    const title = 'Element count from a type size parameter';
+    const options = [`<option value="">literal</option>`]
+        .concat(params.map(param =>
+            `<option value="${esc(param.name)}"${f.countParam === param.name ? ' selected' : ''}>${esc(param.name)}</option>`
+        ))
+        .join('');
+    return `<select class="ofe-count-param" title="${title}" aria-label="${title}">${options}</select>`;
+}
+
 function fieldHiddenCellHtml(f: TypeField): string {
         const title = 'Hide this field in the Instances view';
         return (
             `<span class="ofe-hidden-cell" title="${title}">` +
             `<input type="checkbox" class="ofe-hidden-chk" title="${title}" aria-label="${title}"${f.hidden === true ? ' checked' : ''}>` +
             `</span>`
-        );
-    }
-
-function fieldArrayCellHtml(f: TypeField): string {
-        const isArr = f.count > 1;
-        const toggleLabel = arrayToggleLabel(isArr);
-        return (
-            `<div class="ofe-arr-cell${isArr ? ' is-array' : ''}">` +
-            `<button class="ofe-arr-toggle${activeClassAttr(isArr)}" title="${toggleLabel}" aria-label="${toggleLabel}">[ ]</button>` +
-            `<input class="ofe-count-inp sb-input sb-input-sm" type="text" inputmode="numeric" ` +
-                   `value="${isArr ? f.count : ''}" placeholder="N">` +
-            `</div>`
         );
     }
 
@@ -214,6 +241,7 @@ export function fieldRowHtml(
     types: readonly TypeDef[],
     inheritedEndian: string,
     inheritedAlloc: string,
+    params: readonly TypeParam[],
 ): string {
     const typeOpts = fieldTypeOptionsHtml(f, draftId, types);
     const blocksPointer = isPointerBlocked(f);
@@ -232,7 +260,7 @@ export function fieldRowHtml(
             ? overrideSelectHtml(f.allocation, 'allocation', 'ofe-alloc-sel', undefined, inheritedAlloc)
             : `<span class="ofe-alloc-placeholder"></span>`) +
         fieldHiddenCellHtml(f) +
-        fieldArrayCellHtml(f) +
+        fieldArrayCellHtml(f, params) +
         fieldMoveButtonsHtml(i, total) +
         delCell +
         `</div>`

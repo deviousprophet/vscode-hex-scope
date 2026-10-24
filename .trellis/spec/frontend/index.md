@@ -30,7 +30,7 @@ Every self-contained webview component has one spec at `components/component-<na
 | [Inspector Component](./components/component-sidebar-inspector.md) | Sidebar Inspector panel: address/values, bit view, multi-byte, segments, labels + form |
 | [OverlayPanel Component](./components/component-sidebar-overlay-panel.md) | Sidebar Overlay panel: pins/instances + types/editor, decoded rows, pointers, bit layout |
 | [IntegrityPanel Component](./components/component-sidebar-integrity-panel.md) | Sidebar Integrity panel: checks + results, auto fix, profile library, fix-all |
-| [ScriptsPanel Component](./components/component-sidebar-scripts-panel.md) | Sidebar Scripts panel: script cards, run/cancel state machine, result blocks, output streaming |
+| [ScriptsPanel Component](./components/component-sidebar-scripts-panel.md) | Sidebar Scripts panel: script cards, filter bar, details row, run/cancel state machine, result blocks, write summary, output streaming |
 | [MenuController Component](./components/component-menu-controller.md) | Headless shared menu controller: hex/overlay/integrity popovers, nav, dismissal |
 
 ## Feature Code-Specs

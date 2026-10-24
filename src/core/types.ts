@@ -111,6 +111,14 @@ export const TYPE_BASE_TYPES: readonly TypeBaseType[] = ['uint8', 'uint16', 'uin
 /** Named-type discriminator; absent = plain struct. */
 export type TypeDefKind = 'struct' | 'bitfield' | 'enum';
 
+/** A declared size parameter of a struct type (first release: `kind: 'size'` only). */
+export interface TypeParam {
+    name: string;
+    kind: 'size';
+    /** Optional per-type default; a templated type used as a nested field must declare one. */
+    default?: number;
+}
+
 /** One `NAME = value` entry of a `kind: 'enum'` def. */
 export interface EnumEntry {
     name: string;
@@ -127,8 +135,12 @@ export interface TypeField {
     /** Named bit-field children. When present, this field is a BitField container.
      *  Only valid for unsigned integer base types (uint8/16/32/64). */
     bitFields?: BitFieldChild[];
-    /** Array element count; 1 for a scalar field. */
+    /** Array element count; 1 for a scalar field. Mirrors a bound parameter's
+     *  default (or 1 when it has none) for old-build fallback and previews. */
     count: number;
+    /** Declared `TypeDef.params` name whose resolved value drives the element
+     *  count. When set, layout uses the resolved parameter and ignores `count`. */
+    countParam?: string;
     /** Whether the bit-field detail editor is collapsed. Only applies to BitField containers. */
     bitFieldsCollapsed?: boolean;
     /** When true, this field/container is omitted from the Instances view unless the
@@ -156,6 +168,8 @@ export interface TypeDef {
     bitFields?: BitFieldChild[];
     /** Ordered name/value entries for a `kind: 'enum'` def (its `fields` is empty). */
     entries?: EnumEntry[];
+    /** Declared template parameters used by `countParam` field counts (struct only). */
+    params?: TypeParam[];
     /** When true: no padding between fields (GCC __attribute__((packed))).
      *  When false/absent: fields are naturally aligned (default). */
     packed?: boolean;
@@ -177,10 +191,31 @@ export interface TypePointerSource {
     targetAddress: number;
 }
 
+/** Authored address source: a `@script address` script resolves the instance base. */
+export interface TypeInstanceAddressSource {
+    /** Workspace-relative (posix) path of the script; resolved against the current root at run time. */
+    scriptPath: string;
+}
+
+/** Authored size-parameter source: a `@script size` script resolves the value. */
+export interface TypeInstanceParamSource {
+    /** Workspace-relative (posix) path of the script; resolved against the current root at run time. */
+    scriptPath: string;
+}
+
 export interface TypeInstance {
     id: string;
     typeId: string;  // references TypeDef.id
-    addr: number;      // base address
+    addr: number;      // base address, or the fixed fallback when addressSource is set
     name: string;      // user-provided label
+    /** Resolved size-parameter values for a templated type (declared order is
+     *  preserved by `TypeDef.params`); absent = use the parameter defaults. */
+    paramValues?: Record<string, number>;
+    /** Script sources for size parameters; a manual `paramValues` entry for the
+     *  same name wins. The resolved value is transient: never persisted. */
+    paramSources?: Record<string, TypeInstanceParamSource>;
+    /** When set, the effective base address comes from a script. The resolved
+     *  address is transient: never persisted or written back into the profile. */
+    addressSource?: TypeInstanceAddressSource;
     pointerSources?: TypePointerSource[];
 }

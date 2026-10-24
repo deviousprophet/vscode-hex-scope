@@ -138,6 +138,27 @@ preserving the behavior contracts below.
   place** (the list's contents are refreshed while the header/toggle and section
   body node are kept), preserving toggle focus and body scroll, without reopening
   the editor and without rebuilding the Types editor.
+- Script-address contract: an instance with `addressSource` renders the transient resolution
+  state instead of a fixed address. The card header shows `resolving…`, the resolved
+  `0x… · NB`, `stale` (last address dimmed), or the row-level error message, plus a `Script`
+  chip (script path as tooltip) and a ↻ refresh action. The expand control is disabled and
+  **no decoded rows render** until a successful resolution: error/stale/resolving never fall
+  back to the authored `addr`. The Instances header carries one **Refresh addresses** action
+  (disabled when no instance uses a source) that re-runs every dynamic instance; the card ↻
+  reports the same refresh. The instance editor offers a Fixed address / From script selector;
+  the script picker lists only `@script address` scripts, keeps a missing authored path
+  visible as `<path> (not found)`, provides an Open-script action, and disables From script
+  for pointer-created instances. `addr` remains the numeric fallback and is never shown as
+  current while a source is configured.
+- Script-parameter contract: a parameter may take its value from a `@script size` script instead
+  of a manual entry. The card shows one `.oi-cparam` per declared parameter: manual values
+  (and type defaults) render plainly, a sourced value renders next to a `Script` chip (path as
+  tooltip), stale values stay visible dimmed (`.oi-cparam-stale`), and a pending/failed value
+  renders `resolving…` / the error (`.oi-cparam-resolving` / `.oi-cparam-error`). While any
+  sourced parameter is resolving, stale, or failed, the card cannot expand and no decoded rows
+  render; other instances are unaffected. The instance form gives each parameter a Manual /
+  From script selector, an `@script size`-filtered picker, and an Open-script action. Resolved
+  parameter values are transient and never shown as authored data.
 - No environment keys or external API payloads participate in this feature.
 
 ### 4. Validation & Error Matrix
@@ -158,6 +179,8 @@ preserving the behavior contracts below.
 | Bitfield pointer or pointer array requested | Treat as unsupported/future; do not synthesize target semantics. |
 | Field/container marked `hidden` | Omit the group and its whole subtree from the instance view (unless the global toggle is on); decode, offsets, and the C preview stay unchanged. |
 | Bit child marked `hidden` | Omit that child row from the bit-unit body (unless the global toggle is on); the container header row stays even when all children are hidden; decode, offsets, and the C preview stay unchanged. |
+| Script parameter resolving/stale/failed | Show the parameter state on the card; disable expansion and render no decoded rows for that instance. `addr`/prior values are never presented as current. |
+| Script parameter value invalid or above the bound | Show `Invalid size from script` / `Size is too large from script`; no decode. |
 
 ### 5. Good/Base/Bad Cases
 
@@ -187,6 +210,10 @@ preserving the behavior contracts below.
   addresses, plus visible disabled reasons.
 - Accessibility tests: assert focusability, Enter/Space toggle, distinct focus/selected
   state, keyboard context menu, accessible tooltip text, and keyboard pointer actions.
+- Script-address tests: assert resolving → resolved embedding, the resolved base address used
+  for decoded rows, the `Script` chip/tooltip, error/stale cards suppressing rows with no
+  `addr` fallback, the panel/card refresh callbacks, the source selector, the filtered
+  `@script address` picker, the Open-script action, and the pointer-created restriction.
 - Visual/CSS tests: assert four-column alignment, adaptive type width, middle ellipsis,
   indentation, target/source separation, and bit highlighting.
 - A regression test is invalid if it still passes after removing the behavior under test;

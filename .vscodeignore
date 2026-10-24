@@ -16,3 +16,6 @@ eslint-rules/**
 .*/**
 AGENTS.md
 images/demo.gif
+!examples/**/*.ts
+!examples/**/*.js
+!examples/tsconfig.json

@@ -255,8 +255,7 @@
 /* Array cell */
 .ofe-arr-cell {
     display: flex; align-items: center; gap: 2px; width: 100%;
-}
-.ofe-arr-toggle {
+}.ofe-arr-toggle {
     background: transparent; border: 1px dashed var(--border);
     border-radius: 2px; color: var(--addr-fg); font-family: var(--font-editor);
     font-size: 10px; cursor: pointer; padding: 1px 3px; line-height: 1.4;
@@ -277,6 +276,94 @@
 .ofe-count-inp::-webkit-outer-spin-button,
 .ofe-count-inp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .ofe-arr-cell.is-array .ofe-count-inp { display: block; }
+
+/* Parameter-bound array: the count comes from a declared size parameter. */
+.ofe-count-param {
+    flex: 1; min-width: 0; width: 100%;
+    appearance: none; -webkit-appearance: none;
+    background: var(--input-bg, transparent);
+    border: 1px solid var(--border); border-radius: 2px;
+    color: var(--fg); font-family: var(--font-editor); font-size: 9px;
+    height: 16px; padding: 0 1px; box-sizing: border-box;
+}
+.ofe-count-param:focus { border-color: var(--focus-bdr); }
+.ofe-arr-cell.has-param .ofe-count-inp { display: none; }
+
+/* Type-editor Parameters section (above the field grid). */
+.oe-params {
+    display: flex; flex-direction: column; gap: 4px;
+    margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border);
+}
+.oe-params-hdr { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.oe-params-lbl {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--addr-fg); font-family: var(--font-ui);
+}
+.oe-params-hdr .sb-btn-add { align-self: center; width: auto; padding: 1px 8px; font-size: 10px; }
+.ofe-params-list { display: flex; flex-direction: column; gap: 2px; }
+.ofe-param-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) 10px 56px 44px 18px;
+    gap: 3px; align-items: center;
+}
+.ofe-param-eq {
+    text-align: center; color: var(--addr-fg);
+    font-family: var(--font-editor); font-size: 10px;
+}
+.ofe-param-del {
+    background: transparent; border: 1px solid transparent; border-radius: 2px;
+    color: var(--addr-fg); font-family: var(--font-editor); font-size: 10px;
+    cursor: pointer; padding: 0; line-height: 1.4;
+}
+.ofe-param-del:hover { color: var(--err); border-color: var(--err); }
+
+/* With declared params the array cell needs room for toggle + count + select. */
+.oe-form.has-params .oe-type-default-row,
+.oe-form.has-params .oe-field-hdr,
+.oe-form.has-params .field-row {
+    grid-template-columns: 96px 26px minmax(0, 1fr) 58px 52px 28px 96px 30px 18px;
+}
+
+/* Instance add/edit form: one numeric input per declared parameter. */
+.oa-params { display: flex; flex-direction: column; gap: 3px; }
+.oa-params-hdr {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--addr-fg); font-family: var(--font-ui);
+}
+.oa-param-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.oa-param-lbl {
+    min-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 10px; color: var(--addr-fg); font-family: var(--font-editor);
+}
+.oa-param-inp { width: 72px; text-align: center; }
+.oa-param-source { width: 84px; flex-shrink: 0; }
+.oa-param-script { flex: 1; min-width: 0; }
+.oa-param-open { flex-shrink: 0; }
+
+/* Per-parameter state row on a templated instance card. */
+.oi-cparams { display: flex; flex-wrap: wrap; gap: 3px 6px; margin-top: 3px; }
+.oi-cparam {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; font-family: var(--font-ui); color: var(--addr-fg);
+    white-space: nowrap;
+}
+.oi-cparam-name { color: var(--muted-fg); }
+.oi-cparam-val { font-family: var(--font-editor); }
+.oi-cparam-stale { color: var(--warn); opacity: .8; }
+.oi-cparam-error { color: var(--err); white-space: normal; overflow-wrap: anywhere; }
+.oi-cparam-resolving { color: var(--muted-fg); font-style: italic; }
+
+/* Row-level parameter validation error shown instead of a decode. */
+.oi-params-error {
+    color: var(--err); font-size: 11px; font-family: var(--font-ui);
+    padding: 6px 8px; line-height: 1.4;
+}
+
+/* Instance-card parameter warning chip (missing values after a type edit). */
+.oi-cwarn {
+    font-size: 9px; font-family: var(--font-ui); color: var(--warn);
+    border: 1px solid var(--warn); border-radius: 2px; padding: 0 3px;
+    white-space: nowrap;
+}
 
 .ofe-del-btn {
     background: transparent; border: none; color: var(--addr-fg);
@@ -443,6 +530,7 @@
 .oa-form-hdr-edit { color: var(--addr-fg); }
 
 .oa-row { display: flex; align-items: center; gap: 4px; }
+.oa-row[hidden] { display: none; }
 .oa-btn-row { gap: 6px; }
 .oa-bit-order-tabs { flex-shrink: 0; }
 
@@ -508,6 +596,30 @@
     font-size: 10px; color: var(--muted-fg);
     font-family: var(--font-editor); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Script-resolved instance address states */
+.oi-addr-resolving { color: var(--muted-fg); font-style: italic; }
+.oi-addr-stale { color: var(--warn); opacity: .8; }
+.oi-addr-error { color: var(--err); white-space: normal; }
+.oi-script-chip {
+    font-size: 9px; line-height: 1; padding: 1px 4px;
+    border: 1px solid rgba(156,220,254,.35); border-radius: 3px;
+    color: var(--high-color); font-family: var(--font-ui);
+    flex-shrink: 0;
+}
+.oi-refresh-addrs-btn { padding: 1px 5px; white-space: nowrap; }
+
+/* Instance form address source controls */
+.oa-src-row .sb-select { flex: 1; min-width: 0; }
+.oa-script-row .oa-script-sel { flex: 1; min-width: 0; }
+.oa-script-open { flex-shrink: 0; }
+.oa-hint { font-size: 10px; color: var(--warn); font-family: var(--font-ui); }
+
+/* Empty address/size pickers: real create-folder-reveal actions instead of a dead option */
+.oa-script-empty-row, .oa-params-empty-row { flex-wrap: wrap; }
+.oa-create-script.sb-btn, .oa-open-scripts-folder.sb-btn {
+    font-size: 10px; padding: 1px 8px; line-height: 1.6; white-space: normal; text-align: left;
 }
 
 /* Action button group (edit + delete + view-type) at top-right of card */

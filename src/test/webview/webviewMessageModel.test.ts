@@ -48,6 +48,88 @@ suite('webview message dispatcher', () => {
         assert.strictEqual(dispatchProviderMessage({ type: 'loadError', message: 'boom' }, handlers), true);
         assert.strictEqual(called, true);
     });
+
+    test('dispatches the script permission request, grant list, and writes commit', () => {
+        const seen: string[] = [];
+        const handlers = {
+            ...noOpHandlers(),
+            scriptPermissionRequest: msg => { seen.push(`perm:${msg.requestId}:${msg.capability}:${msg.scopes.length}`); },
+            scriptPermissions: msg => { seen.push(`grants:${msg.grants.length}`); },
+            scriptWritesCommit: msg => { seen.push(`commit:${msg.scriptPath}:${msg.writes.length}`); },
+        } satisfies ProviderMessageHandlers;
+
+        assert.strictEqual(dispatchProviderMessage({
+            type: 'scriptPermissionRequest',
+            requestId: 4,
+            capability: 'write',
+            detail: 'Write 1 bytes at 0x0',
+            scriptPath: 'a.js',
+            scriptName: 'a.js',
+            fingerprint: 'fp',
+            scopes: ['once', 'script', 'session', 'workspace'],
+        }, handlers), true);
+        assert.strictEqual(dispatchProviderMessage({
+            type: 'scriptPermissions',
+            grants: [{ scriptPath: 'a.js', capability: 'write', scope: 'workspace' }],
+        }, handlers), true);
+        assert.strictEqual(dispatchProviderMessage({
+            type: 'scriptWritesCommit',
+            scriptPath: 'a.js',
+            writes: [[0, 255]],
+        }, handlers), true);
+        assert.deepStrictEqual(seen, ['perm:4:write:4', 'grants:1', 'commit:a.js:1']);
+    });
+
+    test('dispatches the script save-failure notice', () => {
+        let seen = '';
+        const handlers = {
+            ...noOpHandlers(),
+            scriptSaveFailed: msg => { seen = `${msg.scriptPath}:${msg.message}`; },
+        } satisfies ProviderMessageHandlers;
+
+        assert.strictEqual(dispatchProviderMessage({
+            type: 'scriptSaveFailed',
+            scriptPath: 'a.js',
+            message: 'EACCES: permission denied',
+        }, handlers), true);
+        assert.strictEqual(seen, 'a.js:EACCES: permission denied');
+    });
+
+    test('dispatches batched instance address results', () => {
+        let seen = '';
+        const handlers = {
+            ...noOpHandlers(),
+            instanceAddressesResolved: msg => {
+                seen = `${msg.requestId}:${msg.generation}:${msg.results.length}:${msg.results[0]?.ok}`;
+            },
+        } satisfies ProviderMessageHandlers;
+
+        assert.strictEqual(dispatchProviderMessage({
+            type: 'instanceAddressesResolved',
+            requestId: 7,
+            generation: 2,
+            results: [{ pinId: 'p', ok: true, addr: 0x20 }],
+        }, handlers), true);
+        assert.strictEqual(seen, '7:2:1:true');
+    });
+
+    test('dispatches batched instance parameter results', () => {
+        let seen = '';
+        const handlers = {
+            ...noOpHandlers(),
+            instanceParamsResolved: msg => {
+                seen = `${msg.requestId}:${msg.generation}:${msg.results.length}:${msg.results[0]?.ok}`;
+            },
+        } satisfies ProviderMessageHandlers;
+
+        assert.strictEqual(dispatchProviderMessage({
+            type: 'instanceParamsResolved',
+            requestId: 8,
+            generation: 3,
+            results: [{ pinId: 'p', param: 'N', ok: true, value: 4 }],
+        }, handlers), true);
+        assert.strictEqual(seen, '8:3:1:true');
+    });
 });
 
 suite('applyProviderMessageToModel()', () => {
@@ -296,6 +378,19 @@ labels: [],
         assert.strictEqual(showHiddenFieldsOrDefault(1), false);
         assert.strictEqual(showHiddenFieldsOrDefault(undefined), false);
     });
+
+    test('script permission + commit messages are passive model updates', () => {
+        const request = applyProviderMessageToModel({
+            type: 'scriptPermissionRequest', requestId: 1, capability: 'fetch', detail: 'https://x.test',
+            scriptPath: 'a.js', scriptName: 'a.js', fingerprint: 'fp', scopes: ['once'],
+        });
+        const permissions = applyProviderMessageToModel({ type: 'scriptPermissions', grants: [] });
+        const commit = applyProviderMessageToModel({ type: 'scriptWritesCommit', scriptPath: 'a.js', writes: [[0, 1]] });
+        const saveFailed = applyProviderMessageToModel({ type: 'scriptSaveFailed', scriptPath: 'a.js', message: 'EACCES' });
+        for (const update of [request, permissions, commit, saveFailed]) {
+            assert.deepStrictEqual(update.invalidations, {});
+        }
+    });
 });
 
 function noOpHandlers(): ProviderMessageHandlers {
@@ -317,7 +412,14 @@ function noOpHandlers(): ProviderMessageHandlers {
         activateProfilePicker: () => {},
         scriptInfo: () => {},
         scriptResult: () => {},
+        integrityScriptResult: () => {},
+        instanceAddressesResolved: () => {},
+        instanceParamsResolved: () => {},
         scriptOutput: () => {},
+        scriptPermissionRequest: () => {},
+        scriptPermissions: () => {},
+        scriptWritesCommit: () => {},
+        scriptSaveFailed: () => {},
         activateScriptsTab: () => {},
     };
 }

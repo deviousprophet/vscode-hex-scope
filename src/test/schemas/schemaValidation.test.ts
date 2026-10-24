@@ -166,6 +166,61 @@ suite('hexScope schemas — positive fixtures', () => {
         assert.deepStrictEqual(errorsFor(schema, typesEnvelope(data)), []);
     });
 
+    test('types.json accepts size parameters and a countParam reference', () => {
+        const { schema } = loadSchema('types.schema.json');
+        const data = [
+            {
+                id: 'templated', name: 'Config',
+                params: [
+                    { name: 'ITEM_COUNT', kind: 'size', default: 4 },
+                    { name: 'TAIL_COUNT', kind: 'size' },
+                ],
+                fields: [
+                    { name: 'items', type: 'uint8', count: 4, countParam: 'ITEM_COUNT' },
+                    { name: 'tail', type: 'uint16', count: 1, countParam: 'TAIL_COUNT' },
+                ],
+            },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, typesEnvelope(data)), []);
+    });
+
+    test('profiles.json accepts instance paramValues', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [{
+            id: 'profile_1', name: 'Boot', labels: [], segmentNames: {},
+            typeInstances: [{ id: 'p1', typeId: 'templated', addr: 0, name: 'cfg', paramValues: { ITEM_COUNT: 8 } }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb',
+        }];
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
+    test('profiles.json accepts an optional script addressSource on an instance', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [{
+            id: 'profile_1', name: 'Boot', labels: [], segmentNames: {},
+            typeInstances: [{
+                id: 'p1', typeId: 'templated', addr: 0x100, name: 'cfg',
+                addressSource: { scriptPath: '.hexscope/scripts/follow.js' },
+            }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb',
+        }];
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
+    test('profiles.json accepts optional paramSources on an instance', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [{
+            id: 'profile_1', name: 'Boot', labels: [], segmentNames: {},
+            typeInstances: [{
+                id: 'p1', typeId: 'templated', addr: 0, name: 'cfg',
+                paramValues: { OTHER: 4 },
+                paramSources: { ITEM_COUNT: { scriptPath: '.hexscope/scripts/size.js' } },
+            }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb',
+        }];
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
     test('profiles.json accepts a showHiddenFields profile flag', () => {
         const { schema } = loadSchema('profiles.schema.json');
         const data = [
@@ -184,6 +239,24 @@ suite('hexScope schemas — positive fixtures', () => {
                 checks: [
                     { algorithm: 'sha-256', startAddress: 0, endAddress: 1023, autoFixStoredValue: false },
                     { algorithm: 'crc32-iso-hdlc', startAddress: 0, endAddress: 1023, storedAddress: 1024, autoFixStoredValue: true, name: 'App CRC' },
+                ],
+            },
+        }];
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
+    test('built-in and script check kinds author with their own required fields', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [{
+            id: 'profile_1', name: 'Firmware', labels: [], segmentNames: {}, typeInstances: [], endian: 'le', bitAllocation: 'msb',
+            activeChecks: {
+                schemaVersion: 1,
+                checks: [
+                    { kind: 'builtin', algorithm: 'sha-256', startAddress: 0, endAddress: 1023, autoFixStoredValue: false },
+                    {
+                        kind: 'script', scriptPath: '.hexscope/scripts/verify-integrity.ts',
+                        startAddress: 0, endAddress: 1023, storedAddress: 1024, autoFixStoredValue: true, name: 'Script check',
+                    },
                 ],
             },
         }];
@@ -215,6 +288,30 @@ suite('hexScope schemas — negative cases', () => {
         const { schema } = loadSchema('profiles.schema.json');
         const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'sideways' }];
         assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
+    test('an empty or malformed addressSource fails profiles.json', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const profile = (addressSource: unknown) => [{
+            id: 'profile_1', name: 'P', labels: [], segmentNames: {},
+            typeInstances: [{ id: 'p', typeId: 't', addr: 0, name: 'p', addressSource }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb',
+        }];
+        assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(profile({ scriptPath: '' }))), [], 'empty path');
+        assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(profile({ path: 'x.js' }))), [], 'missing scriptPath');
+        assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(profile('follow.js'))), [], 'not an object');
+    });
+
+    test('an empty or malformed paramSources entry fails profiles.json', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const profile = (paramSources: unknown) => [{
+            id: 'profile_1', name: 'P', labels: [], segmentNames: {},
+            typeInstances: [{ id: 'p', typeId: 't', addr: 0, name: 'p', paramSources }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb',
+        }];
+        assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(profile({ N: { scriptPath: '' } }))), [], 'empty path');
+        assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(profile({ N: 'size.js' }))), [], 'not an object');
+        assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(profile({ N: { path: 'x.js' } }))), [], 'missing scriptPath');
     });
 
     test('non-boolean hidden fails types.json and non-boolean showHiddenFields fails profiles.json', () => {
@@ -282,6 +379,32 @@ suite('hexScope schemas — negative cases', () => {
             errorsFor(schema, typesEnvelope([{ id: 'b', name: 'B', kind: 'bitfield', baseType: 'uint8', fields: [], bitFields: [{ name: 'lo', bitWidth: 4, refTypeId: 7 }] }])),
             [],
         );
+    });
+
+    test('types.json rejects a malformed parameter and a non-string countParam', () => {
+        const { schema } = loadSchema('types.schema.json');
+        assert.notDeepStrictEqual(
+            errorsFor(schema, typesEnvelope([{ id: 't', name: 'T', params: [{ name: 'N', kind: 'count' }], fields: [] }])),
+            [],
+        );
+        assert.notDeepStrictEqual(
+            errorsFor(schema, typesEnvelope([{ id: 't', name: 'T', params: [{ name: 'N', kind: 'size', extra: 1 }], fields: [] }])),
+            [],
+        );
+        assert.notDeepStrictEqual(
+            errorsFor(schema, typesEnvelope([{ id: 't', name: 'T', fields: [{ name: 'a', type: 'uint8', count: 1, countParam: 4 }] }])),
+            [],
+        );
+    });
+
+    test('profiles.json rejects a non-numeric paramValues entry', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [{
+            id: 'profile_1', name: 'Boot', labels: [], segmentNames: {},
+            typeInstances: [{ id: 'p1', typeId: 't', addr: 0, name: 'cfg', paramValues: { ITEM_COUNT: '8' } }],
+            activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb',
+        }];
+        assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
 
     test('invalid endian/allocation enums fail types.json', () => {
@@ -390,5 +513,57 @@ suite('hexScope schemas — drift guard against TS types', () => {
                 `${name} accepts a DATA_SCHEMA_VERSION payload`,
             );
         }
+    });
+});
+suite('hexScope schemas — integrity check kinds', () => {
+    const profile = (check: Record<string, unknown>) => [{
+        id: 'profile_1', name: 'Firmware', labels: [], segmentNames: {}, typeInstances: [], endian: 'le', bitAllocation: 'msb',
+        activeChecks: { schemaVersion: 1, checks: [check] },
+    }];
+    const envelope = (check: Record<string, unknown>) => ({
+        version: DATA_VERSION,
+        data: { schemaVersion: DATA_SCHEMA_VERSION, records: profile(check) },
+        $schema: 'schemas/profiles.schema.json',
+    });
+
+    test('a script check without a path fails authoring', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        assert.notDeepStrictEqual(errorsFor(schema, envelope({
+            kind: 'script', startAddress: 0, endAddress: 1, autoFixStoredValue: false,
+        })), []);
+    });
+
+    test('a script check carrying an algorithm fails authoring', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        assert.notDeepStrictEqual(errorsFor(schema, envelope({
+            kind: 'script', scriptPath: 'a.js', algorithm: 'md5', startAddress: 0, endAddress: 1, autoFixStoredValue: false,
+        })), []);
+    });
+
+    test('a built-in check carrying a scriptPath fails authoring', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        assert.notDeepStrictEqual(errorsFor(schema, envelope({
+            kind: 'builtin', algorithm: 'md5', scriptPath: 'a.js', startAddress: 0, endAddress: 1, autoFixStoredValue: false,
+        })), []);
+    });
+
+    test('an unknown kind fails authoring', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        assert.notDeepStrictEqual(errorsFor(schema, envelope({
+            kind: 'plugin', algorithm: 'md5', startAddress: 0, endAddress: 1, autoFixStoredValue: false,
+        })), []);
+    });
+
+    test('older checks without kind still author with an algorithm or a scriptPath', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        assert.deepStrictEqual(errorsFor(schema, envelope({
+            algorithm: 'md5', startAddress: 0, endAddress: 1, autoFixStoredValue: false,
+        })), []);
+        assert.deepStrictEqual(errorsFor(schema, envelope({
+            scriptPath: 'a.js', startAddress: 0, endAddress: 1, autoFixStoredValue: false,
+        })), []);
+        assert.notDeepStrictEqual(errorsFor(schema, envelope({
+            startAddress: 0, endAddress: 1, autoFixStoredValue: false,
+        })), []);
     });
 });

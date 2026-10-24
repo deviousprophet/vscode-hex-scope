@@ -35,11 +35,51 @@ export interface FetchOptions extends RequestInit {
     allowLoopback?: boolean;
 }
 
-export type ScriptErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel';
+export type ScriptErrorType = 'compile' | 'runtime' | 'timeout' | 'cancel' | 'contract';
+
+/** Declared script purpose, parsed from a `@script <role>` header tag. */
+export type ScriptRole = 'integrity' | 'address' | 'size';
+
+/** Entry points the runner can invoke. `run` is the legacy script entry. */
+export type ScriptEntry = 'run' | 'verifyIntegrity' | 'getIntegrityValue' | 'getAddress' | 'getSize';
+
+/** Structured-clone-safe value returned by a contract entry. */
+export type ScriptValue = number | boolean | number[];
+
+/** One discovered workspace script, shared by host and webview payloads. */
+export interface ScriptInfo {
+    name: string;
+    filePath: string;
+    capabilities: string[];
+    /** Roles declared with `@script <role>`; empty for a plain run-only script. */
+    roles: ScriptRole[];
+    /** Content-change fingerprint (stat mtime, ms), used to revoke approvals. */
+    fingerprint: string;
+    /** A `run` entry is exported, detected from source without executing the script.
+        Older payloads omit the field: a role-less script is treated as runnable. */
+    hasRun?: boolean;
+    /** `@entry run` was declared explicitly (escape hatch for unusual export syntax). */
+    runExplicit?: boolean;
+    /** Workspace-relative path, supplied by the host when the script was scanned in a workspace. */
+    relativePath?: string;
+}
+
+/** Context supplied to contract entries; empty for a legacy `run` script. */
+export interface ScriptContext {
+    instance?: { id: string; name: string; typeId: string; typeName: string };
+    param?: string;
+    paramValues?: Record<string, number>;
+    documentSize?: number;
+    selection?: { start: number; end: number };
+    storedStart?: number;
+    storedEnd?: number;
+}
 
 export interface ScriptOutput {
     results: Array<{ label: string; value: string }>;
     log: string[];
+    /** Return value of a contract entry; absent for `run` and on failure. */
+    value?: ScriptValue;
     error?: string;
     errorType?: ScriptErrorType;
 }
@@ -66,4 +106,6 @@ export interface HexScopeAPI {
     output(text: string): void;
     setResult(label: string, value: string): void;
     assert(condition: boolean, label: string): void;
+    /** Role-run context; an empty object for legacy `run` scripts. */
+    context: ScriptContext;
 }

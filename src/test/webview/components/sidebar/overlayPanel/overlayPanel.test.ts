@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
 
-import type { OverlayPanel } from '../../../../../webview/components/sidebar/overlayPanel/overlayPanel';
+import type { OverlayCallbacks, OverlayPanel } from '../../../../../webview/components/sidebar/overlayPanel/overlayPanel';
 import { S } from '../../../../../webview/state';
 import { getByte } from '../../../../../webview/memory/memoryData';
 import type { TypeDef, TypeInstance } from '../../../../../core/types';
@@ -135,7 +135,7 @@ suite('OverlayPanel deep-render harness', () => {
         delete (globalThis as unknown as { requestAnimationFrame?: (cb: (t: number) => void) => number }).requestAnimationFrame;
     });
 
-    async function createMountedPanel(): Promise<OverlayPanel> {
+    async function createMountedPanel(extra: Partial<OverlayCallbacks> = {}): Promise<OverlayPanel> {
         const { OverlayPanel } = await import('../../../../../webview/components/sidebar/overlayPanel/overlayPanel.js');
         const panel = new OverlayPanel({
             readByte: getByte,
@@ -143,6 +143,7 @@ suite('OverlayPanel deep-render harness', () => {
             onTypesChange: types => { S.types = types; },
             onPinsChange: pins => { S.typeInstances = pins; },
             onSelectRange: (start, count) => { S.selStart = start; S.selEnd = start + count - 1; },
+            ...extra,
         });
         panel.setData(S.types, S.typeInstances);
         panel.setEndian(S.endian);
@@ -4048,5 +4049,569 @@ suite('OverlayPanel deep-render harness', () => {
             ].join('\n'),
             'C preview is byte-identical with every new feature unused',
         );
+    });
+
+    // ── Struct template parameters ────────────────────────────────
+
+    function templatedDef(defaultCount?: number): TypeDef {
+        const param = defaultCount === undefined
+            ? { name: 'ITEM_COUNT', kind: 'size' as const }
+            : { name: 'ITEM_COUNT', kind: 'size' as const, default: defaultCount };
+        return {
+            id: 'templated', name: 'Config', packed: true,
+            params: [param],
+            fields: [{ name: 'items', type: 'uint8', count: defaultCount ?? 1, countParam: 'ITEM_COUNT' }],
+        };
+    }
+
+    async function openStructEditorFor(def: TypeDef): Promise<void> {
+        S.types = [def];
+        S.typeInstances = [];
+        await createMountedPanel();
+        click(dom, document.querySelector('#om-list .od-row .act-btn-edit'));
+        assert.ok(document.getElementById('oe-fields'), 'struct editor should open');
+    }
+
+    test('struct editor authors a size parameter and binds a field count to it', async () => {
+        await createMountedPanel();
+        openKindEditor('struct');
+
+        click(dom, document.getElementById('oe-param-add'));
+        const nameInp = document.querySelector<HTMLInputElement>('.ofe-param-name');
+        assert.ok(nameInp, 'parameter row should render');
+        nameInp!.value = 'ITEM_COUNT';
+        nameInp!.dispatchEvent(new dom.window.Event('blur'));
+        assert.deepStrictEqual(document.querySelectorAll('.ofe-param-row').length, 1);
+
+        const defInp = document.querySelector<HTMLInputElement>('.ofe-param-default')!;
+        defInp.value = '4';
+        defInp.dispatchEvent(new dom.window.Event('input'));
+
+        const countSel = document.querySelector<HTMLSelectElement>('.field-row .ofe-count-param');
+        assert.ok(countSel, 'field row should offer a count-from-parameter select');
+        countSel!.value = 'ITEM_COUNT';
+        countSel!.dispatchEvent(new dom.window.Event('change'));
+
+        assert.ok(
+            document.querySelector<HTMLElement>('#oe-preview pre')?.textContent?.includes('#define ITEM_COUNT 4'),
+            'C preview should define the parameter macro',
+        );
+
+        click(dom, document.getElementById('oe-save'));
+        assert.strictEqual(S.types.length, 1);
+        assert.deepStrictEqual(S.types[0].params, [{ name: 'ITEM_COUNT', kind: 'size', default: 4 }]);
+        assert.strictEqual(S.types[0].fields[0].countParam, 'ITEM_COUNT');
+        assert.strictEqual(S.types[0].fields[0].count, 4, 'literal count mirrors the parameter default');
+    });
+
+    test('renaming a parameter updates every count reference in the type', async () => {
+        await openStructEditorFor(templatedDef(3));
+        const nameInp = document.querySelector<HTMLInputElement>('.ofe-param-name')!;
+        nameInp.value = 'ITEMS';
+        nameInp.dispatchEvent(new dom.window.Event('blur'));
+
+        const countSel = document.querySelector<HTMLSelectElement>('.field-row .ofe-count-param')!;
+        assert.strictEqual(countSel.value, 'ITEMS', 'bound field follows the rename');
+        click(dom, document.getElementById('oe-save'));
+        assert.strictEqual(S.types[0].params![0].name, 'ITEMS');
+        assert.strictEqual(S.types[0].fields[0].countParam, 'ITEMS');
+    });
+
+    test('deleting a referenced parameter is blocked with a clear message', async () => {
+        await openStructEditorFor(templatedDef(3));
+        click(dom, document.querySelector('.ofe-param-del'));
+        const error = document.getElementById('oe-param-error');
+        assert.ok(error && !(error as HTMLElement).hidden, 'blocked delete shows an inline error');
+        assert.ok(error!.textContent!.includes('ITEM_COUNT') && error!.textContent!.includes('items'));
+        assert.strictEqual(document.querySelectorAll('.ofe-param-row').length, 1, 'parameter survives');
+    });
+
+    test('instance form collects parameter values (defaults prefilled) and saves them', async () => {
+        S.types = [templatedDef(4)];
+        S.typeInstances = [];
+        await createMountedPanel();
+        click(dom, document.getElementById('oi-add-btn'));
+
+        const paramInp = document.querySelector<HTMLInputElement>('#oa-params .oa-param-inp');
+        assert.ok(paramInp, 'parameter input should render');
+        assert.strictEqual(paramInp!.value, '4', 'default is prefilled');
+        paramInp!.value = '6';
+        (document.getElementById('oa-addr') as HTMLInputElement).value = '00000100';
+        click(dom, document.getElementById('oa-confirm'));
+
+        assert.strictEqual(S.typeInstances.length, 1);
+        assert.deepStrictEqual(S.typeInstances[0].paramValues, { ITEM_COUNT: 6 });
+    });
+
+    test('a missing value without a default blocks the instance and shows the error', async () => {
+        S.types = [templatedDef()];
+        S.typeInstances = [];
+        await createMountedPanel();
+        click(dom, document.getElementById('oi-add-btn'));
+        (document.getElementById('oa-addr') as HTMLInputElement).value = '00000100';
+        const paramInp = document.querySelector<HTMLInputElement>('#oa-params .oa-param-inp')!;
+        assert.strictEqual(paramInp.value, '', 'no default means no prefill');
+        paramInp.value = '0';
+        click(dom, document.getElementById('oa-confirm'));
+
+        const error = document.getElementById('oa-param-error');
+        assert.ok(error && !(error as HTMLElement).hidden, 'row-level error is shown');
+        assert.ok(error!.textContent!.includes('ITEM_COUNT'));
+        assert.deepStrictEqual(S.typeInstances, [], 'no instance is created');
+        assert.ok(document.getElementById('oi-add-form'), 'form stays open');
+    });
+
+    test('array headers show the resolved parameter count', async () => {
+        const def = templatedDef(2);
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_t', typeId: def.id, addr: 0, name: 'inst', paramValues: { ITEM_COUNT: 3 } }];
+        setBytesInSegment(0, [1, 2, 3]);
+        await renderPinsAndExpandCard();
+        const header = document.querySelector<HTMLElement>('.oi-fields .oi-arr-grp-hdr');
+        assert.ok(header, 'array group header should render');
+        assert.strictEqual(header!.querySelector('.oi-f-name')?.textContent, 'items');
+        assert.strictEqual(header!.querySelector('.oi-arr-addr')?.textContent, 'u8[3]');
+        assert.strictEqual(header!.querySelector('.oi-arr-addr')?.getAttribute('title'), 'u8[ITEM_COUNT]', 'tooltip keeps the symbolic parameter name');
+        assert.strictEqual(document.querySelectorAll('.oi-fields .oi-field').length >= 3, true, 'three elements decoded');
+    });
+
+    test('an instance missing a required parameter is surfaced on its card', async () => {
+        const def = templatedDef();
+        S.types = [def];
+        S.typeInstances = [{ id: 'pin_t', typeId: def.id, addr: 0, name: 'inst' }];
+        await createMountedPanel();
+        const warn = document.querySelector<HTMLElement>('.sb-card .oi-cwarn');
+        assert.ok(warn, 'card shows a parameter warning chip');
+        assert.ok(warn!.title.includes('ITEM_COUNT'), warn!.title);
+        assert.ok(warn!.title.includes('no value'), warn!.title);
+    });
+
+    // ── Script-resolved instance addresses ───────────────────────
+
+    function scriptedPin(overrides: Partial<TypeInstance> = {}): TypeInstance {
+        return {
+            id: 'pin_s',
+            typeId: 'scalar',
+            addr: 0x100,
+            name: 'scripted',
+            addressSource: { scriptPath: '.hexscope/scripts/follow.js' },
+            ...overrides,
+        };
+    }
+
+    test('script instance card: resolving → resolved address, script chip, expandable rows', async () => {
+        S.types = [scalarDef];
+        S.typeInstances = [scriptedPin()];
+        setBytesInSegment(0x20, [0x34, 0x12]);
+        let refreshes = 0;
+        const panel = await createMountedPanel({ onRefreshAddresses: () => { refreshes += 1; } });
+
+        const card = document.querySelector<HTMLElement>('.sb-card')!;
+        assert.ok(card.textContent!.includes('resolving'), 'card starts in the resolving state');
+        const chip = card.querySelector<HTMLElement>('.oi-script-chip');
+        assert.ok(chip, 'script chip renders');
+        assert.strictEqual(chip!.title, '.hexscope/scripts/follow.js', 'script path is the tooltip');
+        assert.strictEqual((card.querySelector('.oi-expand-btn') as HTMLButtonElement).disabled, true,
+            'no expansion before a resolved address');
+
+        panel.applyAddressResults([{ pinId: 'pin_s', ok: true, addr: 0x20 }], 1);
+
+        const resolvedCard = document.querySelector<HTMLElement>('.sb-card')!;
+        assert.ok(resolvedCard.textContent!.includes('0x00000020'), 'resolved address is shown');
+        const expand = resolvedCard.querySelector<HTMLButtonElement>('.oi-expand-btn')!;
+        assert.strictEqual(expand.disabled, false);
+        click(dom, expand);
+
+        const rows = Array.from(document.querySelectorAll<HTMLElement>('.oi-fields .oi-field'));
+        assert.strictEqual(rows.length, 1, 'decoded rows use the resolved base address');
+        assert.strictEqual(rows[0].querySelector('.oi-f-val')?.textContent, '0x1234');
+
+        click(dom, document.querySelector('.sb-card .act-btn-addr-refresh'));
+        assert.strictEqual(refreshes, 1, 'card refresh reports to the host');
+    });
+
+    test('script address error suppresses decoded rows and never falls back to addr', async () => {
+        S.types = [scalarDef];
+        S.typeInstances = [scriptedPin()];
+        setBytesInSegment(0x20, [0x34, 0x12]);
+        setBytesInSegment(0x100, [0xAA, 0xBB]);
+        const panel = await createMountedPanel();
+        panel.applyAddressResults([{ pinId: 'pin_s', ok: true, addr: 0x20 }], 1);
+        click(dom, document.querySelector('.oi-expand-btn'));
+        assert.ok(document.querySelector('.oi-fields'), 'rows render after a successful resolve');
+
+        panel.applyAddressResults([{
+            pinId: 'pin_s', ok: false, error: 'Invalid address from script', errorType: 'contract',
+        }], 2);
+
+        const card = document.querySelector<HTMLElement>('.sb-card')!;
+        assert.ok(card.textContent!.includes('Invalid address from script'), 'error is on the card');
+        assert.strictEqual(document.querySelector('.oi-fields .oi-field'), null, 'no decoded rows on error');
+        assert.strictEqual((card.querySelector('.oi-expand-btn') as HTMLButtonElement).disabled, true);
+        assert.ok(card.querySelector('.oi-addr-stale')?.textContent?.includes('0x00000020'),
+            'the last successful address stays visible, dimmed');
+        assert.ok(!card.textContent!.includes('0x00000100'), 'the authored fallback is not presented as current');
+    });
+
+    test('a stale resolution keeps the last address visible but stops decoding', async () => {
+        S.types = [scalarDef];
+        S.typeInstances = [scriptedPin()];
+        setBytesInSegment(0x20, [0x34, 0x12]);
+        const panel = await createMountedPanel();
+        panel.applyAddressResults([{ pinId: 'pin_s', ok: true, addr: 0x20 }], 1);
+        click(dom, document.querySelector('.oi-expand-btn'));
+        assert.ok(document.querySelector('.oi-fields'));
+
+        panel.markAddressesStale(2);
+
+        const stale = document.querySelector<HTMLElement>('.oi-addr-stale');
+        assert.ok(stale, 'stale marker renders');
+        assert.ok(stale!.textContent!.includes('0x00000020'), 'last resolved address stays visible');
+        assert.ok(stale!.textContent!.includes('stale'));
+        assert.strictEqual(document.querySelector('.oi-fields .oi-field'), null, 'stale rows are not decoded');
+        assert.strictEqual((document.querySelector('.oi-expand-btn') as HTMLButtonElement).disabled, true);
+    });
+
+    test('panel-level Refresh addresses reports once and is disabled without dynamic instances', async () => {
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'static', typeId: 'scalar', addr: 0, name: 'static' }];
+        let refreshes = 0;
+        const panel = await createMountedPanel({ onRefreshAddresses: () => { refreshes += 1; } });
+        assert.strictEqual((document.getElementById('oi-refresh-addrs-btn') as HTMLButtonElement).disabled, true);
+
+        panel.setData(S.types, [scriptedPin()]);
+        const refresh = document.getElementById('oi-refresh-addrs-btn') as HTMLButtonElement;
+        assert.strictEqual(refresh.disabled, false);
+        click(dom, refresh);
+        assert.strictEqual(refreshes, 1);
+    });
+
+    test('instance editor switches to a filtered address-script source', async () => {
+        S.types = [scalarDef];
+        S.typeInstances = [];
+        const opened: string[] = [];
+        const panel = await createMountedPanel({ onOpenScript: path => { opened.push(path); } });
+        panel.setScripts([
+            { name: 'follow.js', filePath: '/w/.hexscope/scripts/follow.js', relativePath: '.hexscope/scripts/follow.js', capabilities: [], roles: ['address'], fingerprint: 'f1' },
+            { name: 'run.js', filePath: '/w/.hexscope/scripts/run.js', relativePath: '.hexscope/scripts/run.js', capabilities: [], roles: [], fingerprint: 'f2' },
+        ], true);
+
+        click(dom, document.getElementById('oi-add-btn'));
+        const source = document.getElementById('oa-addr-source') as HTMLSelectElement;
+        source.value = 'script';
+        source.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+        assert.strictEqual((document.querySelector('.oa-addr-row') as HTMLElement).hidden, true,
+            'the fixed address input hides for a script source');
+        assert.strictEqual((document.querySelector('.oa-script-row') as HTMLElement).hidden, false);
+
+        const scriptSel = document.getElementById('oa-script-sel') as HTMLSelectElement;
+        const values = Array.from(scriptSel.options).map(option => option.value);
+        assert.deepStrictEqual(values, ['.hexscope/scripts/follow.js'], 'only @script address scripts are offered');
+
+        (document.getElementById('oa-name') as HTMLInputElement).value = 'followed';
+        click(dom, document.getElementById('oa-script-open'));
+        assert.deepStrictEqual(opened, ['.hexscope/scripts/follow.js'], 'Open script reports the selected path');
+
+        click(dom, document.getElementById('oa-confirm'));
+        assert.strictEqual(S.typeInstances.length, 1);
+        assert.deepStrictEqual(S.typeInstances[0].addressSource, { scriptPath: '.hexscope/scripts/follow.js' });
+        assert.strictEqual(S.typeInstances[0].addr, 0, 'addr remains the numeric fallback');
+    });
+
+    test('empty address and size pickers offer create and open-folder actions', async () => {
+        S.types = [templatedDef(1)];
+        S.typeInstances = [];
+        const created: string[] = [];
+        let folders = 0;
+        const panel = await createMountedPanel({
+            onCreateScript: role => created.push(role),
+            onOpenScriptsFolder: () => { folders++; },
+        });
+        panel.setScripts([], true);
+
+        click(dom, document.getElementById('oi-add-btn'));
+        const source = document.getElementById('oa-addr-source') as HTMLSelectElement;
+        source.value = 'script';
+        source.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+        const addressEmpty = document.querySelector<HTMLElement>('.oa-script-empty-row')!;
+        assert.ok(addressEmpty, 'the empty address picker exposes actions');
+        assert.strictEqual(addressEmpty.hidden, false);
+        const createAddress = addressEmpty.querySelector<HTMLElement>('[data-create-script]')!;
+        assert.strictEqual(createAddress.dataset.createScript, 'address');
+        assert.strictEqual(createAddress.textContent?.trim(), 'Create instance address script');
+        click(dom, createAddress);
+        assert.deepStrictEqual(created, ['address'], 'the create action reports the address role');
+        click(dom, addressEmpty.querySelector('[data-open-scripts-folder]'));
+        assert.strictEqual(folders, 1);
+
+        const paramsEmpty = document.querySelector<HTMLElement>('.oa-params-empty-row')!;
+        assert.ok(paramsEmpty, 'the empty size picker exposes actions');
+        const createSize = paramsEmpty.querySelector<HTMLElement>('[data-create-script]')!;
+        assert.strictEqual(createSize.dataset.createScript, 'size');
+        click(dom, createSize);
+        assert.deepStrictEqual(created, ['address', 'size']);
+        click(dom, paramsEmpty.querySelector('[data-open-scripts-folder]'));
+        assert.strictEqual(folders, 2);
+    });
+
+    test('pushing matching scripts hides the empty-picker actions without rebuilding the form', async () => {
+        S.types = [templatedDef(1)];
+        S.typeInstances = [];
+        const panel = await createMountedPanel();
+        panel.setScripts([], true);
+
+        click(dom, document.getElementById('oi-add-btn'));
+        const source = document.getElementById('oa-addr-source') as HTMLSelectElement;
+        source.value = 'script';
+        source.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.strictEqual(document.querySelector<HTMLElement>('.oa-script-empty-row')!.hidden, false);
+
+        panel.setScripts([
+            { name: 'addr.js', filePath: '/w/.hexscope/scripts/addr.js', relativePath: '.hexscope/scripts/addr.js', capabilities: [], roles: ['address'], fingerprint: 'x' },
+            { name: 'size.js', filePath: '/w/.hexscope/scripts/size.js', relativePath: '.hexscope/scripts/size.js', capabilities: [], roles: ['size'], fingerprint: 'y' },
+        ], true);
+
+        assert.strictEqual(document.querySelector<HTMLElement>('.oa-script-empty-row')!.hidden, true,
+            'a matching address script replaces the create action');
+        assert.strictEqual(document.querySelector<HTMLElement>('.oa-params-empty-row')!.hidden, true,
+            'a matching size script replaces the create action');
+        const scriptSel = document.getElementById('oa-script-sel') as HTMLSelectElement;
+        assert.deepStrictEqual([...scriptSel.options].map(option => option.value), ['.hexscope/scripts/addr.js']);
+    });
+
+    test('pointer-created instances cannot switch to a script source', async () => {
+        S.types = [scalarDef];
+        S.typeInstances = [{
+            id: 'ptr', typeId: 'scalar', addr: 0x10, name: 'ptr',
+            pointerSources: [{
+                sourcePinId: 's', sourcePinName: 'S', sourceTypeId: 'scalar',
+                sourceFieldPath: 'next', pointerStorageAddress: 4, targetAddress: 0x10,
+            }],
+        }];
+        await createMountedPanel();
+        click(dom, document.querySelector('.sb-card .act-btn-edit'));
+        const source = document.getElementById('oa-addr-source') as HTMLSelectElement;
+        const scriptOption = Array.from(source.options).find(option => option.value === 'script')!;
+        assert.strictEqual(scriptOption.disabled, true, 'From script is disabled for pointer-created instances');
+        assert.ok(source.title.includes('Pointer-created'));
+    });
+
+    // ── Script-resolved parameter sizes ─────────────────────────
+
+    function sizeScriptedPin(overrides: Partial<TypeInstance> = {}): TypeInstance {
+        return {
+            id: 'pin_size', typeId: 'templated', addr: 0, name: 'sized',
+            paramSources: { ITEM_COUNT: { scriptPath: '.hexscope/scripts/size.js' } },
+            ...overrides,
+        };
+    }
+
+    test('parameter script source: resolving → resolved count sizes and decodes the array', async () => {
+        S.types = [templatedDef(1)];
+        S.typeInstances = [sizeScriptedPin()];
+        setBytesInSegment(0, [0x11, 0x22, 0x33, 0x44]);
+        let refreshes = 0;
+        const panel = await createMountedPanel({ onRefreshAddresses: () => { refreshes += 1; } });
+
+        const card = document.querySelector<HTMLElement>('.sb-card')!;
+        assert.ok(card.querySelector('.oi-cparam-resolving'), 'card starts in the resolving state');
+        assert.strictEqual((card.querySelector('.oi-expand-btn') as HTMLButtonElement).disabled, true,
+            'no decode before the parameter resolves');
+
+        panel.applyParamResults([
+            { pinId: 'pin_size', param: 'ITEM_COUNT', ok: true, value: 3 },
+        ], 1);
+
+        const resolvedCard = document.querySelector<HTMLElement>('.sb-card')!;
+        assert.ok(resolvedCard.textContent!.includes('ITEM_COUNT=3'), 'resolved value is shown');
+        assert.ok(resolvedCard.querySelector('.oi-script-chip'), 'source is labelled with a Script chip');
+        const expand = resolvedCard.querySelector<HTMLButtonElement>('.oi-expand-btn')!;
+        assert.strictEqual(expand.disabled, false);
+        click(dom, expand);
+
+        const header = document.querySelector<HTMLElement>('.oi-arr-grp-hdr');
+        assert.ok(header, 'array header renders');
+        assert.strictEqual(header!.querySelector('.oi-arr-addr')?.textContent, 'u8[3]',
+            'the resolved parameter drives the array count');
+        assert.strictEqual(document.querySelectorAll('.oi-fields .oi-field').length, 3);
+
+        click(dom, document.querySelector('.sb-card .act-btn-addr-refresh'));
+        assert.strictEqual(refreshes, 1, 'the shared card refresh reports for parameter sources too');
+    });
+
+    test('a failing parameter blocks decode; stale dims the last value', async () => {
+        S.types = [templatedDef(1)];
+        S.typeInstances = [sizeScriptedPin()];
+        setBytesInSegment(0, [0x11, 0x22]);
+        const panel = await createMountedPanel();
+        panel.applyParamResults([{ pinId: 'pin_size', param: 'ITEM_COUNT', ok: true, value: 2 }], 1);
+        click(dom, document.querySelector('.oi-expand-btn'));
+        assert.ok(document.querySelector('.oi-fields'), 'rows render after a successful resolve');
+
+        panel.applyParamResults([{
+            pinId: 'pin_size', param: 'ITEM_COUNT', ok: false,
+            error: 'Invalid size from script', errorType: 'contract',
+        }], 2);
+
+        const card = document.querySelector<HTMLElement>('.sb-card')!;
+        assert.ok(card.textContent!.includes('Invalid size from script'), 'error is on the card');
+        assert.strictEqual(document.querySelector('.oi-fields .oi-field'), null, 'no decode while failed');
+        assert.strictEqual((card.querySelector('.oi-expand-btn') as HTMLButtonElement).disabled, true);
+
+        panel.markParamsStale(3);
+        const stale = document.querySelector<HTMLElement>('.oi-cparam-stale');
+        assert.ok(stale, 'stale marker renders');
+        assert.ok(stale!.textContent!.includes('2'), 'the last resolved value stays visible');
+        assert.strictEqual(document.querySelector('.oi-fields .oi-field'), null, 'stale rows are not decoded');
+    });
+
+    test('manual value wins over a script source and is labelled Manual', async () => {
+        S.types = [templatedDef(1)];
+        S.typeInstances = [sizeScriptedPin({ paramValues: { ITEM_COUNT: 2 } })];
+        setBytesInSegment(0, [0x11, 0x22, 0x33]);
+        await createMountedPanel();
+
+        const cell = document.querySelector<HTMLElement>('.oi-cparam');
+        assert.ok(cell!.textContent!.includes('ITEM_COUNT=2'), 'manual value is used');
+        assert.strictEqual(cell!.querySelector('.oi-script-chip'), null, 'manual source has no Script chip');
+        const expand = document.querySelector<HTMLButtonElement>('.oi-expand-btn')!;
+        assert.strictEqual(expand.disabled, false, 'a manual value needs no resolution');
+        click(dom, expand);
+        assert.strictEqual(document.querySelectorAll('.oi-fields .oi-field').length, 2);
+    });
+
+    test('instance editor offers a filtered parameter size source and saves paramSources only', async () => {
+        S.types = [templatedDef(4)];
+        S.typeInstances = [];
+        const opened: string[] = [];
+        const panel = await createMountedPanel({ onOpenScript: path => { opened.push(path); } });
+        panel.setScripts([
+            { name: 'size.js', filePath: '/w/.hexscope/scripts/size.js', relativePath: '.hexscope/scripts/size.js', capabilities: [], roles: ['size'], fingerprint: 'f1' },
+            { name: 'follow.js', filePath: '/w/.hexscope/scripts/follow.js', relativePath: '.hexscope/scripts/follow.js', capabilities: [], roles: ['address'], fingerprint: 'f2' },
+            { name: 'run.js', filePath: '/w/.hexscope/scripts/run.js', relativePath: '.hexscope/scripts/run.js', capabilities: [], roles: [], fingerprint: 'f3' },
+        ], true);
+
+        click(dom, document.getElementById('oi-add-btn'));
+        (document.getElementById('oa-addr') as HTMLInputElement).value = '00000000';
+        const source = document.querySelector<HTMLSelectElement>('.oa-param-source')!;
+        source.value = 'script';
+        source.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+
+        const valueInp = document.querySelector<HTMLInputElement>('.oa-param-inp')!;
+        assert.strictEqual(valueInp.hidden, true, 'manual input hides in script mode');
+        const scriptSel = document.querySelector<HTMLSelectElement>('.oa-param-script')!;
+        assert.strictEqual(scriptSel.hidden, false);
+        assert.deepStrictEqual(Array.from(scriptSel.options).map(option => option.value),
+            ['.hexscope/scripts/size.js'], 'only @script size scripts are offered');
+
+        click(dom, document.querySelector('.oa-param-open'));
+        assert.deepStrictEqual(opened, ['.hexscope/scripts/size.js'], 'Open resolves the parameter script path');
+
+        click(dom, document.getElementById('oa-confirm'));
+        assert.strictEqual(S.typeInstances.length, 1);
+        assert.deepStrictEqual(S.typeInstances[0].paramSources, { ITEM_COUNT: { scriptPath: '.hexscope/scripts/size.js' } });
+        assert.strictEqual('paramValues' in S.typeInstances[0], false,
+            'a sourced parameter stores no manual value');
+    });
+
+    test('instance editor rejects a script mode with no selected script', async () => {
+        S.types = [templatedDef()];
+        S.typeInstances = [];
+        const panel = await createMountedPanel();
+        panel.setScripts([], true);
+
+        click(dom, document.getElementById('oi-add-btn'));
+        (document.getElementById('oa-addr') as HTMLInputElement).value = '00000000';
+        const source = document.querySelector<HTMLSelectElement>('.oa-param-source')!;
+        // No size scripts exist, so the picker has an empty option; force script mode.
+        source.value = 'script';
+        source.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+        assert.strictEqual((document.getElementById('oa-confirm') as HTMLButtonElement).disabled, true,
+            'confirm is disabled without a script');
+        click(dom, document.getElementById('oa-confirm'));
+        assert.strictEqual(S.typeInstances.length, 0);
+    });
+});
+
+suite('OverlayPanel used-by links (selectInstance)', () => {
+    let dom: JSDOM;
+
+    setup(() => {
+        dom = new JSDOM('<!doctype html><html><body><div id="s-overlay"></div></body></html>');
+
+        Object.defineProperty(globalThis, 'window', { value: dom.window, configurable: true, writable: true });
+        Object.defineProperty(globalThis, 'document', { value: dom.window.document, configurable: true, writable: true });
+        Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true, writable: true });
+        Object.defineProperty(globalThis, 'acquireVsCodeApi', {
+            value: () => ({ postMessage: () => {}, getState: () => ({}), setState: (_state: unknown) => {} }),
+            configurable: true,
+            writable: true,
+        });
+        resetOverlayState();
+    });
+
+    teardown(() => {
+        resetOverlayState();
+        dom.window.close();
+        delete (globalThis as unknown as { window?: Window }).window;
+        delete (globalThis as unknown as { document?: Document }).document;
+        delete (globalThis as unknown as { navigator?: Navigator }).navigator;
+        delete (globalThis as unknown as { acquireVsCodeApi?: () => unknown }).acquireVsCodeApi;
+    });
+
+    async function mountedPanel(calls: Array<{ start: number; count: number }>): Promise<OverlayPanel> {
+        const { OverlayPanel } = await import('../../../../../webview/components/sidebar/overlayPanel/overlayPanel.js');
+        const panel = new OverlayPanel({
+            readByte: getByte,
+            onSelectRange: (start, count) => { calls.push({ start, count }); },
+        });
+        panel.setData(S.types, S.typeInstances);
+        panel.mount(document.getElementById('s-overlay')!);
+        return panel;
+    }
+
+    test('selectInstance expands the card, marks it selected, and reports its byte range', async () => {
+        setBytesInSegment(0x1200, [1, 2, 3, 4, 5, 6, 7, 8]);
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin-sel', typeId: 'scalar', addr: 0x1200, name: 'inst' }];
+        const calls: Array<{ start: number; count: number }> = [];
+        const panel = await mountedPanel(calls);
+
+        panel.selectInstance('pin-sel');
+        assert.deepStrictEqual(calls, [{ start: 0x1200, count: 2 }], 'range selected like a card header click');
+        const card = document.querySelector<HTMLElement>('.sb-card[data-pin-id="pin-sel"]')!;
+        assert.ok(card.classList.contains('oi-expanded'), 'card expanded');
+        assert.ok(card.classList.contains('oi-card-selected'), 'card marked selected');
+    });
+
+    test('selectInstance for an unknown id is a no-op', async () => {
+        setBytesInSegment(0x1200, [1, 2, 3, 4]);
+        S.types = [scalarDef];
+        S.typeInstances = [{ id: 'pin-sel', typeId: 'scalar', addr: 0x1200, name: 'inst' }];
+        const calls: Array<{ start: number; count: number }> = [];
+        const panel = await mountedPanel(calls);
+
+        panel.selectInstance('missing');
+        assert.deepStrictEqual(calls, []);
+        assert.strictEqual(document.querySelectorAll('.oi-card-selected').length, 0);
+    });
+
+    test('an unresolved dynamic instance is revealed without a range selection', async () => {
+        S.types = [scalarDef];
+        S.typeInstances = [{
+            id: 'pin-dyn',
+            typeId: 'scalar',
+            addr: 0,
+            name: 'dyn',
+            addressSource: { scriptPath: '.hexscope/scripts/follow.js' },
+        }];
+        const calls: Array<{ start: number; count: number }> = [];
+        const panel = await mountedPanel(calls);
+
+        panel.selectInstance('pin-dyn');
+        assert.deepStrictEqual(calls, [], 'unresolved address → no range report');
+        assert.ok(document.querySelector<HTMLElement>('.sb-card[data-pin-id="pin-dyn"]'), 'card survives the reveal attempt');
     });
 });
