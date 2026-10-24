@@ -1,15 +1,51 @@
 ---
 name: update-changelog
-description: "Prepare or revise release changelog entries synchronized with package versions from committed changes since latest release tag. Use when asked to update CHANGELOG.md, prepare release notes, choose next release version, bump release version, finalize untagged changelog draft, recheck changelog date/version before push."
+description: "Prepare or revise release changelog entries synchronized with package versions from committed changes since latest release tag. Follows Keep a Changelog. Use when asked to update CHANGELOG.md, prepare release notes, choose next release version, bump release version, finalize untagged changelog draft, recheck changelog date/version before push."
 ---
 
 # Update Changelog
 
-Two modes:
-- **update** (default) — append/overwrite `## [Unreleased]` section from `tag..HEAD`. Never touches versions or package.json.
-- **release** — on explicit "release" request: replace current `[Unreleased]` with `## [X.Y.Z] - YYYY-MM-DD`, bump package versions, delete now-empty `[Unreleased]` heading. Release replaces `[Unreleased]` with the versioned section; no empty section left for next cycle.
+Maintained as a [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) file for a project that follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 1. Inspect Release State
+## Keep a Changelog rules (apply to every edit)
+
+- A changelog is for humans: a curated list of notable, **user-observable** changes per version — not a git log, not a development diary.
+- The unit of an entry is the **net difference a user experiences when upgrading from the previous release**. Work that was introduced and then fixed, reworked, or refined inside the same unreleased range produces ONE entry describing the final behavior; the interim fixes/refinements produce no separate entries. **Never log internal development changes between the latest code and the last release tag.**
+- One dated section per release: `## [X.Y.Z] - YYYY-MM-DD` (ISO 8601). Latest version first. Every section has a non-empty body.
+- Keep `## [Unreleased]` at the top for upcoming changes.
+- Group entries under these types, in this order, omitting empty sections:
+  - `Added` — new features
+  - `Changed` — changes in existing functionality
+  - `Deprecated` — soon-to-be-removed features
+  - `Removed` — now-removed features
+  - `Fixed` — bug fixes
+  - `Security` — vulnerabilities
+- Deprecations, removals, and breaking changes must always be listed — they matter most to upgrading users.
+- Entries describe outcomes, not implementation: one user-visible outcome per bullet, one crisp sentence, written for an end user.
+
+### File header
+
+`CHANGELOG.md` opens with exactly:
+
+```markdown
+# Changelog
+
+All notable changes to the Hex Scope extension will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+```
+
+If the header is missing, names a different project, or is a foreign scaffold (an extension name that is not Hex Scope), repair it as part of the next approved edit — surface the repair in the preview. Never change the header silently.
+
+## Modes
+
+- **update** (default) — rewrite `## [Unreleased]` from the net diff `<latest-tag>..HEAD`. Never touches versions or package files.
+- **release** — only on an explicit release / cut-version request: promote `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and bump package versions.
+
+Determine the mode from the request; when in doubt use `update`.
+
+## 1. Inspect release state
 
 Resolve state with repository-native commands:
 
@@ -23,66 +59,65 @@ node -p "require('./package-lock.json').version"
 node -p "require('./package-lock.json').packages[''].version"
 ```
 
-Use latest reachable `v*` tag as exclusive base, `HEAD` as inclusive end. Stop if no reachable `v<semver>` tag exists; ask user for intended base tag/version. Read first `## [version]` section in `CHANGELOG.md`; check `git tag --list "v<version>"` to decide whether it's a tagged release or an editable draft. Snapshot `git status --short`. Never overwrite unrelated work. Candidate changes come only from committed `<latest-tag>..HEAD`; exclude uncommitted changes.
+Use the latest reachable `v*` tag as the exclusive base and `HEAD` as the inclusive end. Stop and ask for the intended base if no reachable `v<semver>` tag exists. Snapshot `git status --short`; never overwrite unrelated work. Candidate changes come only from committed `<latest-tag>..HEAD` — uncommitted changes are out of scope.
 
-**Determine mode**: if user explicitly says release / cut release / set version, mode=`release`. Otherwise mode=`update` (default). In `update` mode: write to `[Unreleased]`, skip version inference, skip versioned heading, skip package.json bumps. In `release` mode: promote `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, bump packages.
+Read the first `## [version]` section and `git tag --list "v<version>"` to decide whether it is a tagged release (untouchable) or an editable untagged draft.
 
-Inspect authoritative evidence:
+## 2. Evidence: classify against the last release
+
+A candidate outcome belongs in the changelog only if a user upgrading from `<latest-tag>` observes it. Classify every candidate:
+
+- **new-in-range** — the feature/capability does not exist at the tag → `Added` entry.
+- **changed-from-release** — behavior exists at the tag and differs now → `Changed` (or `Deprecated`/`Removed`).
+- **fix-to-release-behavior** — a bug that exists at the tag is fixed → `Fixed` (or `Security`).
+- **dev-noise** — a fix, rename, or rework of something introduced in this same range, or a fix whose trigger is only created by in-range work (no released flow produces the situation) → **fold into the introducing entry or drop**; never list it.
+
+Verify presence at the tag instead of assuming:
 
 ```bash
-git log --reverse --format="%H%x09%s" <tag>..HEAD
-git diff --stat <tag>..HEAD
-git diff --name-status <tag>..HEAD
-git diff <tag>..HEAD -- <relevant paths>
+git show <latest-tag>:<path>
+git cat-file -e <latest-tag>:<path>
+git grep <pattern> <latest-tag> -- <paths>
+git diff <latest-tag>..HEAD -- <user-facing docs or entry points>
 ```
 
-Read changed code/tests only to understand observable behavior. Do not turn test implementation into release notes.
+Changed code is authoritative. Tests, CI, tooling, and refactors are not user-visible and only help you understand behavior. User-facing docs and entry points help enumerate outcomes; they are not entries by themselves.
 
-## 2. Enrich With PR Context
+## 3. Enrich with PR context
 
-When GitHub access works, read descriptions of merged PRs represented in the range:
+When GitHub access works, read descriptions of merged PRs represented in the range for intent and context (`gh pr view <number> --json title,body,files,mergeCommit`; otherwise map commits with GitHub's commit-pulls endpoint). PR text is context only — diff and tag evidence decide. If GitHub metadata is unavailable, continue from local evidence and note the limitation in the preview.
 
-- Use PR numbers in commit subjects when present, then `gh pr view <number> --json title,body,files,mergeCommit`.
-- Otherwise map commit with GitHub's commit-pulls endpoint, then read associated PR.
-- Accept PR text for intent/context only. Actual diff/code is authoritative.
-
-If GitHub metadata is unavailable, continue with local Git evidence and state this limitation in preview. Do not block.
-
-## 3. Filter and Group
+## 4. Filter and group
 
 Include only observable user impact:
 
-- New features or capabilities
-- Changed behavior, performance, reliability, or compatibility
-- Bug fixes
-- Security fixes
-- Breaking behavior/removals/deprecations
+- New features/capabilities → `Added`
+- Changed behavior, performance, reliability, compatibility → `Changed`
+- Deprecations → `Deprecated`; removals → `Removed`
+- Bug fixes → `Fixed`; vulnerabilities → `Security`
 
 Exclude:
 
-- Tests, fixtures, samples, or coverage-only work
-- Docs-only, formatting, CI, tooling, dependency, version-bump, task, journal, or release bookkeeping
-- Internal refactors with no observable impact
-- Commit/PR chronology
+- Tests, fixtures, samples, coverage-only work
+- CI, tooling, dependencies, version bumps, task/journal/release bookkeeping
+- Internal refactors and renames with no observable impact
+- In-range fixes/refinements of in-range features (fold per section 2)
+- Commit/PR chronology and implementation detail
 
-Group related commits/PRs into one bullet per user-visible outcome. Deduplicate overlapping descriptions.
+Group related candidates into one bullet per user-visible outcome and deduplicate overlapping descriptions. Split bullets that stack several outcomes — one outcome per line.
 
-## 4. Infer Version (release mode only)
+## 5. Infer version (release mode only)
 
-Use the latest tagged SemVer as base. Apply highest-impact precedence:
+Base = latest tagged SemVer; precedence:
 
-1. Any breaking change → major (`x+1.0.0`)
-2. Otherwise any backward-compatible feature → minor (`x.y+1.0`)
-3. Otherwise fixes only → patch (`x.y.z+1`)
-4. No qualifying change since last tag → report no update; change no files
+1. breaking change → major (`x+1.0.0`)
+2. otherwise backward-compatible feature → minor (`x.y+1.0`)
+3. otherwise fixes only → patch (`x.y.z+1`)
+4. nothing qualifying → report "Nothing new to log."; change no files
 
-If newest changelog version has no matching Git tag, treat as draft. Reassess its version using every qualifying change since latest tag. Preserve good wording, but add omissions, remove noise/duplicates/stale claims, reclassify, correct version/date.
+If the newest changelog version has no matching tag, treat it as a draft and reassess it from every qualifying change since the latest tag: preserve good wording; add omissions; remove noise/duplicates/stale claims; reclassify; correct version/date. An explicit user-specified version wins. Never modify a tagged release section.
 
-When user specifies an explicit version, use that instead of inferring.
-
-Never modify a tagged release section.
-
-## 5. Write Changelog
+## 6. Write
 
 ### update mode
 
@@ -93,16 +128,17 @@ Never modify a tagged release section.
 - ...
 ### Changed
 - ...
+### Deprecated
+- ...
+### Removed
+- ...
 ### Fixed
+- ...
+### Security
 - ...
 ```
 
-If no `[Unreleased]` section exists, create it with entries from `tag..HEAD`. If `[Unreleased]` section already exists (hand-written or from prior update), compare its topics with the new commit-derived entries:
-
-- **Related** — existing entries cover the same features/areas as new commits → **replace** with authoritative commit-derived content (it's the source of truth).
-- **Unrelated** — existing entries cover different features/areas than new commits → **merge**: keep existing entries and append new ones under appropriate sections.
-
-If no qualifying changes since last tag → report "Nothing new to log." Change no files.
+Only non-empty sections appear. If `[Unreleased]` already exists, compare its topics with the new net-diff entries: overlapping topics are **replaced** by the net-diff content; distinct topics merge.
 
 ### release mode
 
@@ -111,49 +147,41 @@ If no qualifying changes since last tag → report "Nothing new to log." Change 
 
 ### Added
 - ...
-### Changed
-- ...
-### Fixed
-- ...
 ```
 
-Promote current `[Unreleased]` content. If `[Unreleased]` is empty, fill from tag..HEAD. Replace the `## [Unreleased]` heading with `## [X.Y.Z] - YYYY-MM-DD` and delete the now-empty section — the versioned section becomes topmost. No `[Unreleased]` heading is left behind; a future update run re-creates it.
+Promote the `[Unreleased]` content (fill from the range if empty), replace the `[Unreleased]` heading, and leave no empty `[Unreleased]` section — a future update run re-creates it.
 
-After release, `[Unreleased]` stays empty until new commits arrive after the tag.
+### Style rules
 
-### Style rules (both modes)
+- One user-visible outcome per bullet; a single crisp sentence; split run-ons.
+- Start bullets with a capitalized outcome phrase.
+- Use backticks for UI labels, commands, formats, and code identifiers.
+- No terminal periods; no PR numbers, hashes, author names, or links; no implementation detail.
+- Use the current local date (`YYYY-MM-DD`) in release mode only.
 
-- Section order: `Added`, `Changed`, `Fixed`; omit empty sections
-- New capabilities → `Added`
-- Behavior/performance/compatibility/breaking/removal/deprecation → `Changed`
-- Bug/security corrections → `Fixed`
-- Start bullets with a capitalized outcome phrase
-- Use backticks for UI labels, commands, formats, and code identifiers
-- No terminal periods
-- No PR numbers, hashes, author names, or links
-- Use current local date (`YYYY-MM-DD`) in release mode only
+### Release-note extractor compatibility
 
-Keep `.github/scripts/extract-release-notes.mjs` compatibility: exact version heading, non-empty body, reverse chronology.
+`.github/scripts/extract-release-notes.mjs` requires: an exact `## [<version>] - <date>` heading, a non-empty body, and reverse chronology. Keep all three.
 
-## 6. Preview and Wait
+## 7. Preview and wait
 
 Before any mutation, show:
 
 - Latest release tag and analyzed range
-- Qualifying outcomes; note excluded ambiguous items when useful
-- Proposed version and SemVer rationale (release mode only)
-- Whether this is update (Unreleased) or release (new versioned section)
+- The evidence-backed entry table: every surviving entry, and every candidate dropped or folded with its classification and why
+- Header repair, if any (exact before/after)
+- Whether this is update (`[Unreleased]`) or release, plus proposed version and SemVer rationale (release mode only)
 - Exact complete changelog section(s)
-- `package.json` and `package-lock.json` version change (release mode only)
+- Package version change (release mode only)
 - Missing GitHub context, if any
 
 Request one explicit approval. Do not edit before approval.
 
-## 7. Apply Approved Update
+## 8. Apply approved update
 
 ### update mode
 
-Replace/create `## [Unreleased]` section at top of `CHANGELOG.md`. No other file changes.
+Replace/create the `## [Unreleased]` section and apply the approved header repair. No other file changes.
 
 ### release mode
 
@@ -164,9 +192,8 @@ Replace/create `## [Unreleased]` section at top of `CHANGELOG.md`. No other file
    npm version <version> --no-git-tag-version --ignore-scripts
    ```
 
-3. Ensure `package.json` changes only top-level `version`.
-4. Ensure `package-lock.json` changes only top-level `version` and `packages[""].version`.
-5. Do not change release automation.
+3. `package.json` changes only the top-level `version`; `package-lock.json` only the top-level `version` and `packages[""].version`.
+4. Do not change release automation.
 
 Validate against the pre-edit `HEAD`:
 
@@ -177,17 +204,16 @@ node -e "const p=require('./package.json');const l=require('./package-lock.json'
 node .github/scripts/extract-release-notes.mjs v<version>
 ```
 
-Verify all succeed:
+Verify:
 
-- Top heading exactly `## [<version>] - <today-local-YYYY-MM-DD>` (release) or `## [Unreleased]` (update)
-- Top version matches all three package version fields (release mode)
-- Package diffs change only `package.json.version`, `package-lock.json.version`, and `package-lock.json.packages[""].version`
-- Sections are only `Added`, `Changed`, `Fixed`, in order, with no empty section
-- Bullets have no terminal periods or PR/commit identifiers
-- Release-note extractor returns intended non-empty section (release mode)
+- Top heading is exactly `## [<version>] - <today-local-YYYY-MM-DD>` (release) or `## [Unreleased]` (update); the header block above it is intact
+- Sections are only `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`, in that order, with no empty section
+- Every bullet is a user-visible outcome: single sentence, no terminal period, no PR/commit identifiers, no in-range development history
+- Top version matches all three package version fields (release mode); package diffs touch only the allowed fields
+- Release-note extractor returns the intended non-empty section (release mode)
 
 Fix validation failures only within skill-owned edits. Never discard pre-existing user changes.
 
-## 8. Before Explicit Push
+## 9. Never commit, tag, or push on your own
 
-This skill never commits, tags, or pushes automatically. Requires a separate explicit request. Immediately before an explicitly requested push, repeat state commands. If the top untagged entry's date is not today's local date, preview a date-only correction, obtain approval, update it, rerun validation.
+This skill never commits, tags, or pushes automatically — that needs a separate explicit request. Immediately before an explicitly requested push, repeat the state commands. If the top untagged entry's date is not today's local date, preview a date-only correction, obtain approval, update it, and rerun validation.
