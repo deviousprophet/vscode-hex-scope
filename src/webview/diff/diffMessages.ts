@@ -16,7 +16,7 @@ export interface DiffMessageHandlers {
 }
 
 const DIFF_PROGRESS_STAGES: readonly DiffProgressStage[] = ['read', 'parse', 'diff'];
-const DIFF_FORMATS: readonly DiffSide['format'][] = ['ihex', 'srec'];
+const DIFF_FORMATS: readonly DiffSide['format'][] = ['ihex', 'srec', 'bin'];
 const DIFF_KINDS: readonly DiffKind[] = ['changed', 'added', 'removed'];
 
 function isString(value: unknown): value is string {

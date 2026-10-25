@@ -112,6 +112,7 @@ suite('webview Toolbar component', () => {
             ascii: true,
             editMode: true,
             dirtyCount: 3,
+            showRecordView: true,
         });
         assert.ok(html.includes('id="btn-rec" class="active"'));
         assert.ok(!html.includes('id="btn-mem" class="active"'));
@@ -255,5 +256,29 @@ suite('webview Toolbar component', () => {
         bar.setEditMode(true);
         assert.ok(bar.toHtml('<div id="search-box"></div>').includes('2 unsaved bytes'));
         assert.ok(bar.toHtml('<div id="search-box"></div>').includes('id="btn-edit-mode" class="tb-edit-btn" title="Enter edit mode" style="display:none"'));
+    });
+
+    test('the Records tab is visible by default and hidden when record view is unavailable', () => {
+        const { dom, bar, calls } = createHarness();
+        assert.strictEqual(displayOf(dom, 'btn-rec'), '');
+
+        bar.setRecordViewAvailable(false);
+        assert.strictEqual(displayOf(dom, 'btn-rec'), 'none');
+        assert.ok(bar.toHtml('<div id="search-box"></div>').includes('id="btn-rec" class="" style'), 'regenerated markup keeps the tab hidden');
+
+        bar.setView('record');
+        bar.setRecordViewAvailable(false);
+        assert.ok(calls.viewChanges.includes('memory'), 'hiding the active record tab reports a switch to Memory');
+
+        bar.setRecordViewAvailable(true);
+        assert.strictEqual(displayOf(dom, 'btn-rec'), '');
+    });
+
+    test('renderToolbarHtml marks the Records tab hidden for raw binaries', () => {
+        const html = renderToolbarHtml('<div id="search-box"></div>', {
+            view: 'memory', ascii: false, editMode: false, dirtyCount: 0, showRecordView: false,
+        });
+        assert.ok(html.includes('id="btn-rec" class="" style="display:none"'));
+        assert.ok(html.includes('id="btn-mem" class="active"'));
     });
 });

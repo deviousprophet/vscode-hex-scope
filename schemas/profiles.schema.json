@@ -100,6 +100,12 @@
           "type": "boolean",
           "description": "Global toggle for the Instances view: when true, fields marked hidden in the types editor are rendered. Absent = false."
         },
+        "baseAddress": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "Raw-binary memory-map base address. Applied when a .bin file bound to this profile is opened; absent for text-oriented profiles."
+        },
         "segmentNames": {
           "type": "object",
           "additionalProperties": {

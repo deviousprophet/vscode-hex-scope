@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import {
     COMPARE_SELECT_HINT,
@@ -114,6 +115,41 @@ suite('HexScope Extension', () => {
             'navigation keeps only Open with HexScope / Quick Repair',
         );
     });
+
+    test('raw .bin is an opt-in custom editor and a compare/open target', async () => {
+        const ext = await getActivatedExtension();
+        const editor = (ext.packageJSON.contributes.customEditors as Array<{ selector: Array<{ filenamePattern?: string }>; priority?: string }>)[0];
+        assert.strictEqual(editor.priority, 'option', '.bin stays opt-in');
+        const patterns = editor.selector.map(selector => selector.filenamePattern);
+        assert.ok(patterns.includes('*.bin'), 'the custom editor selector includes *.bin');
+
+        const menus = ext.packageJSON.contributes.menus as Record<string, MenuItem[]>;
+        const binGate = /resourceExtname =~ \/\\\.bin\$\/i/;
+        for (const point of ['explorer/context', 'editor/title', 'editor/title/context', 'editor/context']) {
+            const host = menus[point].find(item => item.submenu === 'hexScope.actions');
+            assert.ok(host, `${point} hosts the HexScope submenu`);
+            assert.match(host.when ?? '', binGate, `${point} offers the submenu for .bin`);
+        }
+    });
+
+    test('open and all three compare commands allow .bin', async () => {
+        const ext = await getActivatedExtension();
+        const binGate = /resourceExtname =~ \/\\\.bin\$\/i/;
+        for (const command of ['hexScope.openInHexScope', 'hexScope.selectAsFirst', 'hexScope.compareToStaged', 'hexScope.compareSelected']) {
+            const item = submenuItems(ext).find(entry => entry.command === command);
+            assert.ok(item, `${command} is contributed`);
+            assert.match(item.when ?? '', binGate, `${command} allows .bin`);
+        }
+    });
+
+    test('quick repair stays text-only and never offers .bin', async () => {
+        const ext = await getActivatedExtension();
+        const binGate = /resourceExtname =~ \/\\\.bin\$\/i/;
+        const quickRepair = submenuItems(ext).find(entry => entry.command === 'hexScope.quickRepair');
+        assert.ok(quickRepair, 'quick repair is contributed');
+        assert.ok(!binGate.test(quickRepair.when ?? ''), 'quick repair stays text-only');
+        assert.match(quickRepair.when ?? '', /resourceLangId =~ \/\^\(intel-hex\|srec\)\$\//);
+    });
 });
 
 suite('HexScope compare selection store', () => {
@@ -121,7 +157,7 @@ suite('HexScope compare selection store', () => {
     // tests assert the observable stash lifecycle and the naming helper only.
     test('stashes the pending file, then clears it', () => {
         const store = new CompareSelectionStore();
-        const uri = vscode.Uri.file('C:/fw/firmware.hex');
+        const uri = vscode.Uri.file(path.join('fw', 'firmware.hex'));
         assert.strictEqual(store.get(), null);
 
         store.set(uri);
@@ -140,10 +176,12 @@ suite('HexScope compare selection store', () => {
 });
 
 suite('HexScope compare commands', () => {
-    const a = vscode.Uri.file('C:/fw/a.hex');
-    const b = vscode.Uri.file('C:/fw/b.srec');
-    const c = vscode.Uri.file('C:/fw/c.mot');
-    const unsupported = vscode.Uri.file('C:/fw/notes.txt');
+    const a = vscode.Uri.file(path.join('fw', 'a.hex'));
+    const b = vscode.Uri.file(path.join('fw', 'b.srec'));
+    const c = vscode.Uri.file(path.join('fw', 'c.mot'));
+    const binA = vscode.Uri.file(path.join('fw', 'boot.bin'));
+    const binB = vscode.Uri.file(path.join('fw', 'app.BIN'));
+    const unsupported = vscode.Uri.file(path.join('fw', 'notes.txt'));
 
     function compareDeps(valid = true) {
         const opened: Array<[vscode.Uri, vscode.Uri]> = [];
@@ -197,6 +235,30 @@ suite('HexScope compare commands', () => {
     test('Compare Two Files ignores an unsupported companion file', () => {
         assert.strictEqual(selectedComparePair(a, [a, unsupported]), undefined);
         assert.strictEqual(selectedComparePair(unsupported, [a, unsupported]), undefined);
+    });
+
+    test('raw binaries participate in all three compare flows, including bin vs bin', async () => {
+        const selected = selectedComparePair(binA, [binA, binB]);
+        assert.ok(selected, 'two .bin files yield a pair');
+        assert.strictEqual(selected![0].fsPath, binA.fsPath);
+        assert.strictEqual(selected![1].fsPath, binB.fsPath);
+
+        const mixed = selectedComparePair(binA, [binA, a]);
+        assert.ok(mixed, 'bin vs HEX is comparable');
+        assert.strictEqual(mixed![1].fsPath, a.fsPath);
+
+        const { opened, deps } = compareDeps();
+        await runCompare(selected, COMPARE_TWO_HINT, deps);
+        assert.strictEqual(opened.length, 1);
+
+        const stashed = stashedComparePair({ uri: binA, name: 'boot.bin' }, binB);
+        assert.ok(stashed, 'a stashed raw image pairs with a clicked raw image');
+        assert.strictEqual(stashed![0].fsPath, binA.fsPath);
+        assert.strictEqual(stashed![1].fsPath, binB.fsPath);
+
+        const { stashed: selectionStash, deps: selectDepsValue } = selectDeps();
+        assert.strictEqual(selectAsFirst(binA, selectDepsValue), true, 'a raw image can be set as the 1st file');
+        assert.deepStrictEqual(selectionStash, [binA]);
     });
 
     test('an unsupported second file warns and opens nothing', async () => {

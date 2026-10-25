@@ -36,6 +36,7 @@ interface ToolbarRenderState {
     ascii: boolean;        // ASCII button active (memory view)
     editMode: boolean;     // Edit hidden / EDITING group shown
     dirtyCount: number;    // #edit-dirty-count text + Save disabled
+    showRecordView: boolean; // false for raw binaries → #btn-rec hidden
 }
 
 export function renderToolbarHtml(searchBarHtml: string, state: ToolbarRenderState): string;  // pure
@@ -49,6 +50,7 @@ export class Toolbar {
     setDirty(count: number): void;                   // #edit-dirty-count text + Save disabled (count===0)
 setSectionEdit(active: boolean, count?: number): void;  // sibling SELECTION chip (static mapped count); never alters the EDITING pill
 setStatus(message: string): void;                // transient #edit-status message; auto-clears after 3s
+setRecordViewAvailable(show: boolean): void;     // hide #btn-rec and force Memory when unavailable
 }
 ```
 
@@ -57,6 +59,7 @@ setStatus(message: string): void;                // transient #edit-status messa
 - **Report-only:** every button click → callback; component never mutates `S`, never posts `saveEdits`, never runs edit/undo logic.
 - **Host state via setters:** host calls `setView`/`setEditMode`/`setAscii`/`setDirty` on invalidation; component owns transient active/edit-group classes derived from them.
 - **Memory gating is internal to `setView`:** `applyMemoryGating` shows ascii button + Edit (mem && !editMode) / EDITING group (mem && editMode), and re-applies the ASCII `active` class on every view change (re-entry from record must not lose it).
+- **Records availability:** `setRecordViewAvailable(false)` (raw `.bin`) hides `#btn-rec` and reports `onViewChange('memory')` when record view is active; `renderToolbarHtml` applies `style="display:none"` to the tab when `showRecordView` is false. The host derives availability from `S.parseResult?.format !== 'bin'` and also guards `switchView('record')`.
 - **Dirty:** `setDirty(count)` sets `#edit-dirty-count` (empty at 0, else "N unsaved byte(s)") and Save `disabled = count===0`.
 - **Responsive:** `#toolbar` scrolls horizontally (`overflow-x: auto`) when content exceeds the width; the search input shrinks (flex `0 1 180px`, `min-width: 70px`) before the fixed nav buttons/select so narrow webviews never clip the rightmost controls.
 - **SearchBar slot:** `toHtml()` embeds `${searchBar.toHtml()}` — SearchBar is its own component, mounts independently, doc-delegated. Toolbar never writes SearchBar DOM.
@@ -83,6 +86,7 @@ setStatus(message: string): void;                // transient #edit-status messa
 | Condition | Behaviour |
 |---|---|
 | Record view | ASCII + edit buttons/groups hidden; profile bar hidden; search hidden (via SearchBar.setVisible); tabs active. |
+| Raw binary | Records tab hidden; Memory is the only content view (host forces it). |
 | Memory re-entry with ascii on | ASCII button shown AND `active` (re-applied by `applyMemoryGating`). |
 | Edit mode on | Edit hidden, EDITING group shown, Save/Cancel visible. |
 | dirtyCount 0 | `#edit-dirty-count` empty, Save disabled. |
@@ -93,7 +97,7 @@ setStatus(message: string): void;                // transient #edit-status messa
 
 ## Tests Required
 
-`src/test/webview/components/toolbar.test.ts` (mocha + jsdom + cssImportHook): pure render (tabs active, ASCII memory-gated, edit hidden while editMode, EDITING group, dirty + save disabled, SearchBar slot), callback reports (view/ascii/edit/save/cancel), setters (setView/setEditMode/setAscii/setDirty), ASCII active survives record→memory re-entry, idempotent mount. Existing `webview.test.ts` toolbar/edit assertions pass unchanged (parity gate). The profile bar + actions menu live in `src/webview/profilePicker.ts` (no shell unit harness — repo precedent: search/sidebar toggles likewise untested).
+`src/test/webview/components/toolbar.test.ts` (mocha + jsdom + cssImportHook): pure render (tabs active, ASCII memory-gated, edit hidden while editMode, EDITING group, dirty + save disabled, SearchBar slot), callback reports (view/ascii/edit/save/cancel), setters (setView/setEditMode/setAscii/setDirty), ASCII active survives record→memory re-entry, idempotent mount, Records tab hidden via `setRecordViewAvailable(false)` (and a reported Memory switch while record view is active). Existing `webview.test.ts` toolbar/edit assertions pass unchanged (parity gate). The profile bar + actions menu live in `src/webview/profilePicker.ts` (no shell unit harness — repo precedent: search/sidebar toggles likewise untested).
 
 ## Anti-patterns
 

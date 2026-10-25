@@ -15,8 +15,11 @@ import {
     JsonStore,
     applyMigrationSteps,
     attachProfileWatcher,
+    bindFile,
     bindingsJsonUri,
+    boundProfileId,
     collectProfileRecords,
+    createBoundProfile,
     emptyProfileRecord,
     hexScopeSchemasDir,
     migrateAndNormalize,
@@ -28,6 +31,7 @@ import {
     normalizeProfilesRegistry,
     perFileRelativePath,
     profilesJsonUri,
+    pruneBindings,
     readJson,
     readProfileRecord,
     removeProfileRecord,
@@ -35,6 +39,7 @@ import {
     resolveHexScopeRoot,
     seedSchemaCopies,
     typePoolJsonUri,
+    unbindFile,
     unwrapEnvelope,
     withDataEnvelope,
     withEnvelope,
@@ -45,17 +50,12 @@ import {
 } from '../../hexScopeStorage';
 import {
     applyTypeDeletion,
-    bindFile,
     bindingsUsing,
-    boundProfileId,
     collectTypeDeletionUsage,
-    createBoundProfile,
     deleteRegistryProfile,
     loadWorkspaceTypes,
-    pruneBindings,
     showHiddenFieldsPatch,
     stripDeletedTypeInstances,
-    unbindFile,
     workspaceTypePoolCache,
 } from '../../hexEditorSession';
 import type { MementoLike } from '../../hexScopeMigration';
@@ -883,6 +883,67 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         assert.strictEqual(recs[0].showHiddenFields, true);
         const onDisk = await readJsonValue(profilesJsonUri(testRoot));
         assert.strictEqual((payloadOf(onDisk, 'records') as Array<{ showHiddenFields: boolean }>)[0].showHiddenFields, true);
+    });
+
+    test('profiles keep a valid baseAddress and drop invalid values once', () => {
+        const valid = [
+            { ...emptyProfileRecord('profile_1', 'Boot'), baseAddress: 0 },
+            { ...emptyProfileRecord('profile_2', 'App'), baseAddress: 0xFFFFFFFF },
+            { ...emptyProfileRecord('profile_3', 'Text') },
+        ];
+        const normalized = normalizeProfilesRegistry(valid);
+        assert.deepStrictEqual(normalized.value, valid, 'valid values survive');
+        assert.strictEqual(normalizeProfilesRegistry(normalized.value).changed, false, 'canonical output is stable');
+
+        const invalid = [
+            { ...emptyProfileRecord('profile_1', 'A'), baseAddress: -1 },
+            { ...emptyProfileRecord('profile_2', 'B'), baseAddress: 1.5 },
+            { ...emptyProfileRecord('profile_3', 'C'), baseAddress: 0x1_0000_0000 },
+            { ...emptyProfileRecord('profile_4', 'D'), baseAddress: '0x1000' },
+        ];
+        const cleaned = normalizeProfilesRegistry(invalid);
+        assert.ok(cleaned.changed, 'invalid values are reported as changed');
+        for (const rec of cleaned.value) {
+            assert.ok(!('baseAddress' in rec), `${rec.id} drops the invalid value`);
+        }
+        assert.strictEqual(normalizeProfilesRegistry(cleaned.value).changed, false, 'second pass is idempotent');
+    });
+
+    test('writeProfileRecord persists baseAddress and round-trips through the registry', async () => {
+        await writeProfileRecord(testRoot, { ...emptyProfileRecord('profile_1', 'Boot'), baseAddress: 0x08000000 });
+        const recs = await collectProfileRecords(testRoot);
+        assert.strictEqual(recs[0].baseAddress, 0x08000000);
+        const onDisk = await readJsonValue(profilesJsonUri(testRoot));
+        assert.strictEqual((payloadOf(onDisk, 'records') as Array<{ baseAddress?: number }>)[0].baseAddress, 0x08000000);
+    });
+
+    test('createBoundProfile writes the profile, binding, and optional base address in one pass', async () => {
+        const file = vscode.Uri.file(path.join(testRoot, 'boot.bin'));
+        await vscode.workspace.fs.writeFile(file, Uint8Array.from([1, 2, 3, 4]));
+        const rel = perFileRelativePath(testRoot, file);
+
+        const id = await createBoundProfile(testRoot, rel, 0x08000000);
+        const recs = await collectProfileRecords(testRoot);
+        assert.strictEqual(recs.length, 1);
+        assert.strictEqual(recs[0].id, id);
+        assert.strictEqual(recs[0].name, 'boot');
+        assert.strictEqual(recs[0].baseAddress, 0x08000000);
+        assert.strictEqual(await boundProfileId(testRoot, rel), id);
+    });
+
+    test('createBoundProfile keeps a unique name so a same-named profile cannot discard it', async () => {
+        await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
+        const file = vscode.Uri.file(path.join(testRoot, 'boot.bin'));
+        await vscode.workspace.fs.writeFile(file, Uint8Array.from([1, 2, 3, 4]));
+        const rel = perFileRelativePath(testRoot, file);
+
+        const id = await createBoundProfile(testRoot, rel, 0x1000);
+        const recs = await collectProfileRecords(testRoot);
+        assert.strictEqual(recs.length, 2, 'the new profile survives normalization');
+        assert.strictEqual(recs[1].id, id);
+        assert.strictEqual(recs[1].name, 'boot 2');
+        assert.strictEqual(recs[1].baseAddress, 0x1000);
+        assert.strictEqual(await boundProfileId(testRoot, rel), id);
     });
 
     test('writeProfileRecord upserts; removeProfileRecord deletes; renameProfileRecord renames', async () => {

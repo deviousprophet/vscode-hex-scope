@@ -3,6 +3,8 @@
 ## Type Ownership
 
 - `src/core/parser/types.ts`: host-side `HexRecord`, `MemorySegment`, `ParseResult`.
+- `src/core/document.ts`: `HexScopeTextFormat` / `HexScopeFormat` (`'ihex' | 'srec' | 'bin'`) plus `isTextFormat` / `isRawBinaryExtension`; the widened format propagates to `SerializedParseResult` / `WireParseResult` and the diff protocol.
+- `src/core/parser/binImage.ts`: raw-image base-address parsing/validation (`isValidBinBaseAddress`, `binAddressRangeFits`), formatting, parse-result construction (including the optional `baseAddress` carried through compact/wire serialization), and edit application/revert.
 - `src/core/types.ts`: hydrated webview records/segments, `WireParseResult` binary boundary types, labels, search, memory rows, and overlay types.
 - `src/webviewProtocol.ts`: exhaustive cross-runtime message unions (single-file editor).
 - `src/diffProtocol.ts`: the diff panel's own host↔webview union + `diffMessageType`/`diffCopyText` parsers.
@@ -15,7 +17,7 @@ External/persisted values start as `unknown`, are normalized once, then become t
 - `normalizeIntegrityProfiles(value: unknown)`
 - `normalizeIntegrityCheckSet(value: unknown)`
 - `messageType(message: unknown)` plus `dispatchProviderMessage`
-- `isDiffSide` / `isDiffModel` / `isDiffInit` for the diff protocol (structural, shallow — enough that hydration never throws on a malformed payload)
+- `isDiffSide` / `isDiffModel` / `isDiffInit` for the diff protocol (structural, shallow — enough that hydration never throws on a malformed payload); `DIFF_FORMATS` accepts `ihex`, `srec`, and `bin`
 - type-definition migration helpers in `HexEditorSession`
 - `isCopyCommand` and `isAnalyzeCommand` for command strings
 
@@ -42,6 +44,7 @@ Callers must branch on `ok`; do not throw for user-correctable input.
 ## Numeric and Address Rules
 
 - Firmware addresses are unsigned 32-bit numbers unless a format-specific parser is working with its raw address field.
+- Raw-binary base addresses are validated once at the boundary: `isValidBinBaseAddress` accepts integer `0..0xFFFFFFFF`; `binAddressRangeFits(baseAddress, byteLength)` additionally requires `base + byteLength <= 0x1_0000_0000`. `ProfileRecord.baseAddress` is normalized through the same predicate, so persisted and prompted values share one rule.
 - Validate user address input as full hexadecimal and check range before bitwise operations.
 - Preserve `bigint` for 64-bit display/decode where precision matters.
 - Selection and integrity ranges are inclusive.

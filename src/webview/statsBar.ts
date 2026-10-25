@@ -1,5 +1,6 @@
+import { fmtB, formatHex } from './utils';
+import type { HexScopeFormat } from '../core/document';
 import type { SerializedParseResult } from '../core/types';
-import { fmtB } from './utils';
 
 export function renderStats(parseResult: SerializedParseResult | null): void {
     const el = document.getElementById('stats-bar');
@@ -7,9 +8,25 @@ export function renderStats(parseResult: SerializedParseResult | null): void {
 
     el.textContent = '';
     addStatsItem(el, null, formatLabel(parseResult.format), 'si-fmt', 'fmt-pill');
+    addBinBaseStat(el, parseResult);
     addStatsItem(el, 'Bytes', fmtB(parseResult.totalDataBytes));
-    addStatsItem(el, 'Records', String(parseResult.recordCount ?? parseResult.records.length));
+    addRecordStats(el, parseResult);
     addStatsItem(el, 'Segments', String(parseResult.segments.length));
+}
+
+function addBinBaseStat(el: HTMLElement, parseResult: SerializedParseResult): void {
+    if (parseResult.format !== 'bin') { return; }
+    // Raw images have no records; report the memory-map base instead.
+    addStatsItem(el, 'Base', formatHex(binBaseOf(parseResult), 8));
+}
+
+function binBaseOf(parseResult: SerializedParseResult): number {
+    return parseResult.baseAddress ?? parseResult.segments[0]?.startAddress ?? 0;
+}
+
+function addRecordStats(el: HTMLElement, parseResult: SerializedParseResult): void {
+    if (parseResult.format === 'bin') { return; }
+    addStatsItem(el, 'Records', String(parseResult.recordCount ?? parseResult.records.length));
 }
 
 function addStatsItem(el: HTMLElement, label: string | null, value: string, extraClass = '', valueClass = ''): void {
@@ -31,6 +48,7 @@ function addStatsItem(el: HTMLElement, label: string | null, value: string, extr
     el.appendChild(item);
 }
 
-function formatLabel(format: 'ihex' | 'srec'): string {
+export function formatLabel(format: HexScopeFormat): string {
+    if (format === 'bin') { return 'BIN'; }
     return format === 'srec' ? 'SREC' : 'IHEX';
 }

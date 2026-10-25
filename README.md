@@ -5,7 +5,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/deviousprophet/vscode-hex-scope?label=Latest%20Release&color=brightgreen&logo=github)](https://github.com/deviousprophet/vscode-hex-scope/releases)
 [![License](https://img.shields.io/github/license/deviousprophet/vscode-hex-scope?color=yellow)](https://github.com/deviousprophet/vscode-hex-scope/blob/master/LICENSE)
 
-Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SREC files as address-aware memory, inspect binary data, decode C types, verify integrity values, and patch bytes without leaving the editor.
+Firmware memory explorer and editor for VS Code. Open Intel HEX, Motorola SREC, and raw binary files as address-aware memory, inspect binary data, decode C types, verify integrity values, and patch bytes without leaving the editor.
 
 ![Demo](https://raw.githubusercontent.com/deviousprophet/vscode-hex-scope/main/images/demo.gif)
 
@@ -21,8 +21,8 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SRE
 
 ### View
 
-- **Memory view** — address-aware grid mapped from firmware segments, with gaps rendered between mapped regions
-- **Records view** — raw record table with type labels, addresses, byte counts, and per-record checksum status; jump from a record to its address in the Memory view
+- **Memory view** — address-aware grid mapped from firmware segments, with gaps rendered between mapped regions; raw `.bin` images map as one contiguous segment at a chosen base address
+- **Records view** — raw record table with type labels, addresses, byte counts, and per-record checksum status; jump from a record to its address in the Memory view (Intel HEX / SREC only)
 
 ### Inspect
 
@@ -38,8 +38,8 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX and Motorola SRE
 
 ### Edit
 
-- **Byte patching** — undoable edits (type, paste, batch fill); **Save** rewrites records and recomputes checksums
-- **Quick Repair Checksums** — bulk-repair broken record checksums from the Explorer context menu
+- **Byte patching** — undoable edits (type, paste, batch fill); **Save** rewrites records and recomputes checksums, or writes raw `.bin` bytes with no checksum work
+- **Quick Repair Checksums** — bulk-repair broken record checksums from the Explorer context menu (Intel HEX / SREC only)
 - **Copy & export** — selection as hex string, C array, ASCII, or the raw HEX/SREC record; add segment labels for navigation
 
 ### Script
@@ -52,17 +52,21 @@ TypeScript or JavaScript scripts in `.hexscope/scripts/` read/write hex data (wr
 |---|---|
 | Intel HEX | `.hex`, `.ihx`, `.ihex` |
 | Motorola SREC | `.srec`, `.mot`, `.s19`, `.s28`, `.s37` |
+| Raw binary | `.bin` |
+
+Raw binary files have no embedded addresses. Open one with **Open with HexScope Viewer** and enter the hexadecimal base address where byte 0 maps (for example `0x08000000`). The value is stored on the bound `.hexscope` profile and prefilled on later opens, so files bound to the same profile share one memory map — duplicate the profile when you need a different base address. Closing the prompt cancels the open; comparison-only base addresses are never written to `.hexscope`.
 
 ## Quick usage
 
 | Action | How |
 |---|---|
-| Open | Right-click a supported file → **Open with HexScope Viewer** |
-| Views | Toolbar: **Memory** or **Records** |
+| Open | Right-click a supported file → **Open with HexScope Viewer** (a `.bin` prompts for its base address) |
+| Views | Toolbar: **Memory** or **Records** (`Records` is hidden for raw binaries) |
 | Search | `Ctrl+F`/`Cmd+F` — byte sequence, numeric value (Auto/LE/BE), ASCII string, or address |
-| Edit | Click **Edit**, click a byte and type a hex value; right-click for batch fill; **Save** writes changes and recomputes checksums |
-| Save & checksums | **Save** rewrites records and recomputes record checksums |
-| Quick Repair | Right-click broken file → **Quick Repair Checksums** |
+| Edit | Click **Edit**, click a byte and type a hex value; right-click for batch fill; **Save** writes changes and recomputes checksums (raw `.bin` saves only the bytes) |
+| Save & checksums | **Save** rewrites records and recomputes record checksums (raw `.bin` writes the buffer as-is) |
+| Quick Repair | Right-click broken file → **Quick Repair Checksums** (Intel HEX / SREC only) |
+| Compare | **Set as 1st file to compare** then **Compare with the 1st file**, or select two files → **Compare Two Files**; `.bin` files compare by absolute address against `.bin`, `.hex`, or `.srec` |
 | Type Overlay | Define C types in the sidebar, pin them at addresses, decode live memory |
 | Integrity | Configure checks in the sidebar, compare stored CRC values, reuse saved profiles |
 | Scripts | Open the Scripts sidebar tab, pick a script from `.hexscope/scripts/`, run it |

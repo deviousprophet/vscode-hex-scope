@@ -8,11 +8,13 @@ import { parseSRecRecordLine } from './core/parser/srecParser';
 import type { ParseResult, MemorySegment, ParseProgress } from './core/parser/types';
 import { hydrateCompactParseResult, type CompactParseResult } from './core/parser/compact';
 import type { SegmentLabel, SerializedRecord, TypeDef, TypeInstance } from './core/types';
-import { buildSplicePlan, repairChecksums, type HexScopeFormat, type SplicePatch, type SplicePlan } from './core/document';
+import { buildSplicePlan, isRawBinaryExtension, isTextFormat, RAW_BINARY_WORKER_ERROR, repairChecksums, type HexScopeFormat, type HexScopeTextFormat, type SplicePatch, type SplicePlan } from './core/document';
+import { applyBinEdits, binAddressRangeFits, createBinParseResult, revertBinEdits } from './core/parser/binImage';
 import { serializeParseResult } from './core/wire';
 import { fileExtension } from './core/pathName';
-import { createExternalChangeGate } from './core/documentExternalChange';
+import { createExternalChangeGate, sameDocumentSource, type DocumentSource } from './core/documentExternalChange';
 import { runParseJob } from './parse/parseWorkerClient';
+import { promptForBinBaseAddress } from './binBaseAddress';
 import {
     normalizeIntegrityCheckSet,
 } from './core/integrity';
@@ -32,21 +34,26 @@ import {
 } from './webviewProtocol';
 import {
     attachProfileWatcher,
+    bindFile,
     bindingsJsonUri,
+    boundProfileId,
     collectProfileRecords,
+    createBoundProfile,
+    createProfileFromName,
     emptyProfileRecord,
     migrateAndNormalize,
-    nextProfileOrdinal,
     normalizeBindings,
     normalizeProfilesRegistry,
     perFileRelativePath,
     profilesJsonUri,
+    pruneBindings,
     readJson,
     readPayloadForWrite,
     readProfileRecord,
     removeProfileRecord,
     resolveHexScopeRoot,
     typePoolJsonUri,
+    unbindFile,
     withDataEnvelope,
     withEnvelope,
     writeJson,
@@ -136,6 +143,23 @@ async function writePlanToFile(uri: vscode.Uri, plan: SplicePlan): Promise<void>
     await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(plan.newRaw));
 }
 
+type BinWriteResult = { ok: true } | { ok: false; error: unknown };
+
+/** Write a raw buffer; restore the recorded prior bytes when the write fails. */
+async function writeBinBuffer(
+    uri: vscode.Uri,
+    segment: MemorySegment,
+    previous: ReadonlyArray<[number, number]>,
+): Promise<BinWriteResult> {
+    try {
+        await vscode.workspace.fs.writeFile(uri, segment.data);
+        return { ok: true };
+    } catch (error) {
+        revertBinEdits(segment, previous);
+        return { ok: false, error };
+    }
+}
+
 /** Debounce for profile-registry restructure scans (external rename/create). */
 const PROFILE_CHANGE_DEBOUNCE_MS = 400;
 
@@ -188,7 +212,7 @@ function parseHexInWorker(
     extension: string,
     signal: AbortSignal,
     onProgress: (progress: ParseProgress) => void,
-): Promise<{ format: HexScopeFormat; result: CompactParseResult }> {
+): Promise<{ format: HexScopeTextFormat; result: CompactParseResult }> {
     return runParseJob({
         job: { kind: 'hexParse', source: raw, extension },
         signal,
@@ -196,6 +220,7 @@ function parseHexInWorker(
         onProgress: message => { if ('stage' in message) { onProgress(message); } },
         onResult: message => {
             if (!('compact' in message)) { throw new Error('Hex parse worker returned no result.'); }
+            if (!isTextFormat(message.format)) { throw new Error(RAW_BINARY_WORKER_ERROR); }
             return { format: message.format, result: hydrateCompactParseResult(message.compact) };
         },
     });
@@ -244,7 +269,7 @@ async function parseHexSafely(
     controller: AbortController,
     isDisposed: () => boolean,
     onProgress: (progress: ParseProgress) => void,
-): Promise<{ format: HexScopeFormat; result: CompactParseResult } | null> {
+): Promise<{ format: HexScopeTextFormat; result: CompactParseResult } | null> {
     try {
         return await parseHexInWorker(raw, extension, controller.signal, onProgress);
     } catch (error) {
@@ -264,6 +289,25 @@ async function redirectInvalidDocument(
     return true;
 }
 
+type TextInitialDocument = {
+    kind: 'text';
+    source: string;
+    format: HexScopeTextFormat;
+    result: CompactParseResult;
+};
+
+type BinInitialDocument = {
+    kind: 'bin';
+    bytes: Uint8Array;
+    baseAddress: number;
+    format: 'bin';
+    result: CompactParseResult;
+};
+
+type InitialDocument = TextInitialDocument | BinInitialDocument;
+
+type LoadProgressStage = 'read' | 'parse' | 'build' | 'transfer';
+
 async function loadInitialDocument(
     document: vscode.CustomDocument,
     panel: vscode.WebviewPanel,
@@ -271,31 +315,85 @@ async function loadInitialDocument(
     controller: AbortController,
     generation: number,
     isDisposed: () => boolean,
-    onProgress: (progress: { stage: 'parse' | 'build'; completed: number; total: number }) => void,
-): Promise<{ source: string; format: HexScopeFormat; result: CompactParseResult } | null> {
+    postProgress: (stage: LoadProgressStage, completed: number, total?: number) => void,
+    migrationDone: Promise<unknown>,
+): Promise<InitialDocument | null> {
+    if (isRawBinaryExtension(fileExtension(document.uri))) {
+        return loadBinDocument(document, panel, token, generation, isDisposed, postProgress, migrationDone);
+    }
+    return loadTextDocument(document, panel, token, controller, generation, isDisposed, postProgress);
+}
+
+async function loadTextDocument(
+    document: vscode.CustomDocument,
+    panel: vscode.WebviewPanel,
+    token: vscode.CancellationToken,
+    controller: AbortController,
+    generation: number,
+    isDisposed: () => boolean,
+    postProgress: (stage: LoadProgressStage, completed: number, total?: number) => void,
+): Promise<InitialDocument | null> {
     const source = await readDocumentSource(document, panel.webview, generation, isDisposed);
     if (source === null) { return null; }
-    if (initialLoadCancelled(isDisposed, token)) { return null; }
     const loaded = await parseHexSafely(
-        source, fileExtension(document.uri), controller, isDisposed, onProgress,
+        source, fileExtension(document.uri), controller, isDisposed,
+        progress => postProgress(progress.stage, progress.completed, progress.total),
     );
     if (!loaded) { return null; }
-    return finishInitialDocument(source, loaded.format, loaded.result, document, panel);
+    if (await redirectInvalidDocument(loaded.result, document, panel)) { return null; }
+    return { kind: 'text', source, format: loaded.format, result: loaded.result };
+}
+
+/**
+ * Raw `.bin`: read bytes (no UTF-8 decode), resolve the base address from the
+ * bound profile (prompt prefilled, persisted), and map one segment at that
+ * base. No record parser and no worker.
+ */
+async function loadBinDocument(
+    document: vscode.CustomDocument,
+    panel: vscode.WebviewPanel,
+    token: vscode.CancellationToken,
+    generation: number,
+    isDisposed: () => boolean,
+    postProgress: (stage: LoadProgressStage, completed: number, total?: number) => void,
+    migrationDone: Promise<unknown>,
+): Promise<InitialDocument | null> {
+    const bytes = await readBinDocument(document, panel, token, generation, isDisposed);
+    if (!bytes) { return null; }
+    postProgress('read', 1, 1);
+    // A legacy migration must finish before the first profile write.
+    await migrationDone;
+    const address = await promptForBinBaseAddress(document.uri, bytes.length, { persist: true });
+    if (address === null || initialLoadCancelled(isDisposed, token)) {
+        panel.dispose();
+        return null;
+    }
+    postProgress('build', 0, 1);
+    const result = createBinParseResult(bytes, address);
+    postProgress('build', 1, 1);
+    return { kind: 'bin', bytes, baseAddress: address, format: 'bin', result };
+}
+
+async function readBinDocument(
+    document: vscode.CustomDocument,
+    panel: vscode.WebviewPanel,
+    token: vscode.CancellationToken,
+    generation: number,
+    isDisposed: () => boolean,
+): Promise<Uint8Array | null> {
+    try {
+        const bytes = await vscode.workspace.fs.readFile(document.uri);
+        return initialLoadCancelled(isDisposed, token) ? null : bytes;
+    } catch (error) {
+        if (!isDisposed()) {
+            await postToWebview(panel.webview, { type: 'loadError', generation, message: parseErrorMessage(error) });
+        }
+        return null;
+    }
 }
 
 function initialLoadCancelled(isDisposed: () => boolean, token: vscode.CancellationToken): boolean {
     return isDisposed() || token.isCancellationRequested;
-}
-
-async function finishInitialDocument(
-    source: string,
-    format: HexScopeFormat,
-    result: CompactParseResult,
-    document: vscode.CustomDocument,
-    panel: vscode.WebviewPanel,
-): Promise<{ source: string; format: HexScopeFormat; result: CompactParseResult } | null> {
-    if (await redirectInvalidDocument(result, document, panel)) { return null; }
-    return { source, format, result };
 }
 
 function materializeRecordPage(
@@ -464,6 +562,8 @@ export class HexEditorSession {
         token: vscode.CancellationToken
     ): Promise<void> {
         let raw = '';
+        let binBytes: Uint8Array | null = null;
+        let baseAddress = 0;
         let format: HexScopeFormat = 'ihex';
         let parseResult: CompactParseResult | null = null;
         let webviewReady = false;
@@ -481,7 +581,7 @@ export class HexEditorSession {
             scriptQueue = run.then(() => undefined, () => undefined);
             return run;
         };
-        let pendingExternalReload: { raw: string; parseResult: CompactParseResult; generation: number } | null = null;
+        let pendingExternalReload: { source: DocumentSource; parseResult: CompactParseResult; generation: number } | null = null;
         let reloadTimer: ReturnType<typeof setTimeout> | undefined;
         let permissionBroker: ScriptPermissionBroker | null = null;
         const resources = new DisposableStore();
@@ -565,6 +665,41 @@ export class HexEditorSession {
                 reportScriptSaveFailure(scriptPath, error);
                 return false;
             }
+        };
+
+        /** Raw `.bin` save: apply mapped edits, write the whole buffer, restore on failure. */
+        const saveBinEdits = async (editMap: Map<number, number>, scriptPath: string | undefined): Promise<void> => {
+            const segment = parseResult?.segments[0];
+            if (!segment) { return; }
+            const application = applyBinEdits(segment, editMap);
+            const written = await writeBinBuffer(document.uri, segment, application.previous);
+            if (!written.ok) {
+                if (!scriptPath) { throw written.error; }
+                reportScriptSaveFailure(scriptPath, written.error);
+                return;
+            }
+            commitSavedEdits(application.applied.length);
+        };
+
+        /** Shared save tail: self-write stamp, generation bump, protocol post, toast. */
+        function commitSavedEdits(count: number): void {
+            markSelfWrite();
+            currentGeneration = ++generation;
+            void postToWebview(webviewPanel.webview, {
+                type: 'savedEdits',
+                generation: currentGeneration,
+            });
+            vscode.window.showInformationMessage(`HexScope: saved ${count} byte${count === 1 ? '' : 's'} to ${currentFileName()}`);
+        }
+
+        /** Fast text save: splice only edited record lines, then write positionally (or whole file). */
+        const saveTextEdits = async (editMap: Map<number, number>, scriptPath: string | undefined): Promise<void> => {
+            if (!parseResult) { return; }
+            const plan = buildSplicePlan(raw, editMap, format);
+            if (!(await persistSavePlan(plan, scriptPath))) { return; }
+            raw = plan.newRaw;
+            foldEditsIntoSegments(parseResult.segments, editMap);
+            commitSavedEdits(editMap.size);
         };
 
         /** Live parsed document for a script task, or null when disposed/unparsed. */
@@ -743,6 +878,8 @@ export class HexEditorSession {
             addressAbort?.abort();
             addressAbort = null;
             raw = '';
+            binBytes = null;
+            baseAddress = 0;
             parseResult = null;
             pendingExternalReload = null;
             clearTimeout(reloadTimer);
@@ -762,6 +899,35 @@ export class HexEditorSession {
         flushProgress = () => progressReporter.flush();
         const postProgress = progressReporter.post.bind(progressReporter);
 
+        // ── Three-tier .hexscope storage ─────────────────────────────
+        // Root matches the scripts convention: workspace folder, else the
+        // document's directory. relPath (workspace-relative posix) is the
+        // binding key into bindings.json. Resolved before the initial load so
+        // a raw-binary open can resolve/persist its base address (and await a
+        // pending legacy migration) before the file is mapped.
+        const root = resolveHexScopeRoot(document.uri);
+        const relPath = perFileRelativePath(root, document.uri);
+        const hasWorkspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri) !== undefined;
+        /** Host-lifetime, workspace-root-keyed grant store (session grants survive editor close/reopen). */
+        const grantStore = (): ScriptGrantStore => scriptGrantStoreFor(root, this._context.workspaceState);
+        const migrationDone = migrateLegacyData(root, document.uri, this._context);
+        ensureBindingLifecycle(root);
+
+        /** Install the loaded document's source of truth (text source xor raw bytes). */
+        const applyInitialDocument = (initial: InitialDocument): void => {
+            if (initial.kind === 'bin') {
+                raw = '';
+                binBytes = initial.bytes;
+                baseAddress = initial.baseAddress;
+            } else {
+                raw = initial.source;
+                binBytes = null;
+                baseAddress = 0;
+            }
+            format = initial.format;
+            parseResult = initial.result;
+        };
+
         postProgress('read', 0);
 
         await new Promise<void>(r => setImmediate(r));
@@ -774,22 +940,14 @@ export class HexEditorSession {
             activeLoad,
             generation,
             () => disposed,
-            progress => postProgress(progress.stage, progress.completed, progress.total),
+            postProgress,
+            migrationDone,
         ).then(initial => {
             if (!initial) { resources.dispose(); return; }
-            ({ source: raw, format, result: parseResult } = initial);
+            applyInitialDocument(initial);
             currentGeneration = generation;
             void postInit();
         }).catch(() => resources.dispose());
-
-        // ── Three-tier .hexscope storage ─────────────────────────────
-        // Root matches the scripts convention: workspace folder, else the
-        // document's directory. relPath (workspace-relative posix) is the
-        // binding key into bindings.json.
-        const root = resolveHexScopeRoot(document.uri);
-        const relPath = perFileRelativePath(root, document.uri);
-        /** Host-lifetime, workspace-root-keyed grant store (session grants survive editor close/reopen). */
-        const grantStore = (): ScriptGrantStore => scriptGrantStoreFor(root, this._context.workspaceState);
 
         let registryStore: JsonStore<ProfileRecord[]> | null = null;
         let typePoolStore: JsonStore<TypeDef[]> | null = null;
@@ -813,7 +971,6 @@ export class HexEditorSession {
         // creates a new profile + binding. Out-of-workspace files stay
         // in-memory (boundProfileCache); explicit actions (newProfile /
         // selectProfile / saveProfile) write directly.
-        const hasWorkspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri) !== undefined;
         let forceMaterializeOnSave = false;
         let profileDirCreated: string | null = null;
         let creatingProfile: Promise<string | null> | null = null;
@@ -847,9 +1004,6 @@ export class HexEditorSession {
             perFileOp = next.catch(() => undefined);
             return next;
         };
-
-        const migrationDone = migrateLegacyData(root, document.uri, this._context);
-        ensureBindingLifecycle(root);
 
         /** Create root-level stores once (registry array + type pool). Idempotent. */
         const ensureRootStores = (): void => {
@@ -1101,7 +1255,7 @@ export class HexEditorSession {
         // Self-writes are ignored within a short horizon so our own save/repair
         // never surfaces as an "external change" — even when the FS watcher
         // emits several events per write (flag was the old one-shot version).
-        const externalChangeGate = createExternalChangeGate(1000);
+        const externalChangeGate = createExternalChangeGate<DocumentSource>(1000, sameDocumentSource);
         const markSelfWrite = () => externalChangeGate.markSelfWrite();
         const watcher = vscode.workspace.createFileSystemWatcher(
             new vscode.RelativePattern(vscode.Uri.joinPath(document.uri, '..'),
@@ -1109,61 +1263,96 @@ export class HexEditorSession {
         );
         resources.add(watcher);
 
+        /** Raw-binary external change: byte compare, rebuild at the same base (never re-anchor). */
+        const handleBinExternalChange = async (): Promise<void> => {
+            if (!binBytes) { return; }
+            const nextBytes = await vscode.workspace.fs.readFile(document.uri);
+            // A grown file must still fit the captured base in the 32-bit
+            // address space; otherwise keep the last loaded bytes (same rule
+            // as the diff reload path).
+            if (!binAddressRangeFits(baseAddress, nextBytes.length)) { return; }
+            if (!externalChangeGate.shouldHandle(nextBytes, parseResult !== null, binBytes)) { return; }
+            const nextGeneration = ++generation;
+            const newResult = createBinParseResult(nextBytes, baseAddress);
+            pendingExternalReload = { source: nextBytes, parseResult: newResult, generation: nextGeneration };
+            const freshIndex = await loadCurrentIndex();
+            void postToWebview(webviewPanel.webview, {
+                type: 'externalChange',
+                generation: nextGeneration,
+                parseResult: serializeParseResult(newResult, 'bin'),
+                labels: freshIndex.labels,
+                segmentNames: freshIndex.segmentNames,
+            });
+        };
+
+        /** Text external change: decode, compare, parse, then post the reload or error banner. */
+        const handleTextExternalChange = async (): Promise<void> => {
+            const newRaw = new TextDecoder('utf-8').decode(
+                await vscode.workspace.fs.readFile(document.uri));
+            // Unchanged bytes are not an external change: a copy/create event
+            // for the open file and duplicate watcher emissions for one write
+            // both land here.
+            if (!externalChangeGate.shouldHandle(newRaw, parseResult !== null, raw)) { return; }
+            const loaded = await parseCompactSource(newRaw);
+            const newResult = loaded.result;
+
+            // Validate the externally-changed file.
+            if (hasParseErrors(newResult)) {
+                await postTextExternalChangeError(newRaw, loaded);
+                return;
+            }
+
+            // Send as 'externalChange' so the webview can guard against
+            // overwriting unsaved edits.
+            pendingExternalReload = { source: newRaw, parseResult: newResult, generation: loaded.generation };
+            const freshIndex = await loadCurrentIndex();
+            void postToWebview(webviewPanel.webview, {
+                type: 'externalChange',
+                generation: loaded.generation,
+                parseResult: serializeParseResult(newResult, format),
+                labels: freshIndex.labels,
+                segmentNames: freshIndex.segmentNames,
+            });
+        };
+
+        /** Broken text reload: keep the new content for repair and post the error banner. */
+        const postTextExternalChangeError = async (
+            newRaw: string,
+            loaded: { result: CompactParseResult; generation: number },
+        ): Promise<void> => {
+            pendingExternalReload = null;
+            // Update provider-side state with the new content so repair works on the actual file.
+            raw = newRaw;
+            parseResult = loaded.result;
+            currentGeneration = loaded.generation;
+            // Quick repair only works with checksum errors; malformed lines need manual fixing.
+            const canQuickRepair = loaded.result.malformedLines === 0;
+            const brokenIndex = await loadCurrentIndex();
+            void postToWebview(webviewPanel.webview, {
+                type: 'externalChangeError',
+                generation: loaded.generation,
+                parseResult: serializeParseResult(loaded.result, format),
+                labels: brokenIndex.labels,
+                segmentNames: brokenIndex.segmentNames,
+                checksumErrors: loaded.result.checksumErrors,
+                malformedLines: loaded.result.malformedLines,
+                errorCount: loaded.result.checksumErrors + loaded.result.malformedLines,
+                canQuickRepair,
+            });
+        };
+
+        const reloadExternalChange = async (): Promise<void> => {
+            if (format === 'bin') { await handleBinExternalChange(); return; }
+            await handleTextExternalChange();
+        };
+
         const onExternalChange = () => {
             if (externalChangeGate.isSelfWrite()) { return; }
             // The initial load owns the content until it completes; any event
             // before then is redundant (the load reads the current file).
             if (!parseResult) { return; }
             clearTimeout(reloadTimer);
-            reloadTimer = setTimeout(async () => {
-                try {
-                    const newRaw = new TextDecoder('utf-8').decode(
-                        await vscode.workspace.fs.readFile(document.uri));
-                    // Unchanged bytes are not an external change: a copy/create
-                    // event for the open file and duplicate watcher emissions
-                    // for one write both land here.
-                    if (!externalChangeGate.shouldHandle(newRaw, parseResult !== null, raw)) { return; }
-                    const loaded = await parseCompactSource(newRaw);
-                    const newResult = loaded.result;
-                    
-                    // Validate the externally-changed file
-                    if (hasParseErrors(newResult)) {
-                        pendingExternalReload = null;
-                        // Update provider-side state with the new content so repair works on actual file
-                        raw = newRaw;
-                        parseResult = newResult;
-                        currentGeneration = loaded.generation;
-                        
-                        // Quick repair only works with checksum errors; malformed lines need manual fixing
-                        const canQuickRepair = newResult.malformedLines === 0;
-                        const brokenIndex = await loadCurrentIndex();
-                        void postToWebview(webviewPanel.webview, {
-                            type: 'externalChangeError',
-                            generation: loaded.generation,
-                            parseResult: serializeParseResult(newResult, format),
-                            labels: brokenIndex.labels,
-                            segmentNames: brokenIndex.segmentNames,
-                            checksumErrors: newResult.checksumErrors,
-                            malformedLines: newResult.malformedLines,
-                            errorCount: newResult.checksumErrors + newResult.malformedLines,
-                            canQuickRepair,
-                        });
-                        return;
-                    }
-                    
-                    // Send as 'externalChange' so the webview can guard against
-                    // overwriting unsaved edits
-                    pendingExternalReload = { raw: newRaw, parseResult: newResult, generation: loaded.generation };
-                    const freshIndex = await loadCurrentIndex();
-                    void postToWebview(webviewPanel.webview, {
-                        type: 'externalChange',
-                        generation: loaded.generation,
-                        parseResult: serializeParseResult(newResult, format),
-                        labels: freshIndex.labels,
-                        segmentNames: freshIndex.segmentNames,
-                    });
-                } catch { /* file transiently unavailable */ }
-            }, 200);
+            reloadTimer = setTimeout(() => { void reloadExternalChange().catch(() => undefined); }, 200);
         };
 
         watcher.onDidChange(onExternalChange);
@@ -1405,31 +1594,26 @@ export class HexEditorSession {
             saveEdits: async msg => {
                 if (!parseResult) { return; }
                 const editMap = new Map<number, number>(msg.edits);
-                // Fast save: splice only the edited record lines, then write
-                // positionally (just those byte ranges) when the plan is
-                // ASCII/same-length safe; otherwise fall back to a whole write.
-                // No materialize (every record) and no full reparse.
-                const plan = buildSplicePlan(raw, editMap, format);
-                if (!(await persistSavePlan(plan, msg.scriptPath))) { return; }
-                markSelfWrite();
-                raw = plan.newRaw;
-                foldEditsIntoSegments(parseResult.segments, editMap);
-                currentGeneration = ++generation;
-                void postToWebview(webviewPanel.webview, {
-                    type: 'savedEdits',
-                    generation: currentGeneration,
-                });
-                vscode.window.showInformationMessage(`HexScope: saved ${msg.edits.length} byte${msg.edits.length === 1 ? '' : 's'} to ${currentFileName()}`);
+                if (format === 'bin') {
+                    await saveBinEdits(editMap, msg.scriptPath);
+                    return;
+                }
+                await saveTextEdits(editMap, msg.scriptPath);
             },
             reloadAccepted: async () => {
                 if (!pendingExternalReload) { return; }
-                raw = pendingExternalReload.raw;
-                parseResult = pendingExternalReload.parseResult;
-                currentGeneration = pendingExternalReload.generation;
+                const pending = pendingExternalReload;
+                if (typeof pending.source === 'string') {
+                    raw = pending.source;
+                } else {
+                    binBytes = pending.source;
+                }
+                parseResult = pending.parseResult;
+                currentGeneration = pending.generation;
                 pendingExternalReload = null;
             },
             repairAndReload: async () => {
-                if (!parseResult) { return; }
+                if (!parseResult || !isTextFormat(format)) { return; }
                 const repairedRaw = repairChecksums(raw, materializeParseResult(parseResult, raw, format));
                 const loaded = await writeRawAndReparse(repairedRaw);
                 void postToWebview(webviewPanel.webview, {
@@ -1727,25 +1911,6 @@ function ensureBindingLifecycle(root: string): void {
     }
 }
 
-/** Create a new registry profile + bind the given file to it. Returns profile id. */
-export async function createBoundProfile(root: string, relPath: string): Promise<string> {
-    const id = await createProfileFromName(root, profileNameFromRel(relPath));
-    await bindFile(root, relPath, id);
-    return id;
-}
-
-function profileNameFromRel(relPath: string): string {
-    return path.basename(relPath, path.extname(relPath)) || 'Firmware';
-}
-
-/** Create a blank registry profile with the given name. Returns the new id. */
-async function createProfileFromName(root: string, name: string): Promise<string> {
-    const ordinal = await nextProfileOrdinal(root);
-    const id = `profile_${ordinal}`;
-    await writeProfileRecord(root, emptyProfileRecord(id, name));
-    return id;
-}
-
 function trimOrNull(value: string | undefined): string | null {
     return value && value.trim() ? value.trim() : null;
 }
@@ -1778,54 +1943,6 @@ async function confirmDeleteBoundProfile(pick: { id: string; label: string }, bo
         'Delete',
     );
     return confirm === 'Delete';
-}
-
-/** Resolve the bound profile id for a file, or null. Prunes dead bindings on read. */
-export async function boundProfileId(root: string, relPath: string): Promise<string | null> {
-    const read = await readJson(bindingsJsonUri(root));
-    if (read.status !== 'ok') { return null; }
-    const bindings = normalizeBindings(read.value).value;
-    const match = bindings.find(b => b.fileKey === relPath);
-    return match ? match.profileId : null;
-}
-
-/** Append/replace the binding for a file (prunes dead entries on write). */
-export async function bindFile(root: string, fileKey: string, profileId: string): Promise<void> {
-    const bindingsUri = bindingsJsonUri(root);
-    const read = await readPayloadForWrite(bindingsUri, 'bindings');
-    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
-    const bindings = normalizeBindings(read.status === 'ok' ? withDataEnvelope('bindings', read.payload) : []).value;
-    const without = bindings.filter(b => b.fileKey !== fileKey);
-    const next = [...without, { fileKey, profileId }];
-    const pruned = await pruneBindings(root, next);
-    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', pruned)));
-}
-
-/** Remove the binding for a file (silent). */
-export async function unbindFile(root: string, fileKey: string): Promise<void> {
-    const bindingsUri = bindingsJsonUri(root);
-    const read = await readPayloadForWrite(bindingsUri, 'bindings');
-    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
-    if (read.status !== 'ok') { return; }
-    const bindings = normalizeBindings(withDataEnvelope('bindings', read.payload)).value;
-    if (!bindings.some(b => b.fileKey === fileKey)) { return; }
-    const pruned = await pruneBindings(root, bindings.filter(b => b.fileKey !== fileKey));
-    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', pruned)));
-}
-
-/** Drop binding entries whose fileKey no longer resolves on disk (CLI mv/rm). */
-export async function pruneBindings(root: string, bindings: ReadonlyArray<{ fileKey: string; profileId: string }>): Promise<Array<{ fileKey: string; profileId: string }>> {
-    const out: Array<{ fileKey: string; profileId: string }> = [];
-    for (const b of bindings) {
-        const uri = vscode.Uri.file(path.join(root, b.fileKey));
-        try {
-            await vscode.workspace.fs.stat(uri);
-            out.push(b);
-        } catch {
-            /* file no longer exists → drop */
-        }
-    }
-    return out;
 }
 
 /** Resolve a new profile name: payload name, else a host input box (webviews block window.prompt). */

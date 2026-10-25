@@ -1,5 +1,6 @@
 import type { DiffKind, DiffRun } from '../../core/diff';
 import type { DiffSide } from '../../diffProtocol';
+import type { HexScopeFormat } from '../../core/document';
 import { buildSegmentIndex, getByteAt, type SegmentIndexEntry } from '../../core/memory';
 import type { SegmentLabel, SerializedParseResult } from '../../core/types';
 import { BYTES_PER_ROW } from '../components/hexView/hexViewRender';
@@ -8,7 +9,7 @@ import { esc } from '../utils';
 export interface DiffSideData {
     name: string;
     path: string;
-    format: 'ihex' | 'srec';
+    format: HexScopeFormat;
     parseResult: Omit<SerializedParseResult, 'records'>;
     segmentIndex: SegmentIndexEntry[];
     labels: SegmentLabel[];
@@ -126,6 +127,6 @@ export function renderDiffErrorHtml(message: string): string {
 }
 
 /** Side head: file label plus the shared format pill (no separator). */
-export function renderSideHeadHtml(label: string, format: 'ihex' | 'srec'): string {
+export function renderSideHeadHtml(label: string, format: HexScopeFormat): string {
     return `${esc(label)} <span class="fmt-pill">${format.toUpperCase()}</span>`;
 }

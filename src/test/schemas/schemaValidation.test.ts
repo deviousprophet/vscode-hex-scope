@@ -230,6 +230,16 @@ suite('hexScope schemas — positive fixtures', () => {
         assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
 
+    test('profiles.json accepts an optional baseAddress within the 32-bit range', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const data = [
+            { id: 'profile_1', name: 'Boot', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', baseAddress: 0 },
+            { id: 'profile_2', name: 'App', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb', baseAddress: 4294967295 },
+            { id: 'profile_3', name: 'Text', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'msb' },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
     test('integrity checks nested in a profile accept full configs', () => {
         const { schema } = loadSchema('profiles.schema.json');
         const data = [{
@@ -288,6 +298,18 @@ suite('hexScope schemas — negative cases', () => {
         const { schema } = loadSchema('profiles.schema.json');
         const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'sideways' }];
         assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
+    test('an out-of-range or non-integer baseAddress fails profiles.json', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const profile = (baseAddress: unknown) => [{
+            id: 'profile_1', name: 'P', labels: [], segmentNames: {},
+            typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] },
+            endian: 'le', bitAllocation: 'msb', baseAddress,
+        }];
+        for (const bad of [-1, 1.5, 4294967296, '0x1000']) {
+            assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(profile(bad))), [], `${bad} must fail`);
+        }
     });
 
     test('an empty or malformed addressSource fails profiles.json', () => {

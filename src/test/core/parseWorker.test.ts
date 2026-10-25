@@ -66,6 +66,15 @@ function parseDiffInWorker(source: string, extension: string): Promise<WorkerOut
     return spawnWorker({ kind: 'diffParse', bytes: buffer, extension }, [buffer]);
 }
 
+function parseBinDiffInWorker(bytes: number[], baseAddress?: number): Promise<WorkerOutcome> {
+    const buffer = Uint8Array.from(bytes).buffer as ArrayBuffer;
+    const job: { kind: 'diffParse'; bytes: ArrayBuffer; extension: string; baseAddress?: number } = {
+        kind: 'diffParse', bytes: buffer, extension: 'bin',
+    };
+    if (baseAddress !== undefined) { job.baseAddress = baseAddress; }
+    return spawnWorker(job, [buffer]);
+}
+
 function parseHexInWorker(source: string, extension: string): Promise<WorkerOutcome> {
     return spawnWorker({ kind: 'hexParse', source, extension }, []);
 }
@@ -140,6 +149,48 @@ suite('parseWorker', () => {
         assert.strictEqual(wire.segments.length, 1);
         assert.strictEqual(wire.segments[0].startAddress, 0);
         assert.deepStrictEqual(bytesOf(wire, 0), [1, 2, 3, 4]);
+    });
+
+    test('diffParse maps a raw binary at its base address without decoding text', async () => {
+        const { final } = await parseBinDiffInWorker([1, 2, 3, 4], 0x08000000);
+        assert.strictEqual(final.type, 'result');
+        assert.strictEqual(final.format, 'bin');
+        const wire = final.wire!;
+        assert.strictEqual(wire.recordCount, 0);
+        assert.strictEqual(wire.segments.length, 1);
+        assert.strictEqual(wire.segments[0].startAddress, 0x08000000);
+        assert.strictEqual(wire.baseAddress, 0x08000000, 'the wire result carries the chosen base');
+        assert.deepStrictEqual(bytesOf(wire, 0), [1, 2, 3, 4]);
+        assert.strictEqual(wire.checksumErrors, 0);
+        assert.strictEqual(wire.malformedLines, 0);
+    });
+
+    test('diffParse keeps .bin raw even when the bytes look like an IHEX record', async () => {
+        const text = ':0400000001020304F2\n:00000001FF\n';
+        const { final } = await parseBinDiffInWorker(Array.from(new TextEncoder().encode(text)), 0x1000);
+        assert.strictEqual(final.type, 'result');
+        assert.strictEqual(final.format, 'bin');
+        assert.strictEqual(final.wire!.recordCount, 0);
+        assert.strictEqual(final.wire!.totalDataBytes, text.length);
+    });
+
+    test('diffParse rejects a raw binary with a missing, invalid, or overflowing base', async () => {
+        for (const outcome of [
+            await parseBinDiffInWorker([1, 2], undefined),
+            await parseBinDiffInWorker([1, 2], -1),
+            await parseBinDiffInWorker([1, 2], 1.5),
+            await parseBinDiffInWorker([1, 2], 0x1_0000_0000),
+            await parseBinDiffInWorker([1, 2], 0xFFFF_FFFF),
+        ]) {
+            assert.strictEqual(outcome.final.type, 'error');
+            assert.ok(outcome.final.message && outcome.final.message.length > 0, 'reports a useful error');
+        }
+    });
+
+    test('hexParse refuses a raw binary instead of parsing text', async () => {
+        const { final } = await parseHexInWorker(':0400000001020304F2\n:00000001FF\n', 'bin');
+        assert.strictEqual(final.type, 'error');
+        assert.match(final.message ?? '', /Raw binary files do not use the editor parse worker/);
     });
 
     test('propagates a parse-job failure as an error message', async () => {

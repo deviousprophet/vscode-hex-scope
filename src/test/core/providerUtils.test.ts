@@ -2,6 +2,8 @@ import * as assert from 'assert';
 import {
     buildSRecDataRecord,
     detectFormatFromParts,
+    isRawBinaryExtension,
+    isTextFormat,
     repairChecksums,
     serializeIntelHex,
     serializeIntelHexAsync,
@@ -30,8 +32,15 @@ suite('detectFormatFromParts()', () => {
         }
     });
 
-    test('unknown extension with IHEX content → ihex', () => {
-        assert.strictEqual(detectFormatFromParts('bin', ':020000040800F2\n'), 'ihex');
+    test('a .bin extension always maps to bin, overriding content sniffing', () => {
+        for (const content of [':020000040800F2\n', 'S1070100112233444D\n', '']) {
+            assert.strictEqual(detectFormatFromParts('bin', content), 'bin', JSON.stringify(content.slice(0, 8)));
+            assert.strictEqual(detectFormatFromParts('BIN', content), 'bin', 'case-insensitive extension');
+        }
+    });
+
+    test('unknown non-bin extension with IHEX content → ihex', () => {
+        assert.strictEqual(detectFormatFromParts('txt', ':020000040800F2\n'), 'ihex');
     });
 
     // Content-sniff fallback
@@ -64,6 +73,17 @@ suite('detectFormatFromParts()', () => {
     // Extension takes priority over content
     test('SREC extension overrides IHEX content', () => {
         assert.strictEqual(detectFormatFromParts('srec', ':020000040800F2\n'), 'srec');
+    });
+
+    test('raw-binary helpers classify only the .bin extension', () => {
+        assert.strictEqual(isRawBinaryExtension('bin'), true);
+        assert.strictEqual(isRawBinaryExtension('BIN'), true);
+        for (const ext of ['hex', 'srec', 'ihx', '']) {
+            assert.strictEqual(isRawBinaryExtension(ext), false, ext);
+        }
+        assert.strictEqual(isTextFormat('ihex'), true);
+        assert.strictEqual(isTextFormat('srec'), true);
+        assert.strictEqual(isTextFormat('bin'), false);
     });
 });
 

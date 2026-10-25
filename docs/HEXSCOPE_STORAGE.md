@@ -3,7 +3,8 @@
 Workspace-rooted `.hexscope/` tree holding type definitions workspace-wide,
 a single-file profile registry, and a per-file binding table. The whole tree is
 git-tracked — no `.gitignore` seeding, no local/private split. Pins, active
-checks, endian, bit-field allocation, and the show-hidden-fields view toggle are shared team state by design. No trust gating applies
+checks, endian, bit-field allocation, the show-hidden-fields view toggle, and
+raw-binary base addresses are shared team state by design. No trust gating applies
 to `.hexscope/` data.
 
 ## Layout
@@ -11,7 +12,7 @@ to `.hexscope/` data.
 ```text
 .hexscope/
 ├── types.json            # workspace-wide TypeDef[] pool (shared by all files)
-├── profiles.json         # whole profile registry: { schemaVersion, records: [{ id, name, typeInstances, activeChecks, endian, bitAllocation, showHiddenFields, segmentNames, labels }] }
+├── profiles.json         # whole profile registry: { schemaVersion, records: [{ id, name, typeInstances, activeChecks, endian, bitAllocation, showHiddenFields, segmentNames, labels, baseAddress? }] }
 ├── bindings.json         # { schemaVersion, bindings: [{ fileKey, profileId }] } — file's only file-specific artifact
 ├── schemas/              # generated copies of the JSON Schemas (editor + agent contract),
 │                         # content-diff refreshed on every .hexscope data write; retired
@@ -66,6 +67,13 @@ records and deduplicate by id + case-insensitive name (`normalizeProfilesRegistr
 - Shared-profile state surfaces as a tooltip on the profile select
   ("NAME · shared by N files") plus a one-time toast when you switch to a
   shared profile.
+- Raw `.bin` files store their memory-map base address on the bound profile
+  (`baseAddress`, optional; absent for text-oriented profiles). Opening an
+  unbound `.bin` creates a profile + binding so the chosen value has an owner;
+  files sharing a profile share one base address (duplicate the profile for a
+  different map). Compare/diff base prompts are comparison-only and never write
+  `.hexscope`. The value applies when a document opens; switching profiles does
+  not re-anchor a live buffer.
 
 ## Write cadence
 
@@ -238,10 +246,13 @@ Three JSON Schema files describe the on-disk shapes:
 ## Owner modules
 
 - `src/hexScopeStorage.ts` — all `.hexscope/` I/O (read/write/envelope,
-  `JsonStore` slots, registry-array lookup/upsert/delete, watcher, the
-  `DATA_SCHEMA_VERSION` constant + `MIGRATIONS` table + migration runner and
-  `withDataEnvelope` stamping). No Memento access; normalizers are injected per
-  slot.
+  `JsonStore` slots, registry-array lookup/upsert/delete, profile creation +
+  binding helpers, watcher, the `DATA_SCHEMA_VERSION` constant + `MIGRATIONS`
+  table + migration runner and `withDataEnvelope` stamping). No Memento access;
+  normalizers are injected per slot.
+- `src/binBaseAddress.ts` — reads/persists a raw image's profile base address,
+  prompts with inline validation, and resolves a compare-only value without
+  writing `.hexscope`.
 - `src/hexScopeMigration.ts` — the one-time legacy transfers (pre-rename pool
   file move + per-dir registry merge + Memento era + `firmware_profiles` tree era
   → three-tier).

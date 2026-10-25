@@ -2,9 +2,13 @@ import * as assert from 'assert';
 import { buildDiffState, reloadIsStale, reloadState, sideDefects } from '../../diff/diffReload';
 import type { WireParseResult } from '../../core/types';
 
-function wire(segments: Array<[number, number[]]>, defects: { checksumErrors?: number; malformedLines?: number } = {}): WireParseResult {
+function wire(
+    segments: Array<[number, number[]]>,
+    defects: { checksumErrors?: number; malformedLines?: number } = {},
+    format: WireParseResult['format'] = 'ihex',
+): WireParseResult {
     return {
-        recordCount: segments.length,
+        recordCount: format === 'bin' ? 0 : segments.length,
         segments: segments.map(([startAddress, bytes]) => ({
             startAddress,
             data: Uint8Array.from(bytes).buffer as ArrayBuffer,
@@ -12,7 +16,7 @@ function wire(segments: Array<[number, number[]]>, defects: { checksumErrors?: n
         totalDataBytes: segments.reduce((sum, [, bytes]) => sum + bytes.length, 0),
         checksumErrors: defects.checksumErrors ?? 0,
         malformedLines: defects.malformedLines ?? 0,
-        format: 'ihex',
+        format,
     };
 }
 
@@ -32,6 +36,10 @@ suite('diffExternalChange host decisions', () => {
         });
     });
 
+    test('raw-binary sides never report checksum/malformed defects (no repair action)', () => {
+        assert.strictEqual(sideDefects(wire([[0x08000000, [0x01, 0x02]]], {}, 'bin')), null);
+    });
+
     test('malformed lines block quick repair', () => {
         assert.deepStrictEqual(sideDefects(wire([[0x1000, [0x01]]], { checksumErrors: 1, malformedLines: 3 })), {
             checksumErrors: 1,
@@ -46,6 +54,16 @@ suite('diffExternalChange host decisions', () => {
         assert.strictEqual(state.a.format, 'ihex');
         assert.strictEqual(state.b.name, 'b.srec');
         assert.strictEqual(state.b.format, 'srec');
+        assert.deepStrictEqual(state.diff.summary, { changed: 1, added: 0, removed: 0 });
+    });
+
+    test('building a state with raw-binary sides keeps the format and address alignment', () => {
+        const state = buildDiffState(
+            REF_A, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') },
+            REF_B, { format: 'bin', wire: wire([[0x08000000, [0x02]]], {}, 'bin') },
+        );
+        assert.strictEqual(state.a.format, 'bin');
+        assert.strictEqual(state.b.format, 'bin');
         assert.deepStrictEqual(state.diff.summary, { changed: 1, added: 0, removed: 0 });
     });
 

@@ -61,11 +61,16 @@ function seg(startAddress: number, bytes: number[]): MemorySegment {
     return { startAddress, data: Uint8Array.from(bytes) };
 }
 
-function side(name: string, segments: MemorySegment[], path = `/files/${name}`): DiffSide {
+function side(
+    name: string,
+    segments: MemorySegment[],
+    path = `/files/${name}`,
+    format: DiffSide['format'] = 'ihex',
+): DiffSide {
     return {
         name,
         path,
-        format: 'ihex',
+        format,
         parseResult: {
             recordCount: 1,
             segments: segments.map(item => ({
@@ -75,15 +80,15 @@ function side(name: string, segments: MemorySegment[], path = `/files/${name}`):
             totalDataBytes: segments.reduce((sum, item) => sum + item.data.length, 0),
             checksumErrors: 0,
             malformedLines: 0,
-            format: 'ihex',
+            format,
         },
         labels: [],
     };
 }
 
-function mount(a: MemorySegment[], b: MemorySegment[]): void {
-    const sideA = side('a.hex', a);
-    const sideB = side('b.hex', b);
+function mount(a: MemorySegment[], b: MemorySegment[], format: DiffSide['format'] = 'ihex'): void {
+    const sideA = side('a.hex', a, '/files/a.hex', format);
+    const sideB = side('b.hex', b, '/files/b.hex', format);
     const diff = computeByteDiff(a, b);
     setDiffData(hydrateDiffSide(sideA), hydrateDiffSide(sideB), diff);
     setDiffSummary(diff);
@@ -827,8 +832,41 @@ suite('HexScope Diff webview', () => {
         assert.ok(!html.includes('·'), 'no separator between name and format');
         assert.ok(html.startsWith('firmware.hex '), 'name precedes the pill');
         assert.ok(renderSideHeadHtml('a<b.hex', 'ihex').includes('a&lt;b.hex'), 'label escaped');
+        const bin = renderSideHeadHtml('firmware.bin', 'bin');
+        assert.ok(bin.includes('>BIN<'), 'raw binaries render the BIN pill');
         const css = fs.readFileSync(path.resolve(__dirname, '../../../src/webview/styles/base.css'), 'utf8');
         assert.ok(/\.fmt-pill\s*\{/.test(css), '.fmt-pill lives in base.css');
+    });
+
+    test('accepts a raw-binary side in diffInit', () => {
+        const binSide = side('a.bin', [seg(0x08000000, [0x01])], '/files/a.bin', 'bin');
+        const message = { type: 'diffInit', generation: 1, a: binSide, b: binSide, diff: computeByteDiff([seg(0x08000000, [0x01])], [seg(0x08000000, [0x01])]) };
+        let inits = 0;
+        const handlers = {
+            diffInit: () => { inits++; },
+            diffError: () => { /* noop */ },
+            diffProgress: () => { /* noop */ },
+            diffExternalChange: () => { /* noop */ },
+            diffExternalChangeError: () => { /* noop */ },
+        };
+        assert.strictEqual(dispatchDiffMessage(message, handlers), true, 'bin is a supported diff format');
+        assert.strictEqual(inits, 1);
+    });
+
+    test('raw-binary sides align by absolute address and never synthesize bytes', () => {
+        mount([seg(0x08000000, [0xAA, 0x01])], [seg(0x08000000, [0xBB, 0x01])], 'bin');
+        assert.ok(cell('#diff-rows-a', 0x08000000)?.classList.contains('diff-chg'), 'changed byte on A');
+        assert.ok(cell('#diff-rows-b', 0x08000000)?.classList.contains('diff-chg'), 'changed byte on B');
+        assert.ok(!cell('#diff-rows-a', 0x08000001)?.classList.contains('diff-chg'), 'equal byte stays plain');
+    });
+
+    test('different raw bases produce gap and added/removed rows, not zero-filled data', () => {
+        mount([seg(0x1000, [0x11])], [seg(0x2000, [0x22])], 'bin');
+        assert.ok(cell('#diff-rows-a', 0x1000)?.classList.contains('diff-del'), 'A-only byte is removed');
+        assert.ok(!cell('#diff-rows-b', 0x1000), 'B does not map A-only bytes');
+        assert.ok(cell('#diff-rows-b', 0x2000)?.classList.contains('diff-add'), 'B-only byte is added');
+        assert.ok(!cell('#diff-rows-a', 0x2000), 'A does not map B-only bytes');
+        assert.ok(document.querySelector('#diff-rows-a .gap-row'), 'gap row separates the ranges');
     });
 
     test('diffProgress updates the loading card and routes through the dispatcher', () => {

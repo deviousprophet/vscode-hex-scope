@@ -1,11 +1,12 @@
 import type { DiffModel } from './core/diff';
+import type { HexScopeFormat } from './core/document';
 import type { SegmentLabel, WireParseResult } from './core/types';
 
 export interface DiffSide {
     name: string;
     /** Full path, always available for tooltips and same-name disambiguation. */
     path: string;
-    format: 'ihex' | 'srec';
+    format: HexScopeFormat;
     parseResult: WireParseResult;
     labels: SegmentLabel[];
 }

@@ -1654,6 +1654,7 @@ function preventClickWhenLocked(e: Event): void {
 // ── Main render ───────────────────────────────────────────────────
 
 function render(): void {
+    toolbar.setRecordViewAvailable(recordViewAvailable());
     const mem = S.currentView === 'memory';
     document.getElementById('app')!.innerHTML = `
         ${toolbar.toHtml(searchBar.toHtml())}
@@ -1806,6 +1807,11 @@ function renderLoadError(message: string): void {
 
 function renderStatsBar(): void {
     renderStats(S.parseResult);
+}
+
+/** Record view exists only for record-based formats; raw binaries are memory-only. */
+function recordViewAvailable(): boolean {
+    return S.parseResult?.format !== 'bin';
 }
 
 // ── Memory view ───────────────────────────────────────────────────
@@ -2132,6 +2138,7 @@ function renderCurrentView(v: ViewName): void {
 }
 
 function switchView(v: ViewName): void {
+    if (v === 'record' && !recordViewAvailable()) { v = 'memory'; }
     if (v !== 'memory') { commitSelectedBytesSession(); }
     S.currentView = v;
     toolbar.setView(v);

@@ -17,6 +17,7 @@ import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from './core/integ
 import { arrayOrEmpty, plainObject, plainStringRecord, stringOrEmpty } from './core/fromUnknown';
 import { aliasLegacyProfileRecord, aliasLegacyTypeDef } from './core/overlay/overlayAliases';
 import { normalizeTypeInstances } from './core/overlay/overlayNormalization';
+import { isValidBinBaseAddress } from './core/parser/binImage';
 import type { BitFieldAllocation, SegmentLabel, TypeInstance } from './core/types';
 import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault, type HexScopeEndian, type SegmentNameOverrides } from './webviewProtocol';
 
@@ -201,6 +202,8 @@ export interface ProfileRecord {
     showHiddenFields: boolean;
     segmentNames: SegmentNameOverrides;
     labels: SegmentLabel[];
+    /** Raw-binary memory-map base address. Absent for text-oriented profiles. */
+    baseAddress?: number;
 }
 
 /** One entry per file that has a bound profile. */
@@ -444,6 +447,88 @@ export async function nextProfileOrdinal(root: string): Promise<number> {
     return id;
 }
 
+/** Create a blank registry profile (optionally carrying a raw-binary base address). */
+export async function createProfileFromName(root: string, name: string, baseAddress?: number): Promise<string> {
+    const ordinal = await nextProfileOrdinal(root);
+    const id = `profile_${ordinal}`;
+    const record = emptyProfileRecord(id, name);
+    if (baseAddress !== undefined) { record.baseAddress = baseAddress; }
+    await writeProfileRecord(root, record);
+    return id;
+}
+
+/** Create a new registry profile + bind the given file to it. Returns the profile id. */
+export async function createBoundProfile(root: string, relPath: string, baseAddress?: number): Promise<string> {
+    const name = await uniqueProfileName(root, profileNameFromRel(relPath));
+    const id = await createProfileFromName(root, name, baseAddress);
+    await bindFile(root, relPath, id);
+    return id;
+}
+
+/** Registry normalization drops case-insensitive duplicate names, so an
+ *  auto-created profile must be named uniquely or its first write is silently
+ *  discarded. File-derived names commonly collide (`boot.hex` + `boot.bin`);
+ *  append a numeric suffix in that case. */
+async function uniqueProfileName(root: string, name: string): Promise<string> {
+    const used = new Set((await collectProfileRecords(root)).map(record => record.name.toLowerCase()));
+    if (!used.has(name.toLowerCase())) { return name; }
+    let suffix = 2;
+    while (used.has(`${name} ${suffix}`.toLowerCase())) { suffix++; }
+    return `${name} ${suffix}`;
+}
+
+function profileNameFromRel(relPath: string): string {
+    return path.basename(relPath, path.extname(relPath)) || 'Firmware';
+}
+
+/** Append/replace the binding for a file (prunes dead entries on write). */
+export async function bindFile(root: string, fileKey: string, profileId: string): Promise<void> {
+    const bindingsUri = bindingsJsonUri(root);
+    const read = await readPayloadForWrite(bindingsUri, 'bindings');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
+    const bindings = normalizeBindings(read.status === 'ok' ? withDataEnvelope('bindings', read.payload) : []).value;
+    const without = bindings.filter(b => b.fileKey !== fileKey);
+    const next = [...without, { fileKey, profileId }];
+    const pruned = await pruneBindings(root, next);
+    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', pruned)));
+}
+
+/** Remove the binding for a file (silent). */
+export async function unbindFile(root: string, fileKey: string): Promise<void> {
+    const bindingsUri = bindingsJsonUri(root);
+    const read = await readPayloadForWrite(bindingsUri, 'bindings');
+    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
+    if (read.status !== 'ok') { return; }
+    const bindings = normalizeBindings(withDataEnvelope('bindings', read.payload)).value;
+    if (!bindings.some(b => b.fileKey === fileKey)) { return; }
+    const pruned = await pruneBindings(root, bindings.filter(b => b.fileKey !== fileKey));
+    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', pruned)));
+}
+
+/** Drop binding entries whose fileKey no longer resolves on disk (CLI mv/rm). */
+export async function pruneBindings(root: string, bindings: ReadonlyArray<{ fileKey: string; profileId: string }>): Promise<Array<{ fileKey: string; profileId: string }>> {
+    const out: Array<{ fileKey: string; profileId: string }> = [];
+    for (const b of bindings) {
+        const uri = vscode.Uri.file(path.join(root, b.fileKey));
+        try {
+            await vscode.workspace.fs.stat(uri);
+            out.push(b);
+        } catch {
+            /* file no longer exists → drop */
+        }
+    }
+    return out;
+}
+
+/** Resolve the bound profile id for a file, or null. */
+export async function boundProfileId(root: string, relPath: string): Promise<string | null> {
+    const read = await readJson(bindingsJsonUri(root));
+    if (read.status !== 'ok') { return null; }
+    const bindings = normalizeBindings(read.value).value;
+    const match = bindings.find(b => b.fileKey === relPath);
+    return match ? match.profileId : null;
+}
+
 /** Per-record transform supplied by the one-time migration layer. It aliases the
  *  pre-rename keys of a legacy per-dir `profile.json` before this module's
  *  alias-free normalizer reads it. Defaults to identity for callers that only
@@ -605,7 +690,13 @@ function normalizeProfileRecord(raw: unknown, fallback: ProfileRecord): Normaliz
         bitAllocation: bitAllocationOrDefault(candidate.bitAllocation),
         showHiddenFields: showHiddenFieldsOrDefault(candidate.showHiddenFields),
     };
+    assignBaseAddress(value, candidate.baseAddress);
     return { value, changed: JSON.stringify(raw) !== JSON.stringify(value) };
+}
+
+/** Preserve a valid raw-binary base address; invalid/absent values keep the key off the record. */
+function assignBaseAddress(record: ProfileRecord, raw: unknown): void {
+    if (isValidBinBaseAddress(raw)) { record.baseAddress = raw; }
 }
 
 /** Read the profile's instance array. The persisted key is `typeInstances` only:

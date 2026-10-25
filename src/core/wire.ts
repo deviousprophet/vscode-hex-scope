@@ -11,6 +11,7 @@ export function serializeParseResult(result: CompactParseResult, format: HexScop
         checksumErrors: result.checksumErrors,
         malformedLines: result.malformedLines,
         startAddress: result.startAddress,
+        baseAddress: result.baseAddress,
         format,
     };
 }

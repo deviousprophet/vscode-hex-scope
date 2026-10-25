@@ -19,6 +19,7 @@ src/
 ├── hexEditorSession.ts       per-provider document/session orchestration (3 profile stores, watcher)
 ├── hexScopeStorage.ts        .hexscope/ firmware-profile I/O + per-slot JsonStore (host adapter, no Memento)
 ├── hexScopeMigration.ts      one-time legacy Memento → profile transfer
+├── binBaseAddress.ts         raw-image profile base read/persist + input-box prompt (editor + diff)
 ├── webviewProtocol.ts        typed extension-host <-> webview seam (single-file editor)
 ├── diffProtocol.ts           typed diff-panel <-> diff-webview seam (second cross-runtime union)
 ├── diff/                     second editor surface (read-only compare); does not reuse HexEditorSession
@@ -30,7 +31,7 @@ src/
 │   ├── parseWorker.ts        worker entry: `diffParse`/`hexParse` job dispatch, progress thinning
 │   └── parseWorkerClient.ts  runParseJob(): spawn/settle-once/abort-terminate/relay
 ├── core/
-│   ├── parser/               IHEX/SREC line parsing and segment construction
+│   ├── parser/               IHEX/SREC line parsing + raw `.bin` segment construction
 │   ├── document.ts           format detection, serialization, checksum repair
 │   ├── memory.ts             indexed byte lookup and memory-row model
 │   ├── search.ts             cancellable/chunked search engine
@@ -46,6 +47,7 @@ src/
 │   ├── diffLabels.ts         file-name disambiguation for diff pane labels + tab title
 │   ├── pathName.ts           shared basename/extension helper (compare selection + diff panel + hex session)
 │   ├── documentExternalChange.ts  watcher-event gate (loaded? / changed? / self-write horizon)
+│   ├── bytesEqual.ts         byte-array equality used by the change gate and search
 │   ├── wire.ts               ParseResult -> SerializedParseResult wire projection
 │   └── byteTools/            pure copy/analyze/format helpers
 └── webview/

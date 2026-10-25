@@ -1,5 +1,6 @@
 import * as assert from 'assert';
-import { createExternalChangeGate } from '../../core/documentExternalChange';
+import { bytesEqual } from '../../core/bytesEqual';
+import { createExternalChangeGate, sameDocumentSource } from '../../core/documentExternalChange';
 
 suite('documentExternalChange', () => {
     test('suppresses a watcher event whose content is unchanged', () => {
@@ -26,5 +27,24 @@ suite('documentExternalChange', () => {
         // The horizon is exclusive: exactly horizonMs later the event is real.
         assert.strictEqual(gate.shouldHandle('new', true, 'old', 6000), true);
         assert.strictEqual(gate.isSelfWrite(6000), false);
+    });
+
+    test('a custom comparator makes raw byte arrays compare by content', () => {
+        const gate = createExternalChangeGate<Uint8Array>(1000, bytesEqual);
+        const a = Uint8Array.from([1, 2, 3]);
+        const b = Uint8Array.from([1, 2, 3]);
+        const c = Uint8Array.from([1, 2, 4]);
+
+        assert.strictEqual(gate.shouldHandle(b, true, a, 5000), false, 'equal content is not a change');
+        assert.strictEqual(gate.shouldHandle(c, true, a, 5000), true, 'different content is a change');
+        assert.strictEqual(gate.shouldHandle(Uint8Array.from([1, 2]), true, a, 5000), true, 'length differs');
+    });
+
+    test('sameDocumentSource compares strings by value and bytes byte-for-byte', () => {
+        assert.strictEqual(sameDocumentSource('a', 'a'), true);
+        assert.strictEqual(sameDocumentSource('a', 'b'), false);
+        assert.strictEqual(sameDocumentSource(Uint8Array.from([0, 255]), Uint8Array.from([0, 255])), true);
+        assert.strictEqual(sameDocumentSource(Uint8Array.from([0, 255]), Uint8Array.from([0, 254])), false);
+        assert.strictEqual(sameDocumentSource('a', Uint8Array.from([97])), false, 'strings and bytes are distinct sources');
     });
 });
