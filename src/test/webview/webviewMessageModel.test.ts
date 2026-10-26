@@ -49,14 +49,14 @@ suite('webview message dispatcher', () => {
         assert.strictEqual(called, true);
     });
 
-    test('dispatches the base-address change request', () => {
+    test('dispatches the base-field focus request', () => {
         let called = false;
         const handlers = {
             ...noOpHandlers(),
-            requestBaseAddressChange: () => { called = true; },
+            focusBinBaseAddress: () => { called = true; },
         } satisfies ProviderMessageHandlers;
 
-        assert.strictEqual(dispatchProviderMessage({ type: 'requestBaseAddressChange' }, handlers), true);
+        assert.strictEqual(dispatchProviderMessage({ type: 'focusBinBaseAddress' }, handlers), true);
         assert.strictEqual(called, true);
     });
 
@@ -398,7 +398,8 @@ labels: [],
         const permissions = applyProviderMessageToModel({ type: 'scriptPermissions', grants: [] });
         const commit = applyProviderMessageToModel({ type: 'scriptWritesCommit', scriptPath: 'a.js', writes: [[0, 1]] });
         const saveFailed = applyProviderMessageToModel({ type: 'scriptSaveFailed', scriptPath: 'a.js', message: 'EACCES' });
-        for (const update of [request, permissions, commit, saveFailed]) {
+        const focusBase = applyProviderMessageToModel({ type: 'focusBinBaseAddress' });
+        for (const update of [request, permissions, commit, saveFailed, focusBase]) {
             assert.deepStrictEqual(update.invalidations, {});
         }
     });
@@ -432,7 +433,7 @@ function noOpHandlers(): ProviderMessageHandlers {
         scriptWritesCommit: () => {},
         scriptSaveFailed: () => {},
         activateScriptsTab: () => {},
-        requestBaseAddressChange: () => {},
+        focusBinBaseAddress: () => {},
     };
 }
 

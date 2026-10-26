@@ -6,7 +6,7 @@
 // Three-tier layout (single-file profile registry):
 //   .hexscope/types.json            — workspace-wide TypeDef[] pool
 //   .hexscope/profiles.json         — ProfileRecord[] registry (all profiles in one file)
-//   .hexscope/bindings.json         — fileKey → profileId table
+//   .hexscope/bindings.json         — fileKey → profileId table + per-file binBases
 //   .hexscope/schemas/              — generated schema copies (refreshed on data writes)
 //   .hexscope/scripts/              — script runner (unchanged)
 
@@ -17,7 +17,7 @@ import { normalizeIntegrityCheckSet, type IntegrityCheckSet } from './core/integ
 import { arrayOrEmpty, plainObject, plainStringRecord, stringOrEmpty } from './core/fromUnknown';
 import { aliasLegacyProfileRecord, aliasLegacyTypeDef } from './core/overlay/overlayAliases';
 import { normalizeTypeInstances } from './core/overlay/overlayNormalization';
-import { isValidBinBaseAddress } from './core/parser/binImage';
+import { DEFAULT_BIN_BASE_ADDRESS, isValidBinBaseAddress } from './core/parser/binImage';
 import type { BitFieldAllocation, SegmentLabel, TypeInstance } from './core/types';
 import { bitAllocationOrDefault, endianOrDefault, showHiddenFieldsOrDefault, type HexScopeEndian, type SegmentNameOverrides } from './webviewProtocol';
 
@@ -202,14 +202,28 @@ export interface ProfileRecord {
     showHiddenFields: boolean;
     segmentNames: SegmentNameOverrides;
     labels: SegmentLabel[];
-    /** Raw-binary memory-map base address. Absent for text-oriented profiles. */
-    baseAddress?: number;
 }
 
 /** One entry per file that has a bound profile. */
 export interface Binding {
     fileKey: string;   // workspace-relative posix path
     profileId: string;
+}
+
+/** One file's raw-binary memory-map base address; independent of any profile. */
+export interface BinBase {
+    fileKey: string;   // same key space as Binding.fileKey
+    baseAddress: number;
+}
+
+/** The whole `bindings.json` payload: profile bindings plus per-file raw bases. */
+export interface BindingTable {
+    bindings: Binding[];
+    binBases: BinBase[];
+}
+
+function emptyBindingTable(): BindingTable {
+    return { bindings: [], binBases: [] };
 }
 
 /** Root path helpers. */
@@ -447,20 +461,18 @@ export async function nextProfileOrdinal(root: string): Promise<number> {
     return id;
 }
 
-/** Create a blank registry profile (optionally carrying a raw-binary base address). */
-export async function createProfileFromName(root: string, name: string, baseAddress?: number): Promise<string> {
+/** Create a blank registry profile. */
+export async function createProfileFromName(root: string, name: string): Promise<string> {
     const ordinal = await nextProfileOrdinal(root);
     const id = `profile_${ordinal}`;
-    const record = emptyProfileRecord(id, name);
-    if (baseAddress !== undefined) { record.baseAddress = baseAddress; }
-    await writeProfileRecord(root, record);
+    await writeProfileRecord(root, emptyProfileRecord(id, name));
     return id;
 }
 
 /** Create a new registry profile + bind the given file to it. Returns the profile id. */
-export async function createBoundProfile(root: string, relPath: string, baseAddress?: number): Promise<string> {
+export async function createBoundProfile(root: string, relPath: string): Promise<string> {
     const name = await uniqueProfileName(root, profileNameFromRel(relPath));
-    const id = await createProfileFromName(root, name, baseAddress);
+    const id = await createProfileFromName(root, name);
     await bindFile(root, relPath, id);
     return id;
 }
@@ -481,38 +493,44 @@ function profileNameFromRel(relPath: string): string {
     return path.basename(relPath, path.extname(relPath)) || 'Firmware';
 }
 
-/** Append/replace the binding for a file (prunes dead entries on write). */
+/** Append/replace the binding for a file (preserves every binBases entry, prunes dead entries). */
 export async function bindFile(root: string, fileKey: string, profileId: string): Promise<void> {
-    const bindingsUri = bindingsJsonUri(root);
-    const read = await readPayloadForWrite(bindingsUri, 'bindings');
-    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
-    const bindings = normalizeBindings(read.status === 'ok' ? withDataEnvelope('bindings', read.payload) : []).value;
-    const without = bindings.filter(b => b.fileKey !== fileKey);
-    const next = [...without, { fileKey, profileId }];
-    const pruned = await pruneBindings(root, next);
-    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', pruned)));
+    await updateBindingTable(root, table => ({
+        ...table,
+        bindings: replaceBinding(table.bindings, fileKey, profileId),
+    }));
 }
 
-/** Remove the binding for a file (silent). */
+function replaceBinding(bindings: Binding[], fileKey: string, profileId: string): Binding[] {
+    return [...bindings.filter(b => b.fileKey !== fileKey), { fileKey, profileId }];
+}
+
+/** Remove the profile binding for a file; the file's raw-binary base (if any) survives. */
 export async function unbindFile(root: string, fileKey: string): Promise<void> {
-    const bindingsUri = bindingsJsonUri(root);
-    const read = await readPayloadForWrite(bindingsUri, 'bindings');
+    const read = await readBindingTableForWrite(root);
     if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
-    if (read.status !== 'ok') { return; }
-    const bindings = normalizeBindings(withDataEnvelope('bindings', read.payload)).value;
-    if (!bindings.some(b => b.fileKey === fileKey)) { return; }
-    const pruned = await pruneBindings(root, bindings.filter(b => b.fileKey !== fileKey));
-    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', pruned)));
+    if (!read.table.bindings.some(b => b.fileKey === fileKey)) { return; }
+    const next = { ...read.table, bindings: read.table.bindings.filter(b => b.fileKey !== fileKey) };
+    await writeBindingTable(root, await pruneBindingTable(root, next));
 }
 
 /** Drop binding entries whose fileKey no longer resolves on disk (CLI mv/rm). */
-export async function pruneBindings(root: string, bindings: ReadonlyArray<{ fileKey: string; profileId: string }>): Promise<Array<{ fileKey: string; profileId: string }>> {
-    const out: Array<{ fileKey: string; profileId: string }> = [];
-    for (const b of bindings) {
-        const uri = vscode.Uri.file(path.join(root, b.fileKey));
+export async function pruneBindings(root: string, bindings: readonly Binding[]): Promise<Binding[]> {
+    return pruneEntriesByFile(root, bindings);
+}
+
+/** Drop raw-base entries whose fileKey no longer resolves on disk (CLI mv/rm). */
+export async function pruneBinBases(root: string, binBases: readonly BinBase[]): Promise<BinBase[]> {
+    return pruneEntriesByFile(root, binBases);
+}
+
+async function pruneEntriesByFile<T extends { fileKey: string }>(root: string, entries: readonly T[]): Promise<T[]> {
+    const out: T[] = [];
+    for (const entry of entries) {
+        const uri = vscode.Uri.file(path.join(root, entry.fileKey));
         try {
             await vscode.workspace.fs.stat(uri);
-            out.push(b);
+            out.push(entry);
         } catch {
             /* file no longer exists → drop */
         }
@@ -690,13 +708,7 @@ function normalizeProfileRecord(raw: unknown, fallback: ProfileRecord): Normaliz
         bitAllocation: bitAllocationOrDefault(candidate.bitAllocation),
         showHiddenFields: showHiddenFieldsOrDefault(candidate.showHiddenFields),
     };
-    assignBaseAddress(value, candidate.baseAddress);
     return { value, changed: JSON.stringify(raw) !== JSON.stringify(value) };
-}
-
-/** Preserve a valid raw-binary base address; invalid/absent values keep the key off the record. */
-function assignBaseAddress(record: ProfileRecord, raw: unknown): void {
-    if (isValidBinBaseAddress(raw)) { record.baseAddress = raw; }
 }
 
 /** Read the profile's instance array. The persisted key is `typeInstances` only:
@@ -971,18 +983,57 @@ export function attachProfileWatcher(options: ProfileWatcherOptions): vscode.Dis
 }
 
 // ── Binding table helpers ─────────────────────────────────────────
+// `bindings.json` carries the profile binding and the independent per-file
+// raw-binary base table. Every writer goes through `writeBindingTable` (or
+// `updateBindingTable`) so a mutation can never drop the sibling array.
 
-export function normalizeBindings(raw: unknown): NormalizedValue<Binding[]> {
+/** Normalize both table arrays from the versioned payload (or a legacy array). */
+export function normalizeBindingTable(raw: unknown): NormalizedValue<BindingTable> {
     // Accept the legacy bare array or the versioned object form; a newer-than-build
-    // payload resolves to [] and carries `newer` (forward-only — never written back).
+    // payload resolves to the empty table and carries `newer` (forward-only).
     const migrated = migrateData(raw, 'bindings');
-    if (migrated.status === 'newer') { return { value: [], changed: false, newer: true }; }
-    const payload = migrated.value.bindings;
-    if (!Array.isArray(payload)) { return { value: [], changed: false }; }
-    const value: Binding[] = payload.map(bindingFromEntry).filter((b): b is Binding => isBinding(b));
-    // Rewrite when the payload differs OR the carrier/version is not yet stamped.
-    const changed = JSON.stringify(raw) !== JSON.stringify(withDataEnvelope('bindings', value));
+    if (migrated.status === 'newer') { return { value: emptyBindingTable(), changed: false, newer: true }; }
+    const value: BindingTable = {
+        bindings: normalizeBindingEntries(migrated.value.bindings),
+        binBases: normalizeBinBaseEntries(plainObject(raw)?.binBases),
+    };
+    const changed = JSON.stringify(raw) !== JSON.stringify(withBindingTableEnvelope(value));
     return { value, changed };
+}
+
+/** Projection for readers that only need the profile bindings. */
+export function normalizeBindings(raw: unknown): NormalizedValue<Binding[]> {
+    const table = normalizeBindingTable(raw);
+    return { value: table.value.bindings, changed: table.changed, newer: table.newer };
+}
+
+/** Canonical data payload: `binBases` is omitted while empty so a table with
+ *  no raw-binary bases stays byte-identical to the pre-feature shape. */
+function withBindingTableEnvelope(table: BindingTable): Record<string, unknown> {
+    const data: Record<string, unknown> = { schemaVersion: DATA_SCHEMA_VERSION, bindings: table.bindings };
+    if (table.binBases.length > 0) { data.binBases = table.binBases; }
+    return data;
+}
+
+function normalizeBindingEntries(raw: unknown): Binding[] {
+    if (!Array.isArray(raw)) { return []; }
+    return dedupeByFileKey(raw.map(bindingFromEntry).filter(isBinding));
+}
+
+function normalizeBinBaseEntries(raw: unknown): BinBase[] {
+    if (!Array.isArray(raw)) { return []; }
+    return dedupeByFileKey(raw.map(binBaseFromEntry).filter(isBinBase));
+}
+
+/** Duplicate `fileKey` entries keep the last value at the first position. */
+function dedupeByFileKey<T extends { fileKey: string }>(entries: T[]): T[] {
+    const order: string[] = [];
+    const byKey = new Map<string, T>();
+    for (const entry of entries) {
+        if (!byKey.has(entry.fileKey)) { order.push(entry.fileKey); }
+        byKey.set(entry.fileKey, entry);
+    }
+    return order.map(key => byKey.get(key)!);
 }
 
 function bindingFromEntry(entry: unknown): Binding | null {
@@ -996,5 +1047,150 @@ function bindingFromEntry(entry: unknown): Binding | null {
 
 function isBinding(b: Binding | null): b is Binding {
     return b !== null && b.fileKey.length > 0 && b.profileId.length > 0;
+}
+
+function binBaseFromEntry(entry: unknown): BinBase | null {
+    const o = plainObject(entry);
+    if (!o) { return null; }
+    return {
+        fileKey: stringOrEmpty(o.fileKey),
+        baseAddress: o.baseAddress as number,
+    };
+}
+
+function isBinBase(entry: BinBase | null): entry is BinBase {
+    return entry !== null && entry.fileKey.length > 0 && isValidBinBaseAddress(entry.baseAddress);
+}
+
+/** Whole table for a read; null when missing/corrupt or newer than this build. */
+export async function readBindingTable(root: string): Promise<BindingTable | null> {
+    const read = await readJson(bindingsJsonUri(root));
+    if (read.status !== 'ok') { return null; }
+    const normalized = normalizeBindingTable(read.value);
+    return normalized.newer ? null : normalized.value;
+}
+
+/** Write both table arrays under the data-schema envelope. */
+export async function writeBindingTable(root: string, table: BindingTable): Promise<void> {
+    const value: BindingTable = {
+        bindings: normalizeBindingEntries(table.bindings),
+        binBases: normalizeBinBaseEntries(table.binBases),
+    };
+    await writeJson(bindingsJsonUri(root), withEnvelope(withBindingTableEnvelope(value)));
+}
+
+/** Forward-only read-modify-write of the whole table. False when a newer file declined it. */
+export async function updateBindingTable(
+    root: string,
+    mutate: (table: BindingTable) => BindingTable,
+): Promise<boolean> {
+    return mutateBindingTable(root, mutate, true);
+}
+
+/**
+ * Upsert one profile binding but never prune dead entries. The one-time
+ * migration binds files recorded in legacy trees that may not exist on disk
+ * yet, so it must not drop them. Preserves every `binBases` entry.
+ */
+export async function writeBindingEntry(root: string, fileKey: string, profileId: string): Promise<boolean> {
+    return mutateBindingTable(
+        root,
+        table => ({ ...table, bindings: replaceBinding(table.bindings, fileKey, profileId) }),
+        false,
+    );
+}
+
+async function mutateBindingTable(
+    root: string,
+    mutate: (table: BindingTable) => BindingTable,
+    prune: boolean,
+): Promise<boolean> {
+    const read = await readBindingTableForWrite(root);
+    if (read.status === 'newer') { return false; }
+    const mutated = mutate(read.table);
+    const next = prune ? await pruneBindingTable(root, mutated) : mutated;
+    await writeBindingTable(root, next);
+    return true;
+}
+
+type BindingTableForWrite = { status: 'ok'; table: BindingTable } | { status: 'newer' };
+
+async function readBindingTableForWrite(root: string): Promise<BindingTableForWrite> {
+    const read = await readJson(bindingsJsonUri(root));
+    if (read.status !== 'ok') { return { status: 'ok', table: emptyBindingTable() }; }
+    const normalized = normalizeBindingTable(read.value);
+    return normalized.newer
+        ? { status: 'newer' }
+        : { status: 'ok', table: normalized.value };
+}
+
+async function pruneBindingTable(root: string, table: BindingTable): Promise<BindingTable> {
+    return {
+        bindings: await pruneBindings(root, table.bindings),
+        binBases: await pruneBinBases(root, table.binBases),
+    };
+}
+
+/** Stored base address for a file; `present` distinguishes an explicit 0 from no entry. */
+export async function readBinBase(root: string, relPath: string): Promise<{ value: number; present: boolean }> {
+    const table = await readBindingTable(root);
+    const match = table?.binBases.find(entry => entry.fileKey === relPath);
+    if (!match) { return { value: DEFAULT_BIN_BASE_ADDRESS, present: false }; }
+    return { value: match.baseAddress, present: true };
+}
+
+/** Upsert one file's base address; an unchanged value performs no write. */
+export async function writeBinBase(root: string, relPath: string, baseAddress: number): Promise<boolean> {
+    if (!isValidBinBaseAddress(baseAddress)) { return false; }
+    const read = await readBindingTableForWrite(root);
+    if (read.status === 'newer') { return false; }   // forward-only: never clobber a newer file
+    return upsertBinBase(root, read.table, relPath, baseAddress);
+}
+
+async function upsertBinBase(root: string, table: BindingTable, relPath: string, baseAddress: number): Promise<boolean> {
+    const current = table.binBases.find(entry => entry.fileKey === relPath);
+    if (current?.baseAddress === baseAddress) { return false; }
+    const next: BindingTable = {
+        ...table,
+        binBases: [...table.binBases.filter(entry => entry.fileKey !== relPath), { fileKey: relPath, baseAddress }],
+    };
+    await writeBindingTable(root, await pruneBindingTable(root, next));
+    return true;
+}
+
+/** Rewrite both `fileKey`s of a renamed file in place (identity-preserving). */
+export function rewriteBindingFileKeys(
+    table: BindingTable,
+    rename: (fileKey: string) => string | null,
+): { table: BindingTable; changed: boolean } {
+    const bindings = mapFileKeys(table.bindings, rename);
+    const binBases = mapFileKeys(table.binBases, rename);
+    const changed = bindings.changed || binBases.changed;
+    return { table: { bindings: bindings.entries, binBases: binBases.entries }, changed };
+}
+
+function mapFileKeys<T extends { fileKey: string }>(
+    entries: T[],
+    rename: (fileKey: string) => string | null,
+): { entries: T[]; changed: boolean } {
+    let changed = false;
+    const mapped = entries.map(entry => {
+        const next = rename(entry.fileKey);
+        if (next === null) { return entry; }
+        changed = true;
+        return { ...entry, fileKey: next };
+    });
+    return { entries: mapped, changed };
+}
+
+/** Drop both entries of deleted files (identity-preserving when nothing matches). */
+export function dropBindingFileKeys(
+    table: BindingTable,
+    deleted: ReadonlySet<string>,
+): { table: BindingTable; changed: boolean } {
+    const bindings = table.bindings.filter(entry => !deleted.has(entry.fileKey));
+    const binBases = table.binBases.filter(entry => !deleted.has(entry.fileKey));
+    const changed = bindings.length !== table.bindings.length || binBases.length !== table.binBases.length;
+    return { table: { bindings, binBases }, changed };
 }
 

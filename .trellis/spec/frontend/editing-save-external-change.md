@@ -10,6 +10,8 @@ Applies to edit mode, `appModel`, `editTransactions`, edit controls, `HexEditorS
 
 External edits to `.hexscope/` profile/pool files do **not** follow the hex-file external-change contract below. They are hosted silently: the profile watcher (`attachProfileWatcher`) → per-slot debounced reload (`JsonStore.scheduleReload`) → re-read + re-normalize → re-broadcast to the webview (`typesExternalChange` / `perFileDataChange` — the latter carries the profile's `activeChecks` slice / `profilesState` for registry changes). No prompt, no lock, no conflict dialog, no repair/discard UI anywhere; the self-write horizon ignores host-issued writes so save/self-heal never re-triggers the watcher. The watcher is attached on **every** session open (bound or not) so external registry edits refresh the open dropdown; for an out-of-workspace open with no `.hexscope/` yet it stays inert (the `RelativePattern` matches nothing until files exist), so no false external-change events can originate from a bare open.
 
+Raw-binary base writes (`binBases` in `bindings.json`) are storage writes, not firmware saves: the profile-bar field commits the table, verifies it, and re-anchors the live buffer in memory. They never rewrite the `.bin` file, and an external edit to `bindings.json` does not re-anchor an open document (reopen or commit the field).
+
 The rest of this spec — the lock/conflict/repair/discard contract — is **unchanged** and applies **only to the firmware document** (the hex/srec file itself).
 
 ### 2. Signatures

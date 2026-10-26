@@ -84,6 +84,6 @@ function renderSideHeads(): void {
 function setSideHead(id: string, label: string, side: DiffSideData): void {
     const el = document.getElementById(id);
     if (!el) { return; }
-    el.innerHTML = renderSideHeadHtml(label, side.format);
+    el.innerHTML = renderSideHeadHtml(label, side.format, side.baseAddress);
     el.title = side.path;
 }

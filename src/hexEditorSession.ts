@@ -9,12 +9,12 @@ import type { ParseResult, MemorySegment, ParseProgress } from './core/parser/ty
 import { hydrateCompactParseResult, type CompactParseResult } from './core/parser/compact';
 import type { SegmentLabel, SerializedRecord, TypeDef, TypeInstance } from './core/types';
 import { buildSplicePlan, isRawBinaryExtension, isTextFormat, RAW_BINARY_WORKER_ERROR, repairChecksums, type HexScopeFormat, type HexScopeTextFormat, type SplicePatch, type SplicePlan } from './core/document';
-import { applyBinEdits, binAddressRangeFits, createBinParseResult, revertBinEdits } from './core/parser/binImage';
+import { applyBinEdits, binAddressRangeFits, createBinParseResult, isValidBinBaseAddress, revertBinEdits } from './core/parser/binImage';
 import { serializeParseResult } from './core/wire';
 import { fileExtension } from './core/pathName';
 import { createExternalChangeGate, sameDocumentSource, type DocumentSource } from './core/documentExternalChange';
 import { runParseJob } from './parse/parseWorkerClient';
-import { promptForBinBaseAddress, resolveOpenBinBaseAddress, saveBinBaseAddress } from './binBaseAddress';
+import { resolveOpenBinBaseAddress, saveBinBaseAddress } from './binBaseAddress';
 import {
     normalizeIntegrityCheckSet,
 } from './core/integrity';
@@ -35,30 +35,33 @@ import {
 import {
     attachProfileWatcher,
     bindFile,
-    bindingsJsonUri,
     boundProfileId,
     collectProfileRecords,
     createBoundProfile,
     createProfileFromName,
+    dropBindingFileKeys,
     emptyProfileRecord,
     migrateAndNormalize,
-    normalizeBindings,
     normalizeProfilesRegistry,
     perFileRelativePath,
     profilesJsonUri,
+    pruneBinBases,
     pruneBindings,
-    readJson,
+    readBindingTable,
     readPayloadForWrite,
     readProfileRecord,
     removeProfileRecord,
     resolveHexScopeRoot,
+    rewriteBindingFileKeys,
     typePoolJsonUri,
     unbindFile,
+    updateBindingTable,
     withDataEnvelope,
     withEnvelope,
+    writeBindingTable,
     writeJson,
     writeProfileRecord,
-    type Binding,
+    type BindingTable,
     type NormalizedValue,
     type ProfileRecord,
     JsonStore,
@@ -361,10 +364,10 @@ async function loadTextDocument(
 }
 
 /**
- * Raw `.bin`: read bytes (no UTF-8 decode), resolve the base address from the
- * bound profile (a stored value opens silently; only a missing or
- * no-longer-fitting one prompts and persists), and map one segment at that
- * base. No record parser and no worker.
+ * Raw `.bin`: read bytes (no UTF-8 decode), resolve the effective per-file base
+ * from `bindings.json` (stored value when it still fits, else `0x00000000`;
+ * never prompts and never writes on open), and map one segment at that base.
+ * No record parser and no worker.
  */
 async function loadBinDocument(
     document: vscode.CustomDocument,
@@ -378,10 +381,10 @@ async function loadBinDocument(
     const bytes = await readBinDocument(document, panel, token, generation, isDisposed);
     if (!bytes) { return null; }
     postProgress('read', 1, 1);
-    // A legacy migration must finish before the first profile write.
+    // A legacy migration must finish before the binding table is read.
     await migrationDone;
     const address = await resolveOpenBinBaseAddress(document.uri, bytes.length);
-    if (address === null || initialLoadCancelled(isDisposed, token)) {
+    if (initialLoadCancelled(isDisposed, token)) {
         panel.dispose();
         return null;
     }
@@ -1632,33 +1635,35 @@ export class HexEditorSession {
                 currentGeneration = pending.generation;
                 pendingExternalReload = null;
             },
-            changeBaseAddress: async () => {
+            setBinBaseAddress: async msg => {
+                const value = msg.value;
+                if (!isValidBinBaseAddress(value)) { return; }
                 const bytes = baseAddressChangeBytes(format, binBytes, pendingExternalReload !== null);
-                if (!bytes) { return; }
-                const next = await promptForBinBaseAddress(document.uri, bytes.length, {
-                    persist: false,
-                    initialValue: baseAddress,
-                    note: 'Existing labels, types, and checks keep their absolute addresses.',
-                });
-                if (next === null || next === baseAddress) { return; }
+                if (!bytes || value === baseAddress) { return; }
                 await enqueuePerFileOp(async () => {
-                    // The prompt can outlive an external change: never re-anchor
-                    // stale bytes, and re-validate the chosen base against the
-                    // bytes currently loaded when a reload was accepted.
+                    // Re-check inside the queue: a reload can land while the
+                    // webview's commit is in flight, and the live bytes are the
+                    // only range worth validating against.
                     const liveBytes = baseAddressChangeBytes(format, binBytes, pendingExternalReload !== null);
                     if (!liveBytes) { return; }
-                    if (!binAddressRangeFits(next, liveBytes.length)) {
+                    if (!binAddressRangeFits(value, liveBytes.length)) {
                         void vscode.window.showWarningMessage(
-                            'HexScope: the raw binary changed while the base address prompt was open; change the base address again.',
+                            'HexScope: the base address does not fit the current file size; the value was not applied.',
                         );
+                        // Re-sync the field with the committed base; the webview
+                        // optimistically displayed the rejected value.
+                        await postInit();
                         return;
                     }
-                    await registryStore?.flush();
-                    await saveBinBaseAddress(document.uri, next);
-                    await registryStore?.load(true);
-                    profileId = await boundProfileId(root, relPath);
-                    baseAddress = next;
-                    parseResult = createBinParseResult(liveBytes, next);
+                    if (value === baseAddress) { return; }
+                    await saveBinBaseAddress(document.uri, value);
+                    // The base is persisted straight into `bindings.json` (not
+                    // through a JsonStore), so stamp the host write here: the
+                    // profile watcher must not replay it as an external registry
+                    // change (that would reload `profiles.json` mid-edit).
+                    markSelfWrite();
+                    baseAddress = value;
+                    parseResult = createBinParseResult(liveBytes, value);
                     currentGeneration = ++generation;
                     await postInit();
                 });
@@ -2018,21 +2023,22 @@ async function listProfiles(root: string): Promise<ProfileSummary[]> {
 
 /** Count bindings pointing at a profile. */
 export async function bindingsUsing(root: string, profileId: string): Promise<Array<{ fileKey: string }>> {
-    const read = await readJson(bindingsJsonUri(root));
-    if (read.status !== 'ok') { return []; }
-    return normalizeBindings(read.value).value.filter(b => b.profileId === profileId).map(b => ({ fileKey: b.fileKey }));
+    const table = await readBindingTable(root);
+    if (!table) { return []; }
+    return table.bindings.filter(b => b.profileId === profileId).map(b => ({ fileKey: b.fileKey }));
 }
 
-/** Delete a registry profile + its bindings (bound files revert to "No Profile").
- *  Exported as a test seam for the binding-clear contract. */
+/** Delete a registry profile + its profile bindings (bound files revert to "No Profile").
+ *  The per-file raw-binary bases are independent and survive. Exported as a test seam. */
 export async function deleteRegistryProfile(root: string, profileId: string): Promise<void> {
     await removeProfileRecord(root, profileId);
-    const bindingsUri = bindingsJsonUri(root);
-    const read = await readPayloadForWrite(bindingsUri, 'bindings');
-    if (read.status === 'ok') {
-        const bindings = normalizeBindings(withDataEnvelope('bindings', read.payload)).value.filter(b => b.profileId !== profileId);
-        await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', bindings)));
-    }
+    // No table (missing/corrupt/newer) means there is no binding to clear; never
+    // fabricate a bindings.json from a profile deletion.
+    if (!(await readBindingTable(root))) { return; }
+    await updateBindingTable(root, table => ({
+        ...table,
+        bindings: table.bindings.filter(b => b.profileId !== profileId),
+    }));
 }
 
 /** Load workspace type pool (from store cache or disk); empty default when absent.
@@ -2197,37 +2203,36 @@ async function revertDeclinedTypeDeletion(
     });
 }
 
-/** Rewrite bindings on workspace rename (silent); remove on delete. */
+/** Rewrite both binding-table keys on workspace rename (silent); prune both on delete. */
 function attachBindingFileLifecycle(root: string): vscode.Disposable {
     const rename = vscode.workspace.onDidRenameFiles(async event => {
-        const bindings = await readBindingsTable(root);
-        if (!bindings) { return; }
-        let changed = false;
-        const next = bindings.map(b => {
-            const match = event.files.find(f => perFileRelativePath(root, f.oldUri) === b.fileKey);
-            if (match) { changed = true; return { ...b, fileKey: perFileRelativePath(root, match.newUri) }; }
-            return b;
-        });
-        if (changed) { await writeJson(bindingsJsonUri(root), withEnvelope(withDataEnvelope('bindings', await pruneBindings(root, next)))); }
+        const table = await readBindingTable(root);
+        if (!table) { return; }
+        const applied = rewriteBindingFileKeys(table, fileKey => renamedFileKey(root, event.files, fileKey));
+        if (applied.changed) { await writePrunedBindingTable(root, applied.table); }
     });
     const del = vscode.workspace.onDidDeleteFiles(async event => {
-        const bindings = await readBindingsTable(root);
-        if (!bindings) { return; }
+        const table = await readBindingTable(root);
+        if (!table) { return; }
         const deleted = new Set(event.files.map(f => perFileRelativePath(root, f)));
-        const next = bindings.filter(b => !deleted.has(b.fileKey));
-        if (next.length !== bindings.length) {
-            await writeJson(bindingsJsonUri(root), withEnvelope(withDataEnvelope('bindings', await pruneBindings(root, next))));
-        }
+        const applied = dropBindingFileKeys(table, deleted);
+        if (applied.changed) { await writePrunedBindingTable(root, applied.table); }
     });
     return new vscode.Disposable(() => { rename.dispose(); del.dispose(); });
 }
 
-/** Read + normalize the bindings table; null when missing/corrupt/never-downgrade. */
-async function readBindingsTable(root: string): Promise<Binding[] | null> {
-    const read = await readJson(bindingsJsonUri(root));
-    if (read.status !== 'ok') { return null; }
-    const normalized = normalizeBindings(read.value);
-    return normalized.newer ? null : normalized.value;
+/** New workspace-relative key for a renamed file, or null when this key did not move. */
+function renamedFileKey(root: string, files: ReadonlyArray<{ oldUri: vscode.Uri; newUri: vscode.Uri }>, fileKey: string): string | null {
+    const match = files.find(file => perFileRelativePath(root, file.oldUri) === fileKey);
+    return match ? perFileRelativePath(root, match.newUri) : null;
+}
+
+/** Persist a rewritten table after dropping entries whose file no longer exists. */
+async function writePrunedBindingTable(root: string, table: BindingTable): Promise<void> {
+    await writeBindingTable(root, {
+        bindings: await pruneBindings(root, table.bindings),
+        binBases: await pruneBinBases(root, table.binBases),
+    });
 }
 
 function getNonce(): string {

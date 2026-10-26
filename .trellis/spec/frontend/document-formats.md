@@ -13,7 +13,7 @@ file text -> detect format -> format parser -> ParseResult
           -> serialized protocol form -> records + mapped segments
 edits -> format serializer -> rewritten data records + recomputed checksums
 
-.bin bytes -> stored profile base / first-open prompt -> createBinParseResult
+.bin bytes -> stored per-file base (bindings.json binBases) or 0 -> createBinParseResult
            -> one contiguous segment -> the same serialized protocol form
 edits -> applyBinEdits -> raw buffer write (no records, no checksums)
 ```
@@ -77,8 +77,8 @@ function revertBinEdits(segment: MemorySegment, previous: ReadonlyArray<[number,
 - Checksum repair changes the final checksum byte of invalid, otherwise parseable records; malformed records remain unchanged.
 - A trailing run of SUB (0x1A) — the legacy EOF marker some toolchains append — is stripped from the source before line splitting (`source.replace(/\u001A+$/, '')`) in the shared record layer, so it never becomes a record. Tolerance is read-only: no diagnostics, `malformedLines` unchanged, serializers keep the original bytes. A 0x1A not in the trailing position (mid-file, inside a record, SUB followed by trailing whitespace) is still a malformed line.
 - **Raw binary**: `createBinParseResult(bytes, baseAddress)` is the only producer. It returns zero records (`CompactRecordStore.fromSerialized([], 0)`), zero checksum/malformed counts, no execution `startAddress`, and one segment `{ startAddress: baseAddress, data: bytes }` when the file is non-empty (zero segments for an empty file). The input `Uint8Array` is kept by identity — no copy.
-- **Raw binary base resolution**: a bound profile's stored `ProfileRecord.baseAddress` (explicit `0` included) is reused silently on editor open and on a bound comparison when `binAddressRangeFits(base, fileSize)` still holds. Only a missing or no-longer-fitting value prompts: the editor open path persists the accepted address (`resolveOpenBinBaseAddress` → `promptForBinBaseAddress` with `persist: true`), while a comparison resolves it in memory and never writes `.hexscope`. The explicit change action persists a new value and rebuilds the parse result at that base; the file bytes and length never change.
-- `parseBinBaseAddress` trims text and accepts an optional `0x`/`0X` prefix with 1–8 hex digits (case-insensitive). It rejects signs, separators, decimal-only conventions, values above `0xFFFFFFFF`, and `base + byteLength > 0x1_0000_0000`. `binAddressRangeFits` is the shared range predicate used by the prompt, the session loader, and the diff worker/reload path.
+- **Raw binary base resolution**: the effective base is the file's stored `binBases` entry (explicit `0` included) when `binAddressRangeFits(base, fileSize)` holds, else `0x00000000`. `effectiveBinBaseAddress` is that one predicate; `resolveOpenBinBaseAddress` and `resolveCompareBinBaseAddress` both return it and never prompt or write `.hexscope`. Only an explicit profile-bar field commit persists a new value (`saveBinBaseAddress` → `writeBinBase`) and rebuilds the parse result at that base; the file bytes and length never change, and no profile/binding is created.
+- `parseBinBaseAddress` trims text and accepts an optional `0x`/`0X` prefix with 1–8 hex digits (case-insensitive). It rejects signs, separators, decimal-only conventions, values above `0xFFFFFFFF`, and `base + byteLength > 0x1_0000_0000`. `binAddressRangeFits` is the shared range predicate used by the field validation, the session loader, and the diff worker/reload path.
 - `applyBinEdits` writes only integer byte values (`0..255`) at addresses inside the segment, records the prior bytes, and reports the applied pairs. Unmapped, non-integer, or out-of-range values are ignored; the segment length never changes. `revertBinEdits` restores exactly the recorded prior bytes after a failed write.
 - `.bin` files never use `buildSplicePlan`, `spliceEditedLines`, `repairChecksums`, or the record serializers. HEX/SREC save and repair behavior is unchanged.
 
@@ -97,9 +97,9 @@ function revertBinEdits(segment: MemorySegment, previous: ReadonlyArray<[number,
 | SREC count smaller than address + checksum | Malformed error. |
 | Address gap | New segment, never zero-fill. |
 | Edit address not owned by valid data record | Leave source unchanged at that address. |
-| `.bin` file | Raw bytes; one segment at the profile base; zero records/checksum/malformed counts. |
-| Empty `.bin` file | Zero segments, zero bytes; the editor opens at the chosen base. |
-| Base address + file size overflows `0xFFFFFFFF` | Rejected by `binAddressRangeFits`; prompt blocks acceptance. |
+| `.bin` file | Raw bytes; one segment at the effective per-file base (stored when it fits, else 0); zero records/checksum/malformed counts. |
+| Empty `.bin` file | Zero segments, zero bytes; the editor opens at the effective base. |
+| Base address + file size overflows `0xFFFFFFFF` | Stored value is ignored and the image maps at 0; field input is rejected with an inline error. |
 | Bin edit at an unmapped address | Ignored by `applyBinEdits`; never grows the file. |
 
 ### 5. Good/Base/Bad Cases

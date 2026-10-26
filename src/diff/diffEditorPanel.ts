@@ -178,15 +178,14 @@ export class DiffEditorPanel {
             resources.add(watcher);
         }
 
-        /** Resolve one raw-binary side's base (bound profile, else comparison-only prompt). */
+        /** Resolve one raw-binary side's base (stored per-file value or 0; never prompts). */
         const resolveSideBase = async (
             side: DiffSideKey,
             uri: vscode.Uri,
             byteLength: number,
-        ): Promise<number | undefined | null> => {
+        ): Promise<number | undefined> => {
             if (!isRawBinaryExtension(fileExtension(uri))) { return undefined; }
             const base = await resolveCompareBinBaseAddress(uri, byteLength);
-            if (base === null) { return null; }
             baseAddresses[side] = base;
             return base;
         };
@@ -224,28 +223,18 @@ function repairableErrorUri(uri: vscode.Uri | null, disposed: boolean): vscode.U
     return uri;
 }
 
-/** Cancelling a base prompt disposes the panel; any other failure posts the error card. */
+/** Any load failure posts the error card (there is no prompt to cancel). */
 async function handleDiffLoadFailure(
     panel: vscode.WebviewPanel,
     generation: number,
     error: unknown,
     controller: AbortController,
 ): Promise<void> {
-    if (error instanceof DiffComparisonCancelled) {
-        // A cancelled base-address prompt leaves no partially loaded diff.
-        panel.dispose();
-        return;
-    }
     controller.abort();
     await DiffEditorPanel.post(panel, { type: 'diffError', generation, message: diffErrorMessage(error) });
 }
 
-/** Thrown when a raw-binary base prompt is cancelled; the panel is disposed instead of left loading. */
-class DiffComparisonCancelled extends Error {
-    constructor() { super('Compare cancelled'); }
-}
-
-type ResolveSideBase = (side: DiffSideKey, uri: vscode.Uri, byteLength: number) => Promise<number | undefined | null>;
+type ResolveSideBase = (side: DiffSideKey, uri: vscode.Uri, byteLength: number) => Promise<number | undefined>;
 
 /** Read + parse one side (no progress reporting; used by the reload path). */
 async function readAndParseSide(uri: vscode.Uri, signal: AbortSignal, baseAddress?: number): Promise<ParsedDiffFile> {
@@ -295,7 +284,7 @@ async function loadBothSides(
     fractions[1] = READ_SHARE;
     report();
     if (isStale()) { return null; }
-    const [baseAddress, otherAddress] = await resolveBasesInOrder(
+    const [baseAddress, otherAddress] = await resolveBases(
         baseUri, otherUri, baseBytes.length, otherBytes.length, resolveSideBase,
     );
     if (isStale()) { return null; }
@@ -310,19 +299,18 @@ async function loadBothSides(
     return loaded;
 }
 
-/** Sequential prompts so two unbound raw sides never open overlapping input boxes. */
-async function resolveBasesInOrder(
+/** Resolve each raw side's base concurrently; prompt-free, so ordering no longer matters. */
+async function resolveBases(
     baseUri: vscode.Uri,
     otherUri: vscode.Uri,
     baseLength: number,
     otherLength: number,
     resolveSideBase: ResolveSideBase,
 ): Promise<[number | undefined, number | undefined]> {
-    const baseAddress = await resolveSideBase('a', baseUri, baseLength);
-    if (baseAddress === null) { throw new DiffComparisonCancelled(); }
-    const otherAddress = await resolveSideBase('b', otherUri, otherLength);
-    if (otherAddress === null) { throw new DiffComparisonCancelled(); }
-    return [baseAddress, otherAddress];
+    return Promise.all([
+        resolveSideBase('a', baseUri, baseLength),
+        resolveSideBase('b', otherUri, otherLength),
+    ]);
 }
 
 async function parseSideWithProgress(

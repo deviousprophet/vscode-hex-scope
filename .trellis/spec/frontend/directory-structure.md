@@ -19,7 +19,7 @@ src/
 ├── hexEditorSession.ts       per-provider document/session orchestration (3 profile stores, watcher)
 ├── hexScopeStorage.ts        .hexscope/ firmware-profile I/O + per-slot JsonStore (host adapter, no Memento)
 ├── hexScopeMigration.ts      one-time legacy Memento → profile transfer
-├── binBaseAddress.ts         raw-image profile base read/persist + input-box prompt (editor + diff)
+├── binBaseAddress.ts         per-file raw-image base resolution/persist (bindings.json binBases; editor + diff)
 ├── webviewProtocol.ts        typed extension-host <-> webview seam (single-file editor)
 ├── diffProtocol.ts           typed diff-panel <-> diff-webview seam (second cross-runtime union)
 ├── diff/                     second editor surface (read-only compare); does not reuse HexEditorSession
@@ -53,6 +53,7 @@ src/
 └── webview/
     ├── hexViewer.ts          single-file composition root and DOM effect wiring
     ├── diffViewer.ts         diff composition root (isolated bundle; no single-file shell)
+    ├── binBaseField.ts       profile-bar raw-binary base field (+ binBaseField.css)
     ├── appModel.ts           authoritative UI model transitions
     ├── utils.ts              shared webview pure helpers (esc, formatting, `loadingProgressLabel` card label)
     ├── state.ts              state shape/defaults only

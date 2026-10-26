@@ -66,6 +66,7 @@ function side(
     segments: MemorySegment[],
     path = `/files/${name}`,
     format: DiffSide['format'] = 'ihex',
+    baseAddress?: number,
 ): DiffSide {
     return {
         name,
@@ -80,6 +81,7 @@ function side(
             totalDataBytes: segments.reduce((sum, item) => sum + item.data.length, 0),
             checksumErrors: 0,
             malformedLines: 0,
+            baseAddress,
             format,
         },
         labels: [],
@@ -825,17 +827,27 @@ suite('HexScope Diff webview', () => {
         assert.ok(/\.fmt-pill\s*\{/.test(baseCss), 'shared format pill utility');
     });
 
-    test('side heads render the name plus the shared format pill and no separator', () => {
+    test('side heads render the name, the shared format pill, and a raw-binary base', () => {
         const html = renderSideHeadHtml('firmware.hex', 'srec');
         assert.ok(html.includes('fmt-pill'), 'uses the shared pill class');
         assert.ok(html.includes('>SREC<'), 'format label rendered');
         assert.ok(!html.includes('·'), 'no separator between name and format');
         assert.ok(html.startsWith('firmware.hex '), 'name precedes the pill');
         assert.ok(renderSideHeadHtml('a<b.hex', 'ihex').includes('a&lt;b.hex'), 'label escaped');
-        const bin = renderSideHeadHtml('firmware.bin', 'bin');
+        const bin = renderSideHeadHtml('firmware.bin', 'bin', 0x08000000);
         assert.ok(bin.includes('>BIN<'), 'raw binaries render the BIN pill');
+        assert.ok(bin.includes('Base 0x08000000'), 'the effective base is visible in the side head');
+        assert.ok(!renderSideHeadHtml('firmware.hex', 'ihex').includes('Base '), 'text sides show no base');
+        assert.ok(renderSideHeadHtml('firmware.bin', 'bin').includes('Base 0x00000000'), 'a missing base defaults to 0');
         const css = fs.readFileSync(path.resolve(__dirname, '../../../src/webview/styles/base.css'), 'utf8');
         assert.ok(/\.fmt-pill\s*\{/.test(css), '.fmt-pill lives in base.css');
+    });
+
+    test('hydrating a raw side carries its wire base address', () => {
+        const hydrated = hydrateDiffSide(side('a.bin', [seg(0x08000000, [0x01])], '/files/a.bin', 'bin', 0x08000000));
+        assert.strictEqual(hydrated.baseAddress, 0x08000000);
+        assert.strictEqual(hydrated.parseResult.baseAddress, 0x08000000);
+        assert.strictEqual(hydrateDiffSide(side('a.hex', [seg(0, [0x01])])).baseAddress, undefined);
     });
 
     test('accepts a raw-binary side in diffInit', () => {

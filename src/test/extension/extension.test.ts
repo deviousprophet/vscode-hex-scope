@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import {
     COMPARE_SELECT_HINT,
     COMPARE_TWO_HINT,
+    FOCUS_BIN_BASE_MESSAGE,
     NO_BIN_PANEL_MESSAGE,
     requestBinBaseAddressChange,
     runCompare,
@@ -115,8 +116,8 @@ suite('HexScope Extension', () => {
         }
         assert.deepStrictEqual(
             submenuItems(ext).filter(item => item.group === 'navigation').map(item => item.command).sort(),
-            ['hexScope.openInHexScope', 'hexScope.quickRepair', 'hexScope.setBinBaseAddress'],
-            'navigation keeps Open with HexScope / Quick Repair / Set Raw Binary Base Address',
+            ['hexScope.openInHexScope', 'hexScope.quickRepair'],
+            'navigation keeps only Open with HexScope / Quick Repair',
         );
     });
 
@@ -155,7 +156,7 @@ suite('HexScope Extension', () => {
         assert.match(quickRepair.when ?? '', /resourceLangId =~ \/\^\(intel-hex\|srec\)\$\//);
     });
 
-    test('setBinBaseAddress is contributed for .bin inside the HexScope editor only', async () => {
+    test('setBinBaseAddress is a palette command, absent from the HexScope submenu', async () => {
         const ext = await getActivatedExtension();
         const commands = ext.packageJSON.contributes.commands as Array<{ command: string; title: string; category?: string }>;
         const entry = commands.find(command => command.command === 'hexScope.setBinBaseAddress');
@@ -164,16 +165,19 @@ suite('HexScope Extension', () => {
         assert.strictEqual(entry.category, 'HexScope');
 
         const item = submenuItems(ext).find(menuItem => menuItem.command === 'hexScope.setBinBaseAddress');
-        assert.ok(item, 'the submenu item is contributed');
-        assert.match(item.when ?? '', /resourceExtname =~ \/\\\.bin\$\/i/, 'only raw binaries');
-        assert.ok(
-            (item.when ?? '').includes("activeCustomEditorId == 'hexScope.hexEditor'"),
-            'only while the HexScope editor is active',
-        );
+        assert.strictEqual(item, undefined, 'the command is not listed in the HexScope submenu');
+        const menus = ext.packageJSON.contributes.menus as Record<string, MenuItem[]>;
+        for (const [point, items] of Object.entries(menus)) {
+            assert.ok(
+                !items.some(menuItem => menuItem.command === 'hexScope.setBinBaseAddress'),
+                `the command is palette-only (not at ${point})`,
+            );
+        }
     });
 
-    test('the base-address command reports when no HexScope panel is active', () => {
+    test('the base-address command focuses the active field and reports when no panel is open', () => {
         const infos: string[] = [];
+        assert.strictEqual(FOCUS_BIN_BASE_MESSAGE.type, 'focusBinBaseAddress');
 
         assert.strictEqual(requestBinBaseAddressChange(() => false, message => infos.push(message)), false);
         assert.deepStrictEqual(infos, [NO_BIN_PANEL_MESSAGE]);
@@ -184,7 +188,7 @@ suite('HexScope Extension', () => {
         assert.strictEqual(delivered, 1);
         assert.deepStrictEqual(infos, [], 'a delivered request needs no fallback message');
         assert.strictEqual(
-            HexEditorProvider.postToActive({ type: 'requestBaseAddressChange' }),
+            HexEditorProvider.postToActive(FOCUS_BIN_BASE_MESSAGE),
             false,
             'no panel means no delivery',
         );

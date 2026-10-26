@@ -66,15 +66,15 @@ function valueSpan(value: string, valueClass: string): HTMLSpanElement {
     return valueEl;
 }
 
-/** The Base value is focusable and opens the change-base flow. */
+/** The Base value is focusable and focuses the profile-bar field. */
 function baseValueButton(value: string, valueClass: string, onClick: () => void): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
     button.id = 'stats-base-change';
     button.className = valueClass ? `svl ${valueClass} base-change` : 'svl base-change';
     button.textContent = value;
-    button.title = 'Set raw binary base address';
-    button.setAttribute('aria-label', `Set raw binary base address (currently ${value})`);
+    button.title = 'Edit raw binary base address';
+    button.setAttribute('aria-label', `Edit raw binary base address (currently ${value})`);
     button.addEventListener('click', onClick);
     return button;
 }

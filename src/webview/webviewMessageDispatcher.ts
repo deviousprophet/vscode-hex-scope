@@ -34,7 +34,7 @@ const PROVIDER_MESSAGE_TYPES: readonly ProviderMessageType[] = [
     'scriptSaveFailed',
     'activateScriptsTab',
     'activateProfilePicker',
-    'requestBaseAddressChange',
+    'focusBinBaseAddress',
 ];
 
 const PROVIDER_MESSAGE_TYPE_SET = new Set<string>(PROVIDER_MESSAGE_TYPES);

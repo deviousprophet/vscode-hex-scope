@@ -24,7 +24,7 @@ Current `BPR` default/contract is 16.
 ### 3. Contracts
 
 - Segment index is sorted ascending and stores inclusive `startAddr`/`endAddr` plus the source segment `offset`.
-- Raw `.bin` images are one contiguous segment at the profile base address; there are no records, so the Records tab/view is unavailable and the toolbar forces Memory. Stats show `BIN`, the segment base, bytes, and segment count (no record count); the Base value is an actionable `#stats-base-change` button that opens the explicit change-base flow (stored values otherwise reopen silently). Every byte consumer reads the same hydrated segment as HEX/SREC — no format branch in the memory grid, search, inspector, overlay, integrity, or scripts.
+- Raw `.bin` images are one contiguous segment at the effective per-file base (`bindings.json` `binBases`, or `0x00000000`); there are no records, so the Records tab/view is unavailable and the toolbar forces Memory. Stats show `BIN`, the segment base, bytes, and segment count (no record count); the Base value is an actionable `#stats-base-change` button that focuses the editable profile-bar Base field, and stored values otherwise reopen silently. Every byte consumer reads the same hydrated segment as HEX/SREC — no format branch in the memory grid, search, inspector, overlay, integrity, or scripts.
 - Byte lookup checks pending edits first, then mapped segment data; unmapped bytes return `undefined`.
 - Memory data rows are BPR-aligned. Gaps become explicit gap rows; never allocate rows for every missing address.
 - Memory view virtualizes visible rows plus buffer and caps physical scroll height for large logical ranges.

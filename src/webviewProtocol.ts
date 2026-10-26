@@ -164,7 +164,8 @@ export type ProviderToWebviewMessage =
     | { type: 'scriptWritesCommit'; scriptPath: string; writes: Array<[number, number]> }
     | { type: 'activateScriptsTab' }
     | { type: 'activateProfilePicker' }
-    | { type: 'requestBaseAddressChange' };
+    /** Focus (and select) the raw-binary base field in the profile bar. */
+    | { type: 'focusBinBaseAddress' };
 
 export type WebviewToProviderMessage =
     | { type: 'ready' }
@@ -245,8 +246,8 @@ export type WebviewToProviderMessage =
     | { type: 'createScript'; template?: ScriptTemplateId }
     /** Reveal `.hexscope/scripts` (empty provider pickers). */
     | { type: 'openScriptsFolder' }
-    /** Change and persist the open raw binary's base address (webview guard first). */
-    | { type: 'changeBaseAddress' };
+    /** Commit a raw binary's per-file base address (validated by the webview field + host). */
+    | { type: 'setBinBaseAddress'; value: number };
 
 export function messageType(message: unknown): string | undefined {
     return typeof (message as { type?: unknown })?.type === 'string'

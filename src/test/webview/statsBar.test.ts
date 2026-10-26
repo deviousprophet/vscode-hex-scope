@@ -57,7 +57,7 @@ suite('webview stats bar', () => {
         assert.deepStrictEqual(stats(currentDom), ['BIN', 'Base=0x08000000', 'Bytes=1.0 KB', 'Segments=1']);
     });
 
-    test('the raw-binary Base value is a change button wired to the callback', () => {
+    test('the raw-binary Base value is a focus button wired to the callback', () => {
         currentDom = installDom();
         let clicks = 0;
         renderStats(parseResult('bin', 16), () => { clicks += 1; });
@@ -68,6 +68,8 @@ suite('webview stats bar', () => {
         assert.strictEqual(button.getAttribute('type'), 'button');
         assert.strictEqual(button.className, 'svl base-change');
         assert.strictEqual(button.textContent, '0x08000000');
+        assert.strictEqual(button.title, 'Edit raw binary base address', 'the stat focuses the profile-bar field');
+        assert.strictEqual(button.getAttribute('aria-label'), 'Edit raw binary base address (currently 0x08000000)');
         button.dispatchEvent(new currentDom.window.MouseEvent('click', { bubbles: true }));
         assert.strictEqual(clicks, 1);
         assert.deepStrictEqual(stats(currentDom), ['BIN', 'Base=0x08000000', 'Bytes=16 B', 'Segments=1']);

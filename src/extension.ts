@@ -20,10 +20,13 @@ export const COMPARE_TWO_HINT = 'Select exactly two firmware files';
 export const NO_BIN_PANEL_MESSAGE =
     'HexScope: open a raw binary in the HexScope viewer to change its base address.';
 
+/** Palette entry point: focus the open raw binary's profile-bar base field. */
+export const FOCUS_BIN_BASE_MESSAGE = { type: 'focusBinBaseAddress' } as const;
+
 /**
- * `Set Raw Binary Base Address`: ask the active HexScope panel to start its
- * change flow. With no panel, tell the user what to open instead of failing
- * silently. Returns whether a panel received the request.
+ * `Set Raw Binary Base Address`: ask the active HexScope panel to focus its
+ * profile-bar base field. With no panel, tell the user what to open instead of
+ * failing silently. Returns whether a panel received the request.
  */
 export function requestBinBaseAddressChange(deliver: () => boolean, info: (message: string) => void): boolean {
     if (deliver()) { return true; }
@@ -144,7 +147,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('hexScope.setBinBaseAddress', () => {
             requestBinBaseAddressChange(
-                () => HexEditorProvider.postToActive({ type: 'requestBaseAddressChange' }),
+                () => HexEditorProvider.postToActive(FOCUS_BIN_BASE_MESSAGE),
                 message => { void vscode.window.showInformationMessage(message); },
             );
         })

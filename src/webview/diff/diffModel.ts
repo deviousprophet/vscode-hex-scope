@@ -3,6 +3,7 @@ import type { DiffSide } from '../../diffProtocol';
 import type { HexScopeFormat } from '../../core/document';
 import { buildSegmentIndex, getByteAt, type SegmentIndexEntry } from '../../core/memory';
 import type { SegmentLabel, SerializedParseResult } from '../../core/types';
+import { formatBinBaseAddress } from '../../core/parser/binImage';
 import { BYTES_PER_ROW } from '../components/hexView/hexViewRender';
 import { esc } from '../utils';
 
@@ -13,6 +14,8 @@ export interface DiffSideData {
     parseResult: Omit<SerializedParseResult, 'records'>;
     segmentIndex: SegmentIndexEntry[];
     labels: SegmentLabel[];
+    /** Raw-binary memory-map base captured at load; absent for text sides. */
+    baseAddress?: number;
 }
 
 export interface DiffRow {
@@ -34,6 +37,7 @@ export function hydrateDiffSide(side: DiffSide): DiffSideData {
         checksumErrors: side.parseResult.checksumErrors,
         malformedLines: side.parseResult.malformedLines,
         startAddress: side.parseResult.startAddress,
+        baseAddress: side.parseResult.baseAddress,
         format: side.parseResult.format,
     };
     return {
@@ -43,6 +47,7 @@ export function hydrateDiffSide(side: DiffSide): DiffSideData {
         parseResult,
         segmentIndex: buildSegmentIndex(parseResult),
         labels: side.labels,
+        baseAddress: parseResult.baseAddress,
     };
 }
 
@@ -127,6 +132,9 @@ export function renderDiffErrorHtml(message: string): string {
 }
 
 /** Side head: file label plus the shared format pill (no separator). */
-export function renderSideHeadHtml(label: string, format: HexScopeFormat): string {
-    return `${esc(label)} <span class="fmt-pill">${format.toUpperCase()}</span>`;
+export function renderSideHeadHtml(label: string, format: HexScopeFormat, baseAddress?: number): string {
+    const base = format === 'bin'
+        ? ` <span class="diff-side-base">Base ${esc(formatBinBaseAddress(baseAddress ?? 0))}</span>`
+        : '';
+    return `${esc(label)} <span class="fmt-pill">${format.toUpperCase()}</span>${base}`;
 }

@@ -259,11 +259,6 @@
           "command": "hexScope.quickRepair",
           "when": "resourceLangId =~ /^(intel-hex|srec)$/",
           "group": "navigation"
-        },
-        {
-          "command": "hexScope.setBinBaseAddress",
-          "when": "resourceExtname =~ /\\.bin$/i && activeCustomEditorId == 'hexScope.hexEditor'",
-          "group": "navigation"
         }
       ]
     },

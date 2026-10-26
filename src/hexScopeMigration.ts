@@ -19,13 +19,11 @@ import { normalizeTypeDefsValue } from './core/overlay/overlayNormalization';
 import { aliasLegacyProfileRecord, aliasLegacyTypeDefs, aliasLegacyTypeInstance } from './core/overlay/overlayAliases';
 import type { TypeDef } from './core/types';
 import {
-    bindingsJsonUri,
     collectProfileRecords,
     emptyProfileRecord,
     migrateLegacyProfileDirs,
     migratedPayload,
     nextProfileOrdinal,
-    normalizeBindings,
     perFileRelativePath,
     readDirectorySafe,
     readJson,
@@ -34,6 +32,7 @@ import {
     typePoolJsonUri,
     withDataEnvelope,
     withEnvelope,
+    writeBindingEntry,
     writeJson,
     writeProfileRecord,
     type JsonRead,
@@ -257,25 +256,31 @@ async function migrateLegacyEntry(root: string, name: string, dir: string): Prom
 
     // (b) integrity.json template registry → activeChecks seeds.
     const legacyProfiles = await readLegacyIntegrityProfiles(dir);
-
-    // Build one registry profile from the legacy index data (and preserve
-    // the legacy integrity template registry by folding its first profile's
-    // checks into activeChecks when the index had none).
     const profileId = await ensureProfileLegacy(root, index, legacyProfiles, name);
 
-    // Binding: fileKey → profileId.
-    await bindFile(root, index.relPath, profileId);
-
-    // Remaining integrity templates become unbound registry profiles so no
-    // preset checks are lost (the dropdown can re-select them).
-    const extras = extraTemplates(index, legacyProfiles);
-    if (extras.length > 0) {
-        await migrateIntegrityTemplates(root, undefined, extras);
-    }
+    await seedLegacyBinding(root, index, profileId);
+    await migrateExtraTemplates(root, index, legacyProfiles);
 
     // Mark this dir converted (before index jiggles could reorder); the tree
     // itself stays on disk for revert safety.
     await markConverted(markerUri);
+}
+
+/** Binding: fileKey → profileId (skipped for a legacy index with no path). */
+async function seedLegacyBinding(root: string, index: ProfileIndexData, profileId: string): Promise<void> {
+    if (!index.relPath) { return; }
+    await writeBindingEntry(root, index.relPath, profileId);
+}
+
+/** Remaining integrity templates become unbound registry profiles so no preset checks are lost. */
+async function migrateExtraTemplates(
+    root: string,
+    index: ProfileIndexData,
+    legacyProfiles: IntegrityProfileVal[],
+): Promise<void> {
+    const extras = extraTemplates(index, legacyProfiles);
+    if (extras.length === 0) { return; }
+    await migrateIntegrityTemplates(root, undefined, extras);
 }
 
 /** Write a `.converted` marker; marker-write failures never block migration. */
@@ -342,18 +347,6 @@ function legacyActiveChecks(profiles: IntegrityProfileVal[]): IntegrityCheckVal 
     return { schemaVersion: 1, checks: profiles[0].checks as unknown[] };
 }
 
-/** Rewrite bindings entry for a fileKey; prune dead entries on the way. */
-async function bindFile(root: string, fileKey: string, profileId: string): Promise<void> {
-    if (!fileKey) { return; }
-    const bindingsUri = bindingsJsonUri(root);
-    const read = await readPayloadForWrite(bindingsUri, 'bindings');
-    if (read.status === 'newer') { return; }   // forward-only: never clobber a newer file
-    const current = read.status === 'ok' ? normalizeBindings(withDataEnvelope('bindings', read.payload)).value : [];
-    const without = current.filter(b => b.fileKey !== fileKey);
-    const next = [...without, { fileKey, profileId }];
-    await writeJson(bindingsUri, withEnvelope(withDataEnvelope('bindings', normalizeBindings(next).value)));
-}
-
 function profileNameFromIndex(index: ProfileIndexData, sourceDirName: string): string {
     return index.relPath ? path.basename(index.relPath, path.extname(index.relPath)) : sourceDirName;
 }
@@ -410,7 +403,7 @@ async function seedOpenDocFromMemento(root: string, relPath: string, uri: vscode
     await writeProfileRecord(root, seed);
 
     // Bind the open doc.
-    await bindFile(root, relPath, profileId);
+    await writeBindingEntry(root, relPath, profileId);
 }
 
 /** Merge Memento era type sources (global v2/v1 + per-file) deduped. */

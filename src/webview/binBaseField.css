@@ -1,0 +1,23 @@
+/* ── Raw-binary base-address field (profile bar) ──────────────── */
+.bin-base-field {
+    display: flex; align-items: center; gap: 6px;
+    flex-shrink: 0; white-space: nowrap;
+}
+.bin-base-field[hidden] { display: none; }
+
+.base-input {
+    width: 92px; height: 22px;
+    font-family: var(--font-editor); font-size: 11px;
+    background: var(--input-bg); color: var(--input-fg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    padding: 0 4px;
+}
+.base-input:focus { border-color: var(--focus-bdr); outline: none; }
+.base-input[aria-invalid='true'] { border-color: #f48771; }
+.base-input:disabled { opacity: .5; }
+
+.base-field-error {
+    font-size: 10px; color: #f48771; font-family: var(--font-ui);
+    white-space: nowrap;
+}
+.base-field-error[hidden] { display: none; }

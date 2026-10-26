@@ -6,8 +6,9 @@
 - `src/core/document.ts`: `HexScopeTextFormat` / `HexScopeFormat` (`'ihex' | 'srec' | 'bin'`) plus `isTextFormat` / `isRawBinaryExtension`; the widened format propagates to `SerializedParseResult` / `WireParseResult` and the diff protocol.
 - `src/core/parser/binImage.ts`: raw-image base-address parsing/validation (`isValidBinBaseAddress`, `binAddressRangeFits`), formatting, parse-result construction (including the optional `baseAddress` carried through compact/wire serialization), and edit application/revert.
 - `src/core/types.ts`: hydrated webview records/segments, `WireParseResult` binary boundary types, labels, search, memory rows, and overlay types.
-- `src/webviewProtocol.ts`: exhaustive cross-runtime message unions (single-file editor), including the base-address change pair (`requestBaseAddressChange` host→webview, `changeBaseAddress` webview→host).
-- `src/webview/baseAddressChange.ts`: `baseAddressChangeRefusal(state)` — the shared webview guard (toast text or null) used by the Base stat and the command-driven request.
+- `src/webviewProtocol.ts`: exhaustive cross-runtime message unions (single-file editor), including the base-field pair (`focusBinBaseAddress` host→webview, `setBinBaseAddress { value }` webview→host).
+- `src/webview/baseAddressChange.ts`: `baseAddressChangeRefusal(state)` (toast text or null) and `baseAddressFieldState(state)` (visible/disabled/tooltip) — the shared webview guards used by the field and the Base stat/command focus path.
+- `src/hexScopeStorage.ts`: `BinBase` / `BindingTable` (the `bindings.json` payload: profile bindings plus per-file raw-binary bases).
 - `src/diffProtocol.ts`: the diff panel's own host↔webview union + `diffMessageType`/`diffCopyText` parsers.
 - Feature core modules own feature-specific unions/results: `IntegrityValidation<T>`, `SearchMode`, `PointerDerefTarget`, and overlay parse results.
 
@@ -38,7 +39,7 @@ Callers must branch on `ok`; do not throw for user-correctable input.
 
 - Every message has a literal `type` discriminator.
 - Add new message fields to the owning union, host sender/handler, webview dispatcher/applier, and tests in one change.
-- A base-address change is requested only after the webview guard passes; the host re-checks format/bytes/pending reload before prompting. `requestBaseAddressChange` is passive in `webviewMessageModel`, and `postToActive` returns whether a panel received the request.
+- A base-address commit is validated in the field (`parseBinBaseAddress`), then re-validated by the host (format, live bytes, range, pending reload) before `writeBinBase`. `focusBinBaseAddress` is passive in `webviewMessageModel`, and `postToActive` returns whether a panel received the request.
 - Provider messages use exact `ArrayBuffer` segment payloads. `appModel.ts` is the single hydration boundary that wraps them in `Uint8Array`; browser feature code consumes only hydrated segments.
 - Record-page request counts and 512-record alignment are validated by the host; responses and document summaries carry one generation owner.
 - Unknown/malformed message types are ignored by `dispatchProviderMessage`, not cast and executed.
@@ -46,7 +47,7 @@ Callers must branch on `ok`; do not throw for user-correctable input.
 ## Numeric and Address Rules
 
 - Firmware addresses are unsigned 32-bit numbers unless a format-specific parser is working with its raw address field.
-- Raw-binary base addresses are validated once at the boundary: `isValidBinBaseAddress` accepts integer `0..0xFFFFFFFF`; `binAddressRangeFits(baseAddress, byteLength)` additionally requires `base + byteLength <= 0x1_0000_0000`. `ProfileRecord.baseAddress` is normalized through the same predicate, so persisted and prompted values share one rule.
+- Raw-binary base addresses are validated once at the persistence boundary: `isValidBinBaseAddress` accepts integer `0..0xFFFFFFFF`; `binAddressRangeFits(baseAddress, byteLength)` additionally requires `base + byteLength <= 0x1_0000_0000`. `normalizeBindingTable` drops invalid `binBases` entries through the same predicate, so persisted and field-committed values share one rule; the effective open/compare base uses the same range check.
 - Validate user address input as full hexadecimal and check range before bitwise operations.
 - Preserve `bigint` for 64-bit display/decode where precision matters.
 - Selection and integrity ranges are inclusive.

@@ -54,18 +54,18 @@ TypeScript or JavaScript scripts in `.hexscope/scripts/` read/write hex data (wr
 | Motorola SREC | `.srec`, `.mot`, `.s19`, `.s28`, `.s37` |
 | Raw binary | `.bin` |
 
-Raw binary files have no embedded addresses. Open one with **Open with HexScope Viewer**; the first open asks for the hexadecimal base address where byte 0 maps (for example `0x08000000`) and stores it on the bound `.hexscope` profile. Later opens reuse the stored value silently while it still fits the file (a grown file re-prompts). Change it any time from the **Base** stat in the stats bar or with **Set Raw Binary Base Address** — the profile is updated and the open grid re-anchors without rewriting the file. Files bound to the same profile share one memory map — duplicate the profile when you need a different base address. Closing the first-open prompt cancels the open; comparison-only base addresses are never written to `.hexscope`.
+Raw binary files have no embedded addresses. Open one with **Open with HexScope Viewer**: it maps at its stored per-file base address, or `0x00000000` when none is stored. Opening never prompts and never writes `.hexscope`. For `.bin` files the profile bar shows an editable **Base** field; enter the hexadecimal address where byte 0 maps (for example `0x08000000`) and press Enter or leave the field. The value is stored per file in `.hexscope/bindings.json`, independent of the annotation profile, so the file stays **No Profile** until you pick one and switching, duplicating, or deleting a profile never changes the base. The base field is disabled while edits are unsaved or an external change is unresolved. A stored value that no longer fits a grown file maps at `0x00000000` until you commit a new one. The **Base** stat and the **Set Raw Binary Base Address** palette command both focus the field; the command is not listed in the HexScope submenu. The open grid re-anchors without rewriting the file, and comparison/diff never writes `.hexscope`.
 
 ## Quick usage
 
 | Action | How |
 |---|---|
-| Open | Right-click a supported file → **Open with HexScope Viewer** (a `.bin` prompts for its base address on first open, then reuses the stored value) |
+| Open | Right-click a supported file → **Open with HexScope Viewer** (a `.bin` opens at its stored per-file base, else `0x00000000`) |
 | Views | Toolbar: **Memory** or **Records** (`Records` is hidden for raw binaries) |
 | Search | `Ctrl+F`/`Cmd+F` — byte sequence, numeric value (Auto/LE/BE), ASCII string, or address |
 | Edit | Click **Edit**, click a byte and type a hex value; right-click for batch fill; **Save** writes changes and recomputes checksums (raw `.bin` saves only the bytes) |
 | Save & checksums | **Save** rewrites records and recomputes record checksums (raw `.bin` writes the buffer as-is) |
-| Base address | Raw binary: click the **Base** value in the stats bar or run **Set Raw Binary Base Address**; save or discard edits and resolve any external change first |
+| Base address | Raw binary: edit the **Base** field in the profile bar, or click the **Base** stat / run **Set Raw Binary Base Address** to focus it; save or discard edits and resolve any external change first |
 | Quick Repair | Right-click broken file → **Quick Repair Checksums** (Intel HEX / SREC only) |
 | Compare | **Set as 1st file to compare** then **Compare with the 1st file**, or select two files → **Compare Two Files**; `.bin` files compare by absolute address against `.bin`, `.hex`, or `.srec` |
 | Type Overlay | Define C types in the sidebar, pin them at addresses, decode live memory |

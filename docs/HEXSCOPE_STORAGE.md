@@ -12,8 +12,8 @@ to `.hexscope/` data.
 ```text
 .hexscope/
 ├── types.json            # workspace-wide TypeDef[] pool (shared by all files)
-├── profiles.json         # whole profile registry: { schemaVersion, records: [{ id, name, typeInstances, activeChecks, endian, bitAllocation, showHiddenFields, segmentNames, labels, baseAddress? }] }
-├── bindings.json         # { schemaVersion, bindings: [{ fileKey, profileId }] } — file's only file-specific artifact
+├── profiles.json         # whole profile registry: { schemaVersion, records: [{ id, name, typeInstances, activeChecks, endian, bitAllocation, showHiddenFields, segmentNames, labels }] }
+├── bindings.json         # { schemaVersion, bindings: [{ fileKey, profileId }], binBases?: [{ fileKey, baseAddress }] }
 ├── schemas/              # generated copies of the JSON Schemas (editor + agent contract),
 │                         # content-diff refreshed on every .hexscope data write; retired
 │                         # *.schema.json copies are pruned
@@ -26,7 +26,7 @@ to `.hexscope/` data.
 |---|---|
 | `types.json` | `{ schemaVersion, defs: TypeDef[] }` (workspace pool) |
 | `profiles.json` | `{ schemaVersion, records: ProfileRecord[] }` — every profile in one array (order preserved, ids unique) |
-| `bindings.json` | `{ schemaVersion, bindings: [{ fileKey, profileId }] }`, `fileKey` = workspace-relative posix path |
+| `bindings.json` | `{ schemaVersion, bindings: [{ fileKey, profileId }], binBases?: [{ fileKey, baseAddress }] }`, `fileKey` = workspace-relative posix path; `binBases` is optional while empty |
 
 Current `DATA_VERSION = 1` (storage envelope) and the current data shape is
 `DATA_SCHEMA_VERSION = 2`. On read, a future/unknown envelope `version`
@@ -67,18 +67,18 @@ records and deduplicate by id + case-insensitive name (`normalizeProfilesRegistr
 - Shared-profile state surfaces as a tooltip on the profile select
   ("NAME · shared by N files") plus a one-time toast when you switch to a
   shared profile.
-- Raw `.bin` files store their memory-map base address on the bound profile
-  (`baseAddress`, optional; absent for text-oriented profiles). Opening an
-  unbound `.bin` creates a profile + binding so the chosen value has an owner;
-  a stored value (explicit `0` included) is reused silently on every later
-  open while it still fits the file. The **Base** stat /
-  **Set Raw Binary Base Address** action patches `baseAddress` on the bound
-  profile (profile + binding when unbound) and
-  re-anchors the open grid without rewriting the file. Files sharing a profile
-  share one base address (duplicate the profile for a different map).
-  Compare/diff base prompts are comparison-only and never write `.hexscope`.
-  The value applies when a document opens or through the explicit change
-  action; switching profiles does not re-anchor a live buffer.
+- Raw `.bin` files store their memory-map base address per file in the
+  `binBases` table of `bindings.json` (`{ fileKey, baseAddress }`); profiles no
+  longer carry a base. Opening a `.bin` maps at its stored value when it still
+  fits the file (explicit `0` included), else `0x00000000`; it never prompts and
+  never writes `.hexscope`. The editable **Base** field in the profile bar
+  writes the entry on commit (no profile or binding is created, so the file
+  stays **No Profile**). Switching, duplicating, or deleting a profile does not
+  change or remove a base; two files sharing a profile keep independent bases.
+  Rename rewrites both `bindings` and `binBases` keys; delete prunes both. The
+  value applies when a document opens or through an explicit field commit; an
+  open comparison captures each side's base at load and never writes
+  `.hexscope`.
 
 ## Write cadence
 
@@ -217,7 +217,7 @@ Three JSON Schema files describe the on-disk shapes:
 |---|---|---|
 | `schemas/types.schema.json` | `.hexscope/types.json` | `{ schemaVersion, defs: TypeDef[] }` |
 | `schemas/profiles.schema.json` | `.hexscope/profiles.json` | `{ schemaVersion, records: ProfileRecord[] }` (array, `uniqueItems`; ids unique at runtime) |
-| `schemas/bindings.schema.json` | `.hexscope/bindings.json` | `{ schemaVersion, bindings: Binding[] }` |
+| `schemas/bindings.schema.json` | `.hexscope/bindings.json` | `{ schemaVersion, bindings: Binding[], binBases?: BinBase[] }` |
 
 - **Locations.** The authoritative copy lives in the repo root `schemas/`
   (bundled into the extension). On every `.hexscope` data write the workspace
@@ -255,10 +255,10 @@ Three JSON Schema files describe the on-disk shapes:
   binding helpers, watcher, the `DATA_SCHEMA_VERSION` constant + `MIGRATIONS`
   table + migration runner and `withDataEnvelope` stamping). No Memento access;
   normalizers are injected per slot.
-- `src/binBaseAddress.ts` — reads/persists a raw image's profile base address,
-  opens silently from a stored value, prompts with inline validation on first
-  open (and for the explicit change action), and resolves a compare-only value
-  without writing `.hexscope`.
+- `src/binBaseAddress.ts` — reads a raw image's per-file base from the
+  `binBases` table, resolves the effective open/compare address (`0x00000000`
+  when absent or no longer fitting), and persists an explicit commit with a
+  post-write verification. It never prompts and never writes on open.
 - `src/hexScopeMigration.ts` — the one-time legacy transfers (pre-rename pool
   file move + per-dir registry merge + Memento era + `firmware_profiles` tree era
   → three-tier).
