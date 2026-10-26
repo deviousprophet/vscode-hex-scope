@@ -6,7 +6,8 @@
 - `src/core/document.ts`: `HexScopeTextFormat` / `HexScopeFormat` (`'ihex' | 'srec' | 'bin'`) plus `isTextFormat` / `isRawBinaryExtension`; the widened format propagates to `SerializedParseResult` / `WireParseResult` and the diff protocol.
 - `src/core/parser/binImage.ts`: raw-image base-address parsing/validation (`isValidBinBaseAddress`, `binAddressRangeFits`), formatting, parse-result construction (including the optional `baseAddress` carried through compact/wire serialization), and edit application/revert.
 - `src/core/types.ts`: hydrated webview records/segments, `WireParseResult` binary boundary types, labels, search, memory rows, and overlay types.
-- `src/webviewProtocol.ts`: exhaustive cross-runtime message unions (single-file editor).
+- `src/webviewProtocol.ts`: exhaustive cross-runtime message unions (single-file editor), including the base-address change pair (`requestBaseAddressChange` host→webview, `changeBaseAddress` webview→host).
+- `src/webview/baseAddressChange.ts`: `baseAddressChangeRefusal(state)` — the shared webview guard (toast text or null) used by the Base stat and the command-driven request.
 - `src/diffProtocol.ts`: the diff panel's own host↔webview union + `diffMessageType`/`diffCopyText` parsers.
 - Feature core modules own feature-specific unions/results: `IntegrityValidation<T>`, `SearchMode`, `PointerDerefTarget`, and overlay parse results.
 
@@ -37,6 +38,7 @@ Callers must branch on `ok`; do not throw for user-correctable input.
 
 - Every message has a literal `type` discriminator.
 - Add new message fields to the owning union, host sender/handler, webview dispatcher/applier, and tests in one change.
+- A base-address change is requested only after the webview guard passes; the host re-checks format/bytes/pending reload before prompting. `requestBaseAddressChange` is passive in `webviewMessageModel`, and `postToActive` returns whether a panel received the request.
 - Provider messages use exact `ArrayBuffer` segment payloads. `appModel.ts` is the single hydration boundary that wraps them in `Uint8Array`; browser feature code consumes only hydrated segments.
 - Record-page request counts and 512-record alignment are validated by the host; responses and document summaries carry one generation owner.
 - Unknown/malformed message types are ignored by `dispatchProviderMessage`, not cast and executed.

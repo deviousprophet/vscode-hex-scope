@@ -10,9 +10,9 @@ export class HexEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
     private readonly _session: HexEditorSession;
 
-    /** Post a message to the currently active HexScope webview, if any. */
-    public static postToActive(msg: unknown): void {
-        HexEditorSession.postToActive(msg);
+    /** Post a message to the currently active HexScope webview; false when no panel is active. */
+    public static postToActive(msg: unknown): boolean {
+        return HexEditorSession.postToActive(msg);
     }
 
     constructor(

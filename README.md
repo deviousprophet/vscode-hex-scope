@@ -54,17 +54,18 @@ TypeScript or JavaScript scripts in `.hexscope/scripts/` read/write hex data (wr
 | Motorola SREC | `.srec`, `.mot`, `.s19`, `.s28`, `.s37` |
 | Raw binary | `.bin` |
 
-Raw binary files have no embedded addresses. Open one with **Open with HexScope Viewer** and enter the hexadecimal base address where byte 0 maps (for example `0x08000000`). The value is stored on the bound `.hexscope` profile and prefilled on later opens, so files bound to the same profile share one memory map — duplicate the profile when you need a different base address. Closing the prompt cancels the open; comparison-only base addresses are never written to `.hexscope`.
+Raw binary files have no embedded addresses. Open one with **Open with HexScope Viewer**; the first open asks for the hexadecimal base address where byte 0 maps (for example `0x08000000`) and stores it on the bound `.hexscope` profile. Later opens reuse the stored value silently while it still fits the file (a grown file re-prompts). Change it any time from the **Base** stat in the stats bar or with **Set Raw Binary Base Address** — the profile is updated and the open grid re-anchors without rewriting the file. Files bound to the same profile share one memory map — duplicate the profile when you need a different base address. Closing the first-open prompt cancels the open; comparison-only base addresses are never written to `.hexscope`.
 
 ## Quick usage
 
 | Action | How |
 |---|---|
-| Open | Right-click a supported file → **Open with HexScope Viewer** (a `.bin` prompts for its base address) |
+| Open | Right-click a supported file → **Open with HexScope Viewer** (a `.bin` prompts for its base address on first open, then reuses the stored value) |
 | Views | Toolbar: **Memory** or **Records** (`Records` is hidden for raw binaries) |
 | Search | `Ctrl+F`/`Cmd+F` — byte sequence, numeric value (Auto/LE/BE), ASCII string, or address |
 | Edit | Click **Edit**, click a byte and type a hex value; right-click for batch fill; **Save** writes changes and recomputes checksums (raw `.bin` saves only the bytes) |
 | Save & checksums | **Save** rewrites records and recomputes record checksums (raw `.bin` writes the buffer as-is) |
+| Base address | Raw binary: click the **Base** value in the stats bar or run **Set Raw Binary Base Address**; save or discard edits and resolve any external change first |
 | Quick Repair | Right-click broken file → **Quick Repair Checksums** (Intel HEX / SREC only) |
 | Compare | **Set as 1st file to compare** then **Compare with the 1st file**, or select two files → **Compare Two Files**; `.bin` files compare by absolute address against `.bin`, `.hex`, or `.srec` |
 | Type Overlay | Define C types in the sidebar, pin them at addresses, decode live memory |

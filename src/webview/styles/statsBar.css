@@ -8,6 +8,14 @@
 .si   { display: flex; align-items: center; gap: 4px; }
 .slb  { color: var(--addr-fg); }
 .svl  { font-family: var(--font-editor); font-weight: 600; }
+/* The raw-binary Base value is an actionable control, not static text. */
+.base-change {
+    background: none; border: 0; padding: 0; margin: 0;
+    /* Keep `.svl`'s editor font/weight; reset only the UA button metrics. */
+    font-size: inherit; line-height: inherit; color: inherit; cursor: pointer;
+}
+.base-change:hover { color: var(--vscode-textLink-foreground, var(--ok)); text-decoration: underline; }
+.base-change:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: 2px; }
 .s-ok      { color: var(--ok);  margin-left: auto; }
 .s-err     { color: var(--err); font-weight: 700; }
 .s-invalid { color: var(--err); margin-left: auto; }

@@ -17,6 +17,20 @@ const SUPPORTED_EXTENSIONS = ['hex', 'ihx', 'ihex', 'srec', 'mot', 's19', 's28',
 export const COMPARE_SELECT_HINT = 'Select a firmware file in the Explorer';
 export const COMPARE_TWO_HINT = 'Select exactly two firmware files';
 
+export const NO_BIN_PANEL_MESSAGE =
+    'HexScope: open a raw binary in the HexScope viewer to change its base address.';
+
+/**
+ * `Set Raw Binary Base Address`: ask the active HexScope panel to start its
+ * change flow. With no panel, tell the user what to open instead of failing
+ * silently. Returns whether a panel received the request.
+ */
+export function requestBinBaseAddressChange(deliver: () => boolean, info: (message: string) => void): boolean {
+    if (deliver()) { return true; }
+    info(NO_BIN_PANEL_MESSAGE);
+    return false;
+}
+
 async function loadHexDocument(uri: vscode.Uri): Promise<{ raw: string; format: HexScopeTextFormat; parseResult: ParseResult }> {
     const ext = fileExtension(uri);
     if (isRawBinaryExtension(ext)) {
@@ -124,6 +138,15 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('hexScope.runScript', () => {
             HexEditorProvider.postToActive({ type: 'activateScriptsTab' });
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('hexScope.setBinBaseAddress', () => {
+            requestBinBaseAddressChange(
+                () => HexEditorProvider.postToActive({ type: 'requestBaseAddressChange' }),
+                message => { void vscode.window.showInformationMessage(message); },
+            );
         })
     );
 

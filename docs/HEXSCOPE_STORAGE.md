@@ -70,10 +70,15 @@ records and deduplicate by id + case-insensitive name (`normalizeProfilesRegistr
 - Raw `.bin` files store their memory-map base address on the bound profile
   (`baseAddress`, optional; absent for text-oriented profiles). Opening an
   unbound `.bin` creates a profile + binding so the chosen value has an owner;
-  files sharing a profile share one base address (duplicate the profile for a
-  different map). Compare/diff base prompts are comparison-only and never write
-  `.hexscope`. The value applies when a document opens; switching profiles does
-  not re-anchor a live buffer.
+  a stored value (explicit `0` included) is reused silently on every later
+  open while it still fits the file. The **Base** stat /
+  **Set Raw Binary Base Address** action patches `baseAddress` on the bound
+  profile (profile + binding when unbound) and
+  re-anchors the open grid without rewriting the file. Files sharing a profile
+  share one base address (duplicate the profile for a different map).
+  Compare/diff base prompts are comparison-only and never write `.hexscope`.
+  The value applies when a document opens or through the explicit change
+  action; switching profiles does not re-anchor a live buffer.
 
 ## Write cadence
 
@@ -251,8 +256,9 @@ Three JSON Schema files describe the on-disk shapes:
   table + migration runner and `withDataEnvelope` stamping). No Memento access;
   normalizers are injected per slot.
 - `src/binBaseAddress.ts` — reads/persists a raw image's profile base address,
-  prompts with inline validation, and resolves a compare-only value without
-  writing `.hexscope`.
+  opens silently from a stored value, prompts with inline validation on first
+  open (and for the explicit change action), and resolves a compare-only value
+  without writing `.hexscope`.
 - `src/hexScopeMigration.ts` — the one-time legacy transfers (pre-rename pool
   file move + per-dir registry merge + Memento era + `firmware_profiles` tree era
   → three-tier).

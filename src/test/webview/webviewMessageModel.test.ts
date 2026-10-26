@@ -49,6 +49,17 @@ suite('webview message dispatcher', () => {
         assert.strictEqual(called, true);
     });
 
+    test('dispatches the base-address change request', () => {
+        let called = false;
+        const handlers = {
+            ...noOpHandlers(),
+            requestBaseAddressChange: () => { called = true; },
+        } satisfies ProviderMessageHandlers;
+
+        assert.strictEqual(dispatchProviderMessage({ type: 'requestBaseAddressChange' }, handlers), true);
+        assert.strictEqual(called, true);
+    });
+
     test('dispatches the script permission request, grant list, and writes commit', () => {
         const seen: string[] = [];
         const handlers = {
@@ -421,6 +432,7 @@ function noOpHandlers(): ProviderMessageHandlers {
         scriptWritesCommit: () => {},
         scriptSaveFailed: () => {},
         activateScriptsTab: () => {},
+        requestBaseAddressChange: () => {},
     };
 }
 

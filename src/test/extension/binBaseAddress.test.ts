@@ -11,6 +11,7 @@ import {
     promptForBinBaseAddress,
     readStoredBinBaseAddress,
     resolveCompareBinBaseAddress,
+    resolveOpenBinBaseAddress,
 } from '../../binBaseAddress';
 import {
     DATA_SCHEMA_VERSION,
@@ -72,12 +73,12 @@ suite('binBaseAddress', () => {
 
     test('an unbound image reads the default and persists a profile + binding on first accept', async () => {
         const uri = await writeImage();
-        assert.deepStrictEqual(await readStoredBinBaseAddress(uri), { value: 0, bound: false });
+        assert.deepStrictEqual(await readStoredBinBaseAddress(uri), { value: 0, bound: false, hasBaseAddress: false });
 
         await persistBinBaseAddress(uri, 0x08000000);
 
         const stored = await readStoredBinBaseAddress(uri);
-        assert.deepStrictEqual(stored, { value: 0x08000000, bound: true });
+        assert.deepStrictEqual(stored, { value: 0x08000000, bound: true, hasBaseAddress: true });
         const records = await collectProfileRecords(testRoot);
         assert.strictEqual(records.length, 1);
         assert.strictEqual(records[0].baseAddress, 0x08000000);
@@ -175,16 +176,148 @@ suite('binBaseAddress', () => {
 
         assert.strictEqual(accepted, 0x1000, 'the session continues with the chosen base');
         assert.strictEqual(await readText(profilesJsonUri(testRoot)), newer, 'the newer registry survives untouched');
-        assert.deepStrictEqual(await readStoredBinBaseAddress(uri), { value: 0, bound: false });
+        assert.deepStrictEqual(
+            await readStoredBinBaseAddress(uri),
+            { value: 0, bound: false, hasBaseAddress: false },
+        );
     });
 
-    test('an existing record without a base reads as the default', async () => {
+    test('a corrupt profile registry falls back to the default base', async () => {
+        const uri = await writeImage();
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.join(testRoot, '.hexscope')));
+        await vscode.workspace.fs.writeFile(
+            profilesJsonUri(testRoot),
+            new TextEncoder().encode('{ not json'),
+        );
+
+        assert.deepStrictEqual(
+            await readStoredBinBaseAddress(uri),
+            { value: 0, bound: false, hasBaseAddress: false },
+        );
+    });
+
+    test('an existing record without a base reads as the default and prompts', async () => {
         const uri = await writeImage();
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
         await bindFile(testRoot, perFileRelativePath(testRoot, uri), 'profile_1');
 
-        assert.deepStrictEqual(await readStoredBinBaseAddress(uri), { value: 0, bound: true });
+        assert.deepStrictEqual(
+            await readStoredBinBaseAddress(uri),
+            { value: 0, bound: true, hasBaseAddress: false },
+        );
+        const seen: vscode.InputBoxOptions[] = [];
+        const accepted = await resolveOpenBinBaseAddress(uri, 4, asking('0x4000', seen));
+
+        assert.strictEqual(accepted, 0x4000);
+        assert.strictEqual(seen.length, 1, 'a bound profile without a stored value prompts');
+        assert.strictEqual(seen[0].value, '0x00000000', 'prefilled with the default');
+        assert.deepStrictEqual(
+            await readStoredBinBaseAddress(uri),
+            { value: 0x4000, bound: true, hasBaseAddress: true },
+        );
+    });
+
+    test('an explicit zero base counts as stored and reopens silently', async () => {
+        const uri = await writeImage();
+        await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
+        await bindFile(testRoot, perFileRelativePath(testRoot, uri), 'profile_1');
         await persistBinBaseAddress(uri, 0);
-        assert.strictEqual((await readProfileRecord(testRoot, 'profile_1'))?.baseAddress, 0);
+
+        assert.deepStrictEqual(
+            await readStoredBinBaseAddress(uri),
+            { value: 0, bound: true, hasBaseAddress: true },
+        );
+        const seen: vscode.InputBoxOptions[] = [];
+        assert.strictEqual(await resolveOpenBinBaseAddress(uri, 4, asking('0x1000', seen)), 0);
+        assert.strictEqual(seen.length, 0, 'an explicit 0 needs no prompt');
+    });
+
+    test('a stored base opens silently without rewriting profiles.json', async () => {
+        const uri = await writeImage();
+        await persistBinBaseAddress(uri, 0x08000000);
+        const before = await readText(profilesJsonUri(testRoot));
+        const seen: vscode.InputBoxOptions[] = [];
+
+        const accepted = await resolveOpenBinBaseAddress(uri, 4, asking('0x99999999', seen));
+
+        assert.strictEqual(accepted, 0x08000000);
+        assert.strictEqual(seen.length, 0, 'no prompt for a stored base');
+        assert.strictEqual(await readText(profilesJsonUri(testRoot)), before, 'no write on reopen');
+    });
+
+    test('a stored base that no longer fits the file prompts again', async () => {
+        const uri = await writeImage();
+        await persistBinBaseAddress(uri, 0xFFFFFFFF);
+        const seen: vscode.InputBoxOptions[] = [];
+
+        const accepted = await resolveOpenBinBaseAddress(uri, 4, asking('0x1000', seen));
+
+        assert.strictEqual(accepted, 0x1000);
+        assert.strictEqual(seen.length, 1, 'an overflowing stored base is not reused silently');
+        assert.strictEqual(seen[0].value, '0xFFFFFFFF', 'the invalid stored value is the prefill to correct');
+        assert.deepStrictEqual(
+            await readStoredBinBaseAddress(uri),
+            { value: 0x1000, bound: true, hasBaseAddress: true },
+        );
+    });
+
+    test('an unbound image prompts once through the open path and persists the profile', async () => {
+        const uri = await writeImage();
+        const seen: vscode.InputBoxOptions[] = [];
+
+        const accepted = await resolveOpenBinBaseAddress(uri, 4, asking('0x08000000', seen));
+
+        assert.strictEqual(accepted, 0x08000000);
+        assert.strictEqual(seen.length, 1);
+        assert.deepStrictEqual(
+            await readStoredBinBaseAddress(uri),
+            { value: 0x08000000, bound: true, hasBaseAddress: true },
+        );
+    });
+
+    test('the change-flow prefill overrides the stored value and appends the note', async () => {
+        const uri = await writeImage();
+        await persistBinBaseAddress(uri, 0x08000000);
+        const seen: vscode.InputBoxOptions[] = [];
+
+        const accepted = await promptForBinBaseAddress(uri, 4, {
+            persist: false,
+            initialValue: 0x1000,
+            note: 'Existing labels, types, and checks keep their absolute addresses.',
+            ask: asking('0x1000', seen),
+        });
+
+        assert.strictEqual(accepted, 0x1000);
+        assert.strictEqual(seen[0].value, '0x00001000', 'the change flow prefills the current base');
+        assert.match(seen[0].prompt ?? '', /keep their absolute addresses/);
+        assert.strictEqual((await readStoredBinBaseAddress(uri)).value, 0x08000000, 'cancel/unchanged keeps the stored base');
+    });
+
+    test('a bound image without a stored key prompts comparison-only and writes nothing', async () => {
+        const uri = await writeImage();
+        await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
+        await bindFile(testRoot, perFileRelativePath(testRoot, uri), 'profile_1');
+        const before = await readText(profilesJsonUri(testRoot));
+        const seen: vscode.InputBoxOptions[] = [];
+
+        const accepted = await resolveCompareBinBaseAddress(uri, 4, asking('0x20000000', seen));
+
+        assert.strictEqual(accepted, 0x20000000);
+        assert.strictEqual(seen.length, 1, 'a bound profile without a base prompts');
+        assert.strictEqual(await readText(profilesJsonUri(testRoot)), before, 'comparison writes nothing');
+    });
+
+    test('a bound comparison whose stored base exceeds the range prompts without writing', async () => {
+        const uri = await writeImage();
+        await persistBinBaseAddress(uri, 0xFFFFFFFF);
+        const before = await readText(profilesJsonUri(testRoot));
+        const seen: vscode.InputBoxOptions[] = [];
+
+        const accepted = await resolveCompareBinBaseAddress(uri, 4, asking('0x2000', seen));
+
+        assert.strictEqual(accepted, 0x2000);
+        assert.strictEqual(seen.length, 1, 'an overflowing stored base is not reused silently');
+        assert.strictEqual(seen[0].value, '0xFFFFFFFF');
+        assert.strictEqual(await readText(profilesJsonUri(testRoot)), before, 'comparison writes nothing');
     });
 });

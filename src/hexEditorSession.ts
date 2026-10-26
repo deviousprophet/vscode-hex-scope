@@ -14,7 +14,7 @@ import { serializeParseResult } from './core/wire';
 import { fileExtension } from './core/pathName';
 import { createExternalChangeGate, sameDocumentSource, type DocumentSource } from './core/documentExternalChange';
 import { runParseJob } from './parse/parseWorkerClient';
-import { promptForBinBaseAddress } from './binBaseAddress';
+import { promptForBinBaseAddress, resolveOpenBinBaseAddress, saveBinBaseAddress } from './binBaseAddress';
 import {
     normalizeIntegrityCheckSet,
 } from './core/integrity';
@@ -77,6 +77,22 @@ import { createScriptsWatcher } from './scriptWatcher';
 
 function hasParseErrors(result: Pick<ParseResult, 'checksumErrors' | 'malformedLines'>): boolean {
     return result.checksumErrors > 0 || result.malformedLines > 0;
+}
+
+/** Base-address change gate; null when the document cannot change. */
+function baseAddressChangeBytes(
+    format: HexScopeFormat,
+    bytes: Uint8Array | null,
+    hasPendingReload: boolean,
+): Uint8Array | null {
+    if (format !== 'bin' || !bytes) { return null; }
+    if (hasPendingReload) {
+        void vscode.window.showWarningMessage(
+            'HexScope: resolve the external change before changing the base address.',
+        );
+        return null;
+    }
+    return bytes;
 }
 
 function serializeRecord(record: ParseResult['records'][number]): SerializedRecord {
@@ -346,7 +362,8 @@ async function loadTextDocument(
 
 /**
  * Raw `.bin`: read bytes (no UTF-8 decode), resolve the base address from the
- * bound profile (prompt prefilled, persisted), and map one segment at that
+ * bound profile (a stored value opens silently; only a missing or
+ * no-longer-fitting one prompts and persists), and map one segment at that
  * base. No record parser and no worker.
  */
 async function loadBinDocument(
@@ -363,7 +380,7 @@ async function loadBinDocument(
     postProgress('read', 1, 1);
     // A legacy migration must finish before the first profile write.
     await migrationDone;
-    const address = await promptForBinBaseAddress(document.uri, bytes.length, { persist: true });
+    const address = await resolveOpenBinBaseAddress(document.uri, bytes.length);
     if (address === null || initialLoadCancelled(isDisposed, token)) {
         panel.dispose();
         return null;
@@ -439,9 +456,12 @@ export class HexEditorSession {
     private static _activeRelPath: string | null = null;
     private readonly _panels = new Set<vscode.WebviewPanel>();
 
-    /** Post a message to the currently active HexScope webview, if any. */
-    public static postToActive(msg: unknown): void {
-        HexEditorSession._activePanel?.webview.postMessage(msg);
+    /** Post a message to the currently active HexScope webview; false when no panel is active. */
+    public static postToActive(msg: unknown): boolean {
+        const panel = HexEditorSession._activePanel;
+        if (!panel) { return false; }
+        void panel.webview.postMessage(msg);
+        return true;
     }
 
     private static activeRoot(): string | null {
@@ -1611,6 +1631,37 @@ export class HexEditorSession {
                 parseResult = pending.parseResult;
                 currentGeneration = pending.generation;
                 pendingExternalReload = null;
+            },
+            changeBaseAddress: async () => {
+                const bytes = baseAddressChangeBytes(format, binBytes, pendingExternalReload !== null);
+                if (!bytes) { return; }
+                const next = await promptForBinBaseAddress(document.uri, bytes.length, {
+                    persist: false,
+                    initialValue: baseAddress,
+                    note: 'Existing labels, types, and checks keep their absolute addresses.',
+                });
+                if (next === null || next === baseAddress) { return; }
+                await enqueuePerFileOp(async () => {
+                    // The prompt can outlive an external change: never re-anchor
+                    // stale bytes, and re-validate the chosen base against the
+                    // bytes currently loaded when a reload was accepted.
+                    const liveBytes = baseAddressChangeBytes(format, binBytes, pendingExternalReload !== null);
+                    if (!liveBytes) { return; }
+                    if (!binAddressRangeFits(next, liveBytes.length)) {
+                        void vscode.window.showWarningMessage(
+                            'HexScope: the raw binary changed while the base address prompt was open; change the base address again.',
+                        );
+                        return;
+                    }
+                    await registryStore?.flush();
+                    await saveBinBaseAddress(document.uri, next);
+                    await registryStore?.load(true);
+                    profileId = await boundProfileId(root, relPath);
+                    baseAddress = next;
+                    parseResult = createBinParseResult(liveBytes, next);
+                    currentGeneration = ++generation;
+                    await postInit();
+                });
             },
             repairAndReload: async () => {
                 if (!parseResult || !isTextFormat(format)) { return; }

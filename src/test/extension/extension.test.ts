@@ -4,6 +4,8 @@ import * as vscode from 'vscode';
 import {
     COMPARE_SELECT_HINT,
     COMPARE_TWO_HINT,
+    NO_BIN_PANEL_MESSAGE,
+    requestBinBaseAddressChange,
     runCompare,
     selectAsFirst,
     selectedComparePair,
@@ -11,6 +13,7 @@ import {
     type CompareCommandDeps,
     type SelectCompareDeps,
 } from '../../extension';
+import { HexEditorProvider } from '../../hexEditorProvider';
 import { CompareSelectionStore, selectionName } from '../../diff/compareSelection';
 import { diffCopyText, diffMessageType } from '../../diffProtocol';
 
@@ -49,6 +52,7 @@ suite('HexScope Extension', () => {
             'hexScope.duplicateProfile',
             'hexScope.renameProfile',
             'hexScope.deleteProfile',
+            'hexScope.setBinBaseAddress',
         ];
 
         for (const cmd of expected) {
@@ -111,8 +115,8 @@ suite('HexScope Extension', () => {
         }
         assert.deepStrictEqual(
             submenuItems(ext).filter(item => item.group === 'navigation').map(item => item.command).sort(),
-            ['hexScope.openInHexScope', 'hexScope.quickRepair'],
-            'navigation keeps only Open with HexScope / Quick Repair',
+            ['hexScope.openInHexScope', 'hexScope.quickRepair', 'hexScope.setBinBaseAddress'],
+            'navigation keeps Open with HexScope / Quick Repair / Set Raw Binary Base Address',
         );
     });
 
@@ -149,6 +153,41 @@ suite('HexScope Extension', () => {
         assert.ok(quickRepair, 'quick repair is contributed');
         assert.ok(!binGate.test(quickRepair.when ?? ''), 'quick repair stays text-only');
         assert.match(quickRepair.when ?? '', /resourceLangId =~ \/\^\(intel-hex\|srec\)\$\//);
+    });
+
+    test('setBinBaseAddress is contributed for .bin inside the HexScope editor only', async () => {
+        const ext = await getActivatedExtension();
+        const commands = ext.packageJSON.contributes.commands as Array<{ command: string; title: string; category?: string }>;
+        const entry = commands.find(command => command.command === 'hexScope.setBinBaseAddress');
+        assert.ok(entry, 'the command is contributed');
+        assert.strictEqual(entry.title, 'Set Raw Binary Base Address');
+        assert.strictEqual(entry.category, 'HexScope');
+
+        const item = submenuItems(ext).find(menuItem => menuItem.command === 'hexScope.setBinBaseAddress');
+        assert.ok(item, 'the submenu item is contributed');
+        assert.match(item.when ?? '', /resourceExtname =~ \/\\\.bin\$\/i/, 'only raw binaries');
+        assert.ok(
+            (item.when ?? '').includes("activeCustomEditorId == 'hexScope.hexEditor'"),
+            'only while the HexScope editor is active',
+        );
+    });
+
+    test('the base-address command reports when no HexScope panel is active', () => {
+        const infos: string[] = [];
+
+        assert.strictEqual(requestBinBaseAddressChange(() => false, message => infos.push(message)), false);
+        assert.deepStrictEqual(infos, [NO_BIN_PANEL_MESSAGE]);
+
+        let delivered = 0;
+        infos.length = 0;
+        assert.strictEqual(requestBinBaseAddressChange(() => { delivered += 1; return true; }, message => infos.push(message)), true);
+        assert.strictEqual(delivered, 1);
+        assert.deepStrictEqual(infos, [], 'a delivered request needs no fallback message');
+        assert.strictEqual(
+            HexEditorProvider.postToActive({ type: 'requestBaseAddressChange' }),
+            false,
+            'no panel means no delivery',
+        );
     });
 });
 

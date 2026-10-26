@@ -163,7 +163,8 @@ export type ProviderToWebviewMessage =
     | { type: 'scriptPermissions'; grants: ScriptGrantView[] }
     | { type: 'scriptWritesCommit'; scriptPath: string; writes: Array<[number, number]> }
     | { type: 'activateScriptsTab' }
-    | { type: 'activateProfilePicker' };
+    | { type: 'activateProfilePicker' }
+    | { type: 'requestBaseAddressChange' };
 
 export type WebviewToProviderMessage =
     | { type: 'ready' }
@@ -243,7 +244,9 @@ export type WebviewToProviderMessage =
     /** Create a script from a template; without `template` the host asks which one. */
     | { type: 'createScript'; template?: ScriptTemplateId }
     /** Reveal `.hexscope/scripts` (empty provider pickers). */
-    | { type: 'openScriptsFolder' };
+    | { type: 'openScriptsFolder' }
+    /** Change and persist the open raw binary's base address (webview guard first). */
+    | { type: 'changeBaseAddress' };
 
 export function messageType(message: unknown): string | undefined {
     return typeof (message as { type?: unknown })?.type === 'string'

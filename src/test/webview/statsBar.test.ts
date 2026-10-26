@@ -57,6 +57,30 @@ suite('webview stats bar', () => {
         assert.deepStrictEqual(stats(currentDom), ['BIN', 'Base=0x08000000', 'Bytes=1.0 KB', 'Segments=1']);
     });
 
+    test('the raw-binary Base value is a change button wired to the callback', () => {
+        currentDom = installDom();
+        let clicks = 0;
+        renderStats(parseResult('bin', 16), () => { clicks += 1; });
+
+        const button = currentDom.window.document.getElementById('stats-base-change');
+        assert.ok(button, 'the Base value is an actionable control');
+        assert.strictEqual(button.tagName, 'BUTTON');
+        assert.strictEqual(button.getAttribute('type'), 'button');
+        assert.strictEqual(button.className, 'svl base-change');
+        assert.strictEqual(button.textContent, '0x08000000');
+        button.dispatchEvent(new currentDom.window.MouseEvent('click', { bubbles: true }));
+        assert.strictEqual(clicks, 1);
+        assert.deepStrictEqual(stats(currentDom), ['BIN', 'Base=0x08000000', 'Bytes=16 B', 'Segments=1']);
+    });
+
+    test('text formats render no base-change button', () => {
+        currentDom = installDom();
+        renderStats(parseResult('ihex', 8), () => {});
+
+        assert.strictEqual(currentDom.window.document.getElementById('stats-base-change'), null);
+        assert.deepStrictEqual(stats(currentDom), ['IHEX', 'Bytes=8 B', 'Records=7', 'Segments=1']);
+    });
+
     test('an empty raw image reports its chosen base and zero segments', () => {
         currentDom = installDom();
         const empty: SerializedParseResult = {

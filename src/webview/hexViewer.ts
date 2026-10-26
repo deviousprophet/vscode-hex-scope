@@ -53,6 +53,7 @@ import { updateExternalChangeLockState } from './lock';
 
 import {
     clearEditModel,
+    hasUnsavedEdits,
     loadIncomingFile,
     rebuildMemoryRows,
     type ClearEditReason,
@@ -73,6 +74,7 @@ import {
 } from './webviewMessageModel';
 import { contextCommandResult, copyCommandResult } from './contextCommands';
 import { showToast } from './components/toast';
+import { baseAddressChangeRefusal } from './baseAddressChange';
 import { formatCopyCommand } from '../core/byteTools/copy';
 import type { InstanceAddressRequestEntry, InstanceParamRequestEntry } from '../webviewProtocol';
 import {
@@ -1256,6 +1258,7 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     scriptSaveFailed: handleScriptSaveFailedMessage,
     activateScriptsTab: handleActivateScriptsTabMessage,
     activateProfilePicker: profilePicker.handleActivatePicker,
+    requestBaseAddressChange: requestBaseAddressChange,
 };
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
@@ -1806,7 +1809,22 @@ function renderLoadError(message: string): void {
 }
 
 function renderStatsBar(): void {
-    renderStats(S.parseResult);
+    renderStats(S.parseResult, requestBaseAddressChange);
+}
+
+/**
+ * One guard for both the Base stat and the `Set Raw Binary Base Address`
+ * command: text documents, unsaved edits, and an unresolved external change
+ * refuse; only a clean raw document asks the host to change the base.
+ */
+function requestBaseAddressChange(): void {
+    const refusal = baseAddressChangeRefusal({
+        format: S.parseResult?.format,
+        hasUnsavedEdits: hasUnsavedEdits(),
+        lockedDueToExternalChange: S.lockedDueToExternalChange,
+    });
+    if (refusal) { showToast(refusal); return; }
+    postProviderMessage({ type: 'changeBaseAddress' });
 }
 
 /** Record view exists only for record-based formats; raw binaries are memory-only. */
