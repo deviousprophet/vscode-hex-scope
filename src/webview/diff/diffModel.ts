@@ -16,6 +16,24 @@ export interface DiffSideData {
     labels: SegmentLabel[];
     /** Raw-binary memory-map base captured at load; absent for text sides. */
     baseAddress?: number;
+    /** Comparison-only base override active for this raw side. */
+    baseOverride?: boolean;
+}
+
+export interface DiffBaseEditorView {
+    /** Digits currently in the inline editor (the `0x` prefix is fixed chrome). */
+    draft: string;
+    /** Inline validation message; null while the draft is clean. */
+    error: string | null;
+}
+
+export interface SideHeadRenderOptions {
+    /** Side key for the raw base controls; absent means no controls (legacy callers). */
+    side?: 'a' | 'b';
+    /** Comparison-only override marker. */
+    baseOverride?: boolean;
+    /** Open inline base editor; null/undefined = closed. */
+    baseEditor?: DiffBaseEditorView | null;
 }
 
 export interface DiffRow {
@@ -48,6 +66,7 @@ export function hydrateDiffSide(side: DiffSide): DiffSideData {
         segmentIndex: buildSegmentIndex(parseResult),
         labels: side.labels,
         baseAddress: parseResult.baseAddress,
+        baseOverride: side.baseOverride,
     };
 }
 
@@ -131,10 +150,57 @@ export function renderDiffErrorHtml(message: string): string {
         `</div>`;
 }
 
-/** Side head: file label plus the shared format pill (no separator). */
-export function renderSideHeadHtml(label: string, format: HexScopeFormat, baseAddress?: number): string {
-    const base = format === 'bin'
-        ? ` <span class="diff-side-base">Base ${esc(formatBinBaseAddress(baseAddress ?? 0))}</span>`
-        : '';
-    return `${esc(label)} <span class="fmt-pill">${format.toUpperCase()}</span>${base}`;
+/** Side head: file label, the shared format pill, and (raw only) the base controls. */
+export function renderSideHeadHtml(
+    label: string,
+    format: HexScopeFormat,
+    baseAddress?: number,
+    options: SideHeadRenderOptions = {},
+): string {
+    const head = `<span class="diff-side-label">${esc(label)}</span> <span class="fmt-pill">${format.toUpperCase()}</span>`;
+    return format === 'bin' ? head + renderRawSideHead(baseAddress ?? 0, options) : head;
+}
+
+function renderRawSideHead(baseAddress: number, options: SideHeadRenderOptions): string {
+    const parts = [` <span class="diff-side-base">Base ${esc(formatBinBaseAddress(baseAddress))}</span>`];
+    if (options.baseOverride) {
+        parts.push(` <span class="diff-override-flag" title="Base overridden for this comparison only">override</span>`);
+    }
+    if (!options.side) { return parts.join(''); }
+    parts.push(options.baseEditor
+        ? renderBaseEditor(options.side, options.baseEditor)
+        : renderBaseActions(options.side, !!options.baseOverride));
+    return parts.join('');
+}
+
+function renderBaseActions(side: 'a' | 'b', overridden: boolean): string {
+    const buttons = [baseButton('edit', side, 'Edit base', 'Edit the comparison-only base address')];
+    if (overridden) {
+        buttons.push(baseButton('reset', side, 'Reset', 'Reset to the stored per-file base'));
+    }
+    return ` <span class="diff-base-actions">${buttons.join('')}</span>`;
+}
+
+function renderBaseEditor(side: 'a' | 'b', editor: DiffBaseEditorView): string {
+    const invalid = editor.error !== null ? ' aria-invalid="true"' : '';
+    return ` <span class="diff-base-editor">` +
+        `<span class="diff-base-pfx" aria-hidden="true">0x</span>` +
+        `<input id="diff-base-input-${side}" class="diff-base-input" type="text" maxlength="8" ` +
+        `value="${esc(editor.draft)}" spellcheck="false" autocomplete="off"${invalid} ` +
+        `aria-label="Raw binary base address, hexadecimal digits (0x prefix is fixed)">` +
+        baseButton('apply', side, 'Apply', 'Apply this base to the comparison') +
+        baseButton('cancel', side, 'Cancel', 'Cancel the base change') +
+        renderBaseError(side, editor.error) +
+        `</span>`;
+}
+
+function renderBaseError(side: 'a' | 'b', error: string | null): string {
+    return error === null
+        ? `<span id="diff-base-error-${side}" class="diff-base-error" role="alert" hidden></span>`
+        : `<span id="diff-base-error-${side}" class="diff-base-error" role="alert">${esc(error)}</span>`;
+}
+
+function baseButton(action: string, side: 'a' | 'b', text: string, title: string): string {
+    return `<button type="button" class="diff-base-btn" data-diff-base-action="${action}" ` +
+        `data-side="${side}" title="${title}">${text}</button>`;
 }

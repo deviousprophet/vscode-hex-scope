@@ -9,7 +9,7 @@
 - `src/webviewProtocol.ts`: exhaustive cross-runtime message unions (single-file editor), including the base-field pair (`focusBinBaseAddress` host→webview, `setBinBaseAddress { value }` webview→host).
 - `src/webview/baseAddressChange.ts`: `baseAddressChangeRefusal(state)` (toast text or null) and `baseAddressFieldState(state)` (visible/disabled/tooltip) — the shared webview guards used by the field Edit button and the command focus path.
 - `src/hexScopeStorage.ts`: `BinBase` / `BindingTable` (the `bindings.json` payload: profile bindings plus per-file raw-binary bases).
-- `src/diffProtocol.ts`: the diff panel's own host↔webview union + `diffMessageType`/`diffCopyText` parsers.
+- `src/diffProtocol.ts`: the diff panel's own host↔webview union + `diffMessageType`/`diffCopyText`/`diffBaseRequest` parsers; `DiffSide.baseOverride?: boolean` is the comparison-only raw-base flag; `diffBaseChanged { side }` carries one rebuilt side; `setDiffBaseAddress { path, value }` / `resetDiffBaseAddress { path }` target the displayed side's **file path**, not the pane key.
 - Feature core modules own feature-specific unions/results: `IntegrityValidation<T>`, `SearchMode`, `PointerDerefTarget`, and overlay parse results.
 
 ## Boundary Pattern
@@ -20,6 +20,7 @@ External/persisted values start as `unknown`, are normalized once, then become t
 - `normalizeIntegrityCheckSet(value: unknown)`
 - `messageType(message: unknown)` plus `dispatchProviderMessage`
 - `isDiffSide` / `isDiffModel` / `isDiffInit` for the diff protocol (structural, shallow — enough that hydration never throws on a malformed payload); `DIFF_FORMATS` accepts `ihex`, `srec`, and `bin`
+- `diffBaseRequest(message: unknown)` for the raw-side base override (`setDiffBaseAddress` with a non-empty string `path` + 32-bit numeric value, or `resetDiffBaseAddress` with that `path`), which the diff host consumes instead of casting; a missing/empty/non-string path rejects.
 - type-definition migration helpers in `HexEditorSession`
 - `isCopyCommand` and `isAnalyzeCommand` for command strings
 
@@ -40,6 +41,8 @@ Callers must branch on `ok`; do not throw for user-correctable input.
 - Every message has a literal `type` discriminator.
 - Add new message fields to the owning union, host sender/handler, webview dispatcher/applier, and tests in one change.
 - A base-address commit is validated in the field (`parseBinBaseAddress`), then re-validated by the host (format, live bytes, range, pending reload) before `writeBinBase`. `focusBinBaseAddress` is passive in `webviewMessageModel`, and `postToActive` returns whether a panel received the request.
+- A diff base override is validated in the side-head editor (`parseBinBaseAddress(draft, side bytes)`), posts the **displayed side's `side.path`** (swap-safe), is parsed by `diffBaseRequest` at the host boundary, then resolved by path against `uriFor('a'|'b').fsPath` and re-validated (`isRawBinaryExtension`, `isValidBinBaseAddress`, `binAddressRangeFits` against the freshly read bytes) before a comparison-only reparse of that one file. It never routes through `writeBinBase`/`saveBinBaseAddress`. The host answers with `diffBaseChanged { side }` (not a full `diffInit`), so the webview's swap order and view mode survive.
+- `src/webview/vscodeApi.ts` keeps two per-surface post seams: `postProviderMessage(msg: WebviewToProviderMessage)` for the single-file editor and `postDiffProviderMessage(msg: DiffWebviewToProvider)` for the diff bundle. A message must belong to its own surface's union; the diff entry point uses only the diff seam.
 - Provider messages use exact `ArrayBuffer` segment payloads. `appModel.ts` is the single hydration boundary that wraps them in `Uint8Array`; browser feature code consumes only hydrated segments.
 - Record-page request counts and 512-record alignment are validated by the host; responses and document summaries carry one generation owner.
 - Unknown/malformed message types are ignored by `dispatchProviderMessage`, not cast and executed.

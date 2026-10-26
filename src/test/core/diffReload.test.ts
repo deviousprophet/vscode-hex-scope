@@ -96,4 +96,34 @@ suite('diffExternalChange host decisions', () => {
         assert.strictEqual(reloadIsStale(true, 1, 1, state), true, 'a disposed panel posts nothing');
         assert.strictEqual(reloadIsStale(false, 1, 1, null), true, 'no loaded state means nothing to reload');
     });
+
+    test('a comparison-only base override travels with its side and survives the other side reloading', () => {
+        const state = buildDiffState(
+            REF_A, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') },
+            REF_B, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') },
+        );
+        assert.strictEqual(state.a.baseOverride, undefined, 'a fresh load carries no override');
+
+        const overridden = reloadState(state, 'a', REF_A, { format: 'bin', wire: wire([[0x2000, [0x01]]], {}, 'bin') }, true);
+        assert.strictEqual(overridden.a.baseOverride, true);
+        assert.strictEqual(overridden.b.baseOverride, undefined);
+
+        const otherReloaded = reloadState(overridden, 'b', REF_B, { format: 'bin', wire: wire([[0x3000, [0x02]]], {}, 'bin') });
+        assert.strictEqual(otherReloaded.a.baseOverride, true, 'an external reload of the other side keeps the override');
+        assert.strictEqual(otherReloaded.b.baseOverride, undefined, 'the reloaded side keeps its own (absent) flag');
+        assert.strictEqual(otherReloaded.a.parseResult.segments[0].startAddress, 0x2000, 'the overridden base is re-anchored');
+    });
+
+    test('reloading an overridden side without a flag keeps it; an explicit false clears it', () => {
+        const state = buildDiffState(
+            REF_A, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') },
+            REF_B, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') },
+        );
+        const overridden = reloadState(state, 'a', REF_A, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') }, true);
+        const kept = reloadState(overridden, 'a', REF_A, { format: 'bin', wire: wire([[0x08000000, [0x02]]], {}, 'bin') });
+        assert.strictEqual(kept.a.baseOverride, true, 'omitting the flag preserves the current override');
+        const cleared = reloadState(kept, 'a', REF_A, { format: 'bin', wire: wire([[0x08000000, [0x02]]], {}, 'bin') }, false);
+        assert.strictEqual(cleared.a.baseOverride, undefined, 'Reset clears the flag');
+        assert.strictEqual(cleared.b, kept.b, 'the other side stays reused');
+    });
 });

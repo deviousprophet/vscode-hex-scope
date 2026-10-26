@@ -1,9 +1,9 @@
 import { computeByteDiff, type DiffModel } from '../core/diff';
 import type { MemorySegment } from '../core/parser/types';
 import type { WireParseResult } from '../core/types';
-import type { DiffSide } from '../diffProtocol';
+import type { DiffSide, DiffSideKey } from '../diffProtocol';
 
-export type DiffSideKey = 'a' | 'b';
+export type { DiffSideKey };
 
 export interface ParsedDiffSide {
     format: DiffSide['format'];
@@ -57,24 +57,38 @@ export function buildDiffState(
     return withDiff({ a: toSide(refA, a), b: toSide(refB, b) });
 }
 
-/** Replace only the reloaded side, then recompute the diff so counts/colors follow the new bytes. */
+/**
+ * Replace only the reloaded side, then recompute the diff so counts/colors follow
+ * the new bytes. The comparison-only base override travels with the side unless
+ * the caller explicitly sets/clears it (external reloads keep it).
+ */
 export function reloadState(
     state: DiffReloadState,
     side: DiffSideKey,
     ref: DiffSideRef,
     parsed: ParsedDiffSide,
+    baseOverride?: boolean,
 ): DiffReloadState {
+    const override = baseOverride ?? state[side].baseOverride ?? false;
     return side === 'a'
-        ? withDiff({ a: toSide(ref, parsed), b: state.b })
-        : withDiff({ a: state.a, b: toSide(ref, parsed) });
+        ? withDiff({ a: toSide(ref, parsed, override), b: state.b })
+        : withDiff({ a: state.a, b: toSide(ref, parsed, override) });
 }
 
 function withDiff(sides: { a: DiffSide; b: DiffSide }): DiffReloadState {
     return { ...sides, diff: computeByteDiff(sideSegments(sides.a), sideSegments(sides.b)) };
 }
 
-function toSide(ref: DiffSideRef, parsed: ParsedDiffSide): DiffSide {
-    return { name: ref.name, path: ref.path, format: parsed.format, parseResult: parsed.wire, labels: [] };
+function toSide(ref: DiffSideRef, parsed: ParsedDiffSide, baseOverride = false): DiffSide {
+    const side: DiffSide = {
+        name: ref.name,
+        path: ref.path,
+        format: parsed.format,
+        parseResult: parsed.wire,
+        labels: [],
+    };
+    if (baseOverride) { side.baseOverride = true; }
+    return side;
 }
 
 function sideSegments(side: DiffSide): MemorySegment[] {

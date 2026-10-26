@@ -6,13 +6,14 @@ import { parseIntelHex } from '../core/parser/intelHexParser';
 import { parseSRec } from '../core/parser/srecParser';
 import { disambiguatedLabels } from '../core/diffLabels';
 import type { WireParseResult } from '../core/types';
-import { diffCopyText, diffMessageType, type DiffProviderToWebview, type DiffSide, type DiffProgressStage } from '../diffProtocol';
+import { diffBaseRequest, diffCopyText, diffMessageType, type DiffBaseRequest, type DiffProviderToWebview, type DiffProgressStage } from '../diffProtocol';
 import { advanceFraction, combinedLoadProgress } from './loadProgress';
 import { buildDiffState, reloadIsStale, reloadState, sideDefects, type DiffReloadState, type DiffSideKey, type ParsedDiffSide } from './diffReload';
 import { fileExtension, fileName } from '../core/pathName';
 import { runParseJob, type WorkerResultOut } from '../parse/parseWorkerClient';
 import type { DiffParseJob } from '../parse/parseWorker';
 import { resolveCompareBinBaseAddress } from '../binBaseAddress';
+import { binAddressRangeFits, isValidBinBaseAddress } from '../core/parser/binImage';
 
 /** Each file contributes one unit to `diffProgress`; its read fills a small leading slice, its parse the rest. */
 const FILE_TOTAL = 2;
@@ -72,6 +73,8 @@ export class DiffEditorPanel {
         const reloadGeneration: Record<DiffSideKey, number> = { a: 0, b: 0 };
         /** Base address captured when each raw-binary side loaded; reloads reuse it (never re-anchor). */
         const baseAddresses: Record<DiffSideKey, number | undefined> = { a: undefined, b: undefined };
+        /** Comparison-only override flag per raw side; panel state only (never persisted). */
+        const baseOverrides: Record<DiffSideKey, boolean> = { a: false, b: false };
         let lastErrorUri: vscode.Uri | null = null;
         let lastSelfWriteAt = 0;
         let reloadTimer: ReturnType<typeof setTimeout> | undefined;
@@ -123,7 +126,7 @@ export class DiffEditorPanel {
                 return;
             }
             lastErrorUri = null;
-            const next = reloadState(state, side, refFor(uri), parsed);
+            const next = reloadState(state, side, refFor(uri), parsed, baseOverrides[side]);
             current = next;
             await DiffEditorPanel.post(panel, { type: 'diffExternalChange', generation: gen, ...next });
         };
@@ -159,11 +162,24 @@ export class DiffEditorPanel {
         };
 
         const handleWebviewMessage = (message: unknown): void => {
-            const type = diffMessageType(message);
-            if (type === 'ready') { void loadDiff(); return; }
-            if (type === 'repairAndReload') { void repairAndReload(); return; }
-            if (type === 'viewInNormalEditor') { void viewInNormalEditor(); return; }
+            if (handleBaseRequestMessage(message)) { return; }
+            if (handleControlMessage(message)) { return; }
             writeClipboardText(message);
+        };
+
+        const handleControlMessage = (message: unknown): boolean => {
+            const type = diffMessageType(message);
+            if (type === 'ready') { void loadDiff(); return true; }
+            if (type === 'repairAndReload') { void repairAndReload(); return true; }
+            if (type === 'viewInNormalEditor') { void viewInNormalEditor(); return true; }
+            return false;
+        };
+
+        const handleBaseRequestMessage = (message: unknown): boolean => {
+            const request = diffBaseRequest(message);
+            if (!request) { return false; }
+            void applyBaseRequest(request);
+            return true;
         };
 
         resources.add(panel.webview.onDidReceiveMessage(handleWebviewMessage));
@@ -190,8 +206,87 @@ export class DiffEditorPanel {
             return base;
         };
 
+        /**
+         * Comparison-only base override/reset: re-read + re-parse just the file
+         * at the requested path, then post a single-side `diffBaseChanged`. Never
+         * writes `.hexscope`, a profile, a binding, or the editor's saved base.
+         */
+        const applyBaseRequest = async (request: DiffBaseRequest): Promise<void> => {
+            const side = sideForPath(request.path);
+            if (!side || !canApplyBaseRequest(side)) { return; }
+            try {
+                await applyValidatedBaseRequest(request, side);
+            } catch { /* invalid race or transient read failure: keep the current view */ }
+        };
+
+        /** Resolve the request's file path against the two compared files; unknown paths are ignored. */
+        const sideForPath = (path: string): DiffSideKey | null => {
+            if (path === baseUri.fsPath) { return 'a'; }
+            if (path === otherUri.fsPath) { return 'b'; }
+            return null;
+        };
+
+        const canApplyBaseRequest = (side: DiffSideKey): boolean => {
+            if (disposed || !current) { return false; }
+            return isRawBinaryExtension(fileExtension(uriFor(side)));
+        };
+
+        const applyValidatedBaseRequest = async (request: DiffBaseRequest, side: DiffSideKey): Promise<void> => {
+            const uri = uriFor(side);
+            const bytes = await readDiffSource(uri);
+            const base = await requestedBase(request, uri, bytes.length);
+            if (base === null) { return; }
+            // Publish the effective base/flag before the reparse so a reload that
+            // starts in this window re-parses the same base and keeps the marker.
+            baseAddresses[side] = base;
+            baseOverrides[side] = request.type === 'setDiffBaseAddress';
+            const parsed = await reparseSide(side, uri, bytes, base);
+            if (!parsed) { return; }
+            await postBaseState(side, uri, parsed);
+        };
+
+        /** Stored base for a reset, or the requested value; null when the range does not fit. */
+        const requestedBase = async (
+            request: DiffBaseRequest,
+            uri: vscode.Uri,
+            byteLength: number,
+        ): Promise<number | null> => {
+            const base = request.type === 'resetDiffBaseAddress'
+                ? await resolveCompareBinBaseAddress(uri, byteLength)
+                : request.value;
+            return isValidBinBaseAddress(base) && binAddressRangeFits(base, byteLength) ? base : null;
+        };
+
+        /** Bumping the side generation invalidates any in-flight reload for that side. */
+        const reparseSide = async (
+            side: DiffSideKey,
+            uri: vscode.Uri,
+            bytes: Uint8Array,
+            base: number,
+        ): Promise<ParsedDiffFile | null> => {
+            const gen = ++reloadGeneration[side];
+            const parsed = await parseSideInWorker(uri, bytes, controller.signal, () => {}, base);
+            return reloadIsStale(disposed, gen, reloadGeneration[side], current) ? null : parsed;
+        };
+
+        /** Replace one side at its new base; the webview keeps its panes, swap order, and view mode. */
+        const postBaseState = async (
+            side: DiffSideKey,
+            uri: vscode.Uri,
+            parsed: ParsedDiffFile,
+        ): Promise<void> => {
+            const state = current;
+            if (disposed || !state) { return; }
+            const next = reloadState(state, side, refFor(uri), parsed, baseOverrides[side]);
+            current = next;
+            await DiffEditorPanel.post(panel, { type: 'diffBaseChanged', side: next[side] });
+        };
+
         const loadDiff = async (): Promise<void> => {
             const gen = ++generation;
+            // A fresh webview load starts with no comparison-only overrides.
+            baseOverrides.a = false;
+            baseOverrides.b = false;
             const progress = new DiffProgressReporter(panel);
             const isStale = (): boolean => staleDiff(disposed, gen, generation);
             try {

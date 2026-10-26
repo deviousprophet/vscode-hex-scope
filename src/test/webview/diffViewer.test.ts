@@ -8,8 +8,19 @@ import { computeByteDiff } from '../../core/diff';
 import { SearchEngine, type SearchHandlers } from '../../core/search';
 import type { MemorySegment } from '../../core/parser/types';
 import type { DiffSide, DiffWebviewToProvider } from '../../diffProtocol';
+import { diffBaseRequest, diffMessageType } from '../../diffProtocol';
 import { hydrateDiffSide, renderDiffErrorHtml, renderSideHeadHtml } from '../../webview/diff/diffModel';
-import { applyDiffProgress, copySelectionText, flushDiffRender, getViewMode, mountDiffGrid, resetDiffGrid, scrollToDiff, setDiffData, setSearchMatches, setViewMode, showDiffError } from '../../webview/diff/diffGrid';
+import {
+    beginDiffBaseEdit,
+    configureDiffBaseEditor,
+    diffBaseEditorOptions,
+    handleDiffBaseAction,
+    handleDiffBaseKeydown,
+    pasteDiffBaseText,
+    resetDiffBaseEditor,
+    updateDiffBaseDraft,
+} from '../../webview/diff/diffBaseEditor';
+import { applyDiffProgress, copySelectionText, currentSides, flushDiffRender, getViewMode, mountDiffGrid, replaceSideData, resetDiffGrid, scrollToDiff, setDiffData, setSearchMatches, setViewMode, showDiffError, swapSides } from '../../webview/diff/diffGrid';
 import { renderDiffSummaryHtml, setDiffSummary } from '../../webview/diff/diffSummary';
 import { resetDiffSearch } from '../../webview/diff/diffSearch';
 import { dispatchDiffMessage, type DiffExternalChangeErrorMessage, type DiffExternalChangeMessage, type DiffProgressMessage } from '../../webview/diff/diffMessages';
@@ -26,12 +37,12 @@ function installDom(): JSDOM {
         <div class="diff-root" id="diff-root">
         <div class="diff-summary" id="diff-summary"></div>
         <div class="diff-body" id="diff-body">
-            <div class="diff-side"><div class="diff-grid-root" id="diff-a">
+            <div class="diff-side"><div class="diff-side-head" id="diff-head-a"></div><div class="diff-grid-root" id="diff-a">
                 <div class="mem-header" id="diff-header-a"></div>
                 <div class="mem-scroll"><div class="mem-rows" id="diff-rows-a"></div></div>
             </div></div>
             <div class="diff-split" id="diff-split"></div>
-            <div class="diff-side"><div class="diff-grid-root" id="diff-b">
+            <div class="diff-side"><div class="diff-side-head" id="diff-head-b"></div><div class="diff-grid-root" id="diff-b">
                 <div class="mem-header" id="diff-header-b"></div>
                 <div class="mem-scroll"><div class="mem-rows" id="diff-rows-b"></div></div>
             </div></div>
@@ -150,6 +161,43 @@ function clickButton(id: string): void {
     (document.getElementById(id) as HTMLButtonElement).click();
 }
 
+interface BaseEditorHarness {
+    posts: DiffWebviewToProvider[];
+    /** Paths currently displayed in each pane (the swap-visible identity). */
+    paths: Record<'a' | 'b', string>;
+    render: (side: 'a' | 'b', baseAddress?: number, baseOverride?: boolean) => void;
+}
+
+/** Wire the base editor module to the jsdom heads, mirroring the diff entry surface. */
+function installBaseEditorHarness(baseAddress = 0x08000000, byteLength = 16): BaseEditorHarness {
+    const posts: DiffWebviewToProvider[] = [];
+    const paths: Record<'a' | 'b', string> = { a: '/files/fw-a.bin', b: '/files/fw-b.bin' };
+    const render = (side: 'a' | 'b', base = baseAddress, baseOverride = false): void => {
+        const el = document.getElementById(`diff-head-${side}`);
+        if (!el) { return; }
+        el.innerHTML = renderSideHeadHtml(
+            `fw-${side}.bin`, 'bin', base, diffBaseEditorOptions(side, baseOverride),
+        );
+    };
+    configureDiffBaseEditor({
+        post: message => posts.push(message),
+        byteLength: () => byteLength,
+        path: side => paths[side],
+        rerender: () => { render('a'); render('b'); },
+    });
+    render('a');
+    render('b');
+    return { posts, paths, render };
+}
+
+function baseInput(side: 'a' | 'b'): HTMLInputElement | null {
+    return document.getElementById(`diff-base-input-${side}`) as HTMLInputElement | null;
+}
+
+function baseError(side: 'a' | 'b'): HTMLElement | null {
+    return document.getElementById(`diff-base-error-${side}`);
+}
+
 function typeInto(input: HTMLInputElement, value: string): void {
     input.value = value;
     input.dispatchEvent(new (currentDom!.window as unknown as typeof window).Event('input', { bubbles: true }));
@@ -261,6 +309,8 @@ suite('HexScope Diff webview', () => {
         rafController = null;
         resetDiffGrid();
         resetDiffSearch();
+        resetDiffBaseEditor();
+        configureDiffBaseEditor({ post: () => {}, byteLength: () => 0, path: () => '', rerender: () => {} });
         mountDiffGrid();
     });
 
@@ -816,10 +866,21 @@ suite('HexScope Diff webview', () => {
         assert.ok(!css.includes('.diff-hide-addr'), 'both panes keep their own address gutter');
         assert.ok(/\.diff-root\[hidden\][^{]*\{[^}]*display:\s*none/.test(css), 'diff root collapses while the loading card shows');
         assert.ok(/\.diff-tb-row\s*\{[^}]*grid-template-columns:\s*1fr auto 1fr/.test(css), 'toolbar rows keep the left/center/right slots');
+        assert.ok(/\.diff-tb-row\s*\{[^}]*overflow-x:\s*auto/.test(css), 'a narrow split scrolls the action row rather than wrapping');
         assert.ok(/\.diff-action\s*\{[^}]*height:\s*26px/.test(css), 'action buttons keep a comfortable 26px height');
-        assert.ok(!/\.diff-action\s*\{[^}]*width:\s*26px/.test(css), 'action buttons size to their icon + text');
+        assert.ok(/\.diff-action\s*\{[^}]*width:\s*96px/.test(css), 'all six actions share one fixed 96px width');
+        assert.ok(/\.diff-action\s*\{[^}]*padding:\s*0 6px/.test(css), 'uniform action padding');
+        assert.ok(!/\.diff-action\s*\{[^}]*width:\s*26px/.test(css), 'action buttons no longer square icon-only buttons');
+        assert.ok(/\.diff-action\s*\{[^}]*vscode-button-secondaryBackground/.test(css), 'idle actions use the secondary button fill');
+        assert.ok(/\.diff-action:hover:not\(:disabled\)\s*\{[^}]*vscode-button-secondaryHoverBackground/.test(css), 'hover uses the secondary hover fill');
+        assert.ok(/\.diff-action\.active\s*\{[^}]*vscode-button-background/.test(css), 'the active toggle uses the primary button fill');
+        assert.ok(/\.diff-action:disabled\s*\{[^}]*vscode-disabledForeground/.test(css), 'disabled actions use the disabled foreground');
         assert.ok(/\.diff-action-glyph\s*\{/.test(css), 'the glyph span is styled');
         assert.ok(/\.diff-action-text\s*\{/.test(css), 'the visible text span is styled');
+        assert.ok(/\.diff-side-base\s*\{/.test(css), 'the side-head base label is styled');
+        assert.ok(/\.diff-base-actions\s*\{/.test(css), 'the side-head base controls are styled');
+        assert.ok(/\.diff-base-editor\s*\{/.test(css), 'the inline base editor is styled');
+        assert.ok(/\.diff-override-flag\s*\{/.test(css), 'the override marker is styled');
         assert.ok(!/codicon|@font-face/.test(css), 'action bar stays Unicode-only (no icon font)');
         assert.ok(!css.includes('.loading-bar-fill.det'), 'the determinate loading bar override is gone (parity with the hex view)');
         const baseCss = fs.readFileSync(path.resolve(__dirname, '../../../src/webview/styles/base.css'), 'utf8');
@@ -832,9 +893,9 @@ suite('HexScope Diff webview', () => {
         assert.ok(html.includes('fmt-pill'), 'uses the shared pill class');
         assert.ok(html.includes('>SREC<'), 'format label rendered');
         assert.ok(!html.includes('·'), 'no separator between name and format');
-        assert.ok(html.startsWith('firmware.hex '), 'name precedes the pill');
+        assert.ok(html.startsWith('<span class="diff-side-label">firmware.hex</span> '), 'name precedes the pill');
         assert.ok(renderSideHeadHtml('a<b.hex', 'ihex').includes('a&lt;b.hex'), 'label escaped');
-        const bin = renderSideHeadHtml('firmware.bin', 'bin', 0x08000000);
+        const bin = renderSideHeadHtml('firmware.bin', 'bin', 0x08000000, { side: 'a' });
         assert.ok(bin.includes('>BIN<'), 'raw binaries render the BIN pill');
         assert.ok(bin.includes('Base 0x08000000'), 'the effective base is visible in the side head');
         assert.ok(!renderSideHeadHtml('firmware.hex', 'ihex').includes('Base '), 'text sides show no base');
@@ -843,11 +904,206 @@ suite('HexScope Diff webview', () => {
         assert.ok(/\.fmt-pill\s*\{/.test(css), '.fmt-pill lives in base.css');
     });
 
+    test('a raw side head offers Edit base; text sides offer no controls', () => {
+        const raw = renderSideHeadHtml('firmware.bin', 'bin', 0x08000000, { side: 'a' });
+        assert.ok(raw.includes('data-diff-base-action="edit"'), 'Edit base control present');
+        assert.ok(raw.includes('data-side="a"'), 'side key carried on the control');
+        assert.ok(raw.includes('>Edit base</button>'), 'visible label');
+        assert.ok(!raw.includes('>Reset</button>'), 'Reset only appears once overridden');
+        assert.ok(!raw.includes('override'), 'no override marker before an override');
+        const overridden = renderSideHeadHtml('firmware.bin', 'bin', 0x08000000, { side: 'b', baseOverride: true });
+        assert.ok(overridden.includes('override'), 'overridden sides carry the marker');
+        assert.ok(overridden.includes('data-diff-base-action="reset"'), 'Reset control present');
+        assert.ok(overridden.includes('data-side="b"'), 'Reset targets the right side');
+        const text = renderSideHeadHtml('firmware.hex', 'ihex', undefined, { side: 'a' });
+        assert.ok(!text.includes('Edit base'), 'text sides never show base controls');
+        assert.ok(!text.includes('data-diff-base-action'), 'text sides carry no base action attributes');
+    });
+
     test('hydrating a raw side carries its wire base address', () => {
         const hydrated = hydrateDiffSide(side('a.bin', [seg(0x08000000, [0x01])], '/files/a.bin', 'bin', 0x08000000));
         assert.strictEqual(hydrated.baseAddress, 0x08000000);
         assert.strictEqual(hydrated.parseResult.baseAddress, 0x08000000);
+        assert.strictEqual(hydrated.baseOverride, undefined);
         assert.strictEqual(hydrateDiffSide(side('a.hex', [seg(0, [0x01])])).baseAddress, undefined);
+        const overridden = hydrateDiffSide({
+            ...side('a.bin', [seg(0x08000000, [0x01])], '/files/a.bin', 'bin', 0x08000000),
+            baseOverride: true,
+        });
+        assert.strictEqual(overridden.baseOverride, true, 'the comparison-only flag survives hydration');
+    });
+
+    test('Edit base opens the inline editor; Apply posts a changed base and closes', () => {
+        const { posts } = installBaseEditorHarness(0x08000000, 16);
+        beginDiffBaseEdit('a', 0x08000000);
+        const input = baseInput('a');
+        assert.ok(input, 'inline input rendered');
+        assert.strictEqual(input!.value, '08000000', 'digits prefill without the fixed 0x prefix');
+        assert.strictEqual(document.querySelector('#diff-head-a .diff-base-pfx')?.textContent, '0x');
+        assert.ok(document.querySelector('#diff-head-a [data-diff-base-action="apply"]'), 'Apply present');
+        assert.ok(document.querySelector('#diff-head-a [data-diff-base-action="cancel"]'), 'Cancel present');
+
+        updateDiffBaseDraft('0x2000');
+        assert.strictEqual(input!.value, '2000', 'a typed 0x prefix is stripped so it cannot consume digit slots');
+        handleDiffBaseAction('apply', 'a', 0x08000000);
+        assert.deepStrictEqual(posts, [{ type: 'setDiffBaseAddress', path: '/files/fw-a.bin', value: 0x2000 }]);
+        assert.strictEqual(baseInput('a'), null, 'the editor closes after Apply');
+    });
+
+    test('Apply targets the displayed side\u2019s file path, so a swap cannot retarget the wrong file', () => {
+        const harness = installBaseEditorHarness(0x08000000, 16);
+        // Mirror a swap: pane A now shows the other file.
+        harness.paths.a = '/files/fw-b.bin';
+        harness.paths.b = '/files/fw-a.bin';
+        beginDiffBaseEdit('a', 0x08000000);
+        updateDiffBaseDraft('2000');
+        handleDiffBaseAction('apply', 'a', 0x08000000);
+        assert.deepStrictEqual(
+            harness.posts,
+            [{ type: 'setDiffBaseAddress', path: '/files/fw-b.bin', value: 0x2000 }],
+            'the request follows the displayed file, not the pane key',
+        );
+    });
+
+    test('an invalid or overflowing base stays inline with an error and posts nothing', () => {
+        const { posts } = installBaseEditorHarness(0x08000000, 16);
+        beginDiffBaseEdit('a', 0x08000000);
+        updateDiffBaseDraft('xyz');
+        handleDiffBaseAction('apply', 'a', 0x08000000);
+        assert.strictEqual(posts.length, 0, 'invalid input never posts');
+        assert.ok(baseInput('a'), 'the editor stays open');
+        assert.strictEqual(baseInput('a')!.getAttribute('aria-invalid'), 'true');
+        assert.strictEqual(baseError('a')!.hidden, false, 'inline error visible');
+        assert.ok((baseError('a')!.textContent ?? '').length > 0);
+
+        updateDiffBaseDraft('FFFFFFF8');
+        handleDiffBaseAction('apply', 'a', 0x08000000);
+        assert.strictEqual(posts.length, 0, 'a range overflow never posts');
+        assert.ok((baseError('a')!.textContent ?? '').includes('exceeds'), 'overflow explains the range problem');
+        assert.ok(baseInput('a'), 'stay in edit mode after overflow');
+    });
+
+    test('Cancel and Escape close the editor without a post; a pasted over-long value errors instead of truncating', () => {
+        const { posts } = installBaseEditorHarness(0x08000000, 16);
+        beginDiffBaseEdit('a', 0x08000000);
+        handleDiffBaseAction('cancel', 'a', 0x08000000);
+        assert.strictEqual(posts.length, 0);
+        assert.strictEqual(baseInput('a'), null, 'Cancel closes the editor');
+
+        beginDiffBaseEdit('a', 0x08000000);
+        const key = new (currentDom!.window as unknown as typeof window).KeyboardEvent('keydown', {
+            key: 'Escape', bubbles: true, cancelable: true,
+        });
+        assert.strictEqual(handleDiffBaseKeydown(key), true, 'Escape is consumed while editing');
+        assert.strictEqual(posts.length, 0);
+        assert.strictEqual(baseInput('a'), null, 'Escape closes the editor');
+
+        beginDiffBaseEdit('a', 0x08000000);
+        pasteDiffBaseText('0x123456789');
+        assert.strictEqual(baseInput('a')!.value, '123456789', 'the whole pasted value stays visible');
+        assert.ok(baseError('a')!.hidden === false, 'over-long paste reports inline');
+    });
+
+    test('Reset posts the reset request; the override marker appears only on an overridden side', () => {
+        const harness = installBaseEditorHarness(0x08000000, 16);
+        harness.render('a', 0x08000000, true);
+        assert.ok(document.querySelector('#diff-head-a .diff-override-flag'), 'overridden side marks it');
+        assert.ok(document.querySelector('#diff-head-a [data-diff-base-action="reset"]'), 'Reset offered');
+        assert.strictEqual(document.querySelector('#diff-head-b .diff-override-flag'), null, 'other side stays plain');
+        handleDiffBaseAction('reset', 'a', 0x08000000);
+        assert.deepStrictEqual(harness.posts, [{ type: 'resetDiffBaseAddress', path: '/files/fw-a.bin' }]);
+        assert.strictEqual(document.querySelector('#diff-head-a .diff-override-flag'), null, 'Reset drops the marker');
+    });
+
+    test('diffInit and swap close an open editor; diffBaseRequest parses the path-based host messages', () => {
+        installBaseEditorHarness(0x08000000, 16);
+        beginDiffBaseEdit('a', 0x08000000);
+        assert.ok(baseInput('a'), 'editor open before the reset');
+        resetDiffBaseEditor();
+        assert.strictEqual(diffBaseEditorOptions('a').baseEditor, null, 'diffInit/swap close the editor');
+
+        assert.deepStrictEqual(
+            diffBaseRequest({ type: 'setDiffBaseAddress', path: '/files/fw.bin', value: 0x2000 }),
+            { type: 'setDiffBaseAddress', path: '/files/fw.bin', value: 0x2000 },
+        );
+        assert.deepStrictEqual(
+            diffBaseRequest({ type: 'resetDiffBaseAddress', path: '/files/fw.bin' }),
+            { type: 'resetDiffBaseAddress', path: '/files/fw.bin' },
+        );
+        assert.strictEqual(diffBaseRequest({ type: 'setDiffBaseAddress', value: 1 }), null, 'missing path rejected');
+        assert.strictEqual(diffBaseRequest({ type: 'setDiffBaseAddress', path: '', value: 1 }), null, 'empty path rejected');
+        assert.strictEqual(diffBaseRequest({ type: 'setDiffBaseAddress', path: 7, value: 1 }), null, 'non-string path rejected');
+        assert.strictEqual(diffBaseRequest({ type: 'setDiffBaseAddress', path: '/f', value: '1' }), null);
+        assert.strictEqual(diffBaseRequest({ type: 'setDiffBaseAddress', path: '/f', value: 1.5 }), null);
+        assert.strictEqual(diffBaseRequest({ type: 'setDiffBaseAddress', path: '/f', value: -1 }), null);
+        assert.strictEqual(diffBaseRequest({ type: 'setDiffBaseAddress', path: '/f', value: 0x1_0000_0000 }), null);
+        assert.strictEqual(diffBaseRequest({ type: 'resetDiffBaseAddress' }), null);
+        assert.strictEqual(diffBaseRequest({ type: 'resetDiffBaseAddress', path: '' }), null);
+        assert.strictEqual(diffBaseRequest({ type: 'copyText', path: '/f', text: 'x' }), null);
+        assert.strictEqual(diffBaseRequest(null), null);
+        assert.strictEqual(diffMessageType({ type: 'setDiffBaseAddress', path: '/f', value: 1 }), 'setDiffBaseAddress');
+    });
+
+    test('replaceSideData replaces by file path, keeps the other side, and recomputes the diff', () => {
+        mount([seg(0x1000, [0x01])], [seg(0x1000, [0x01])]);
+        const replaced = hydrateDiffSide(side('a.hex', [seg(0x1000, [0x02])], '/files/a.hex'));
+        const diff = replaceSideData('/files/a.hex', replaced);
+        assert.ok(diff, 'the matching side is replaced');
+        assert.deepStrictEqual(diff!.summary, { changed: 1, added: 0, removed: 0 }, 'diff recomputed for the new bytes');
+        const after = currentSides()!;
+        assert.strictEqual(after.a.parseResult.segments[0].data[0], 0x02, 'the replaced side carries the new bytes');
+        assert.strictEqual(after.b.parseResult.segments[0].data[0], 0x01, 'the other side is untouched');
+        assert.strictEqual(replaceSideData('/files/nope.hex', replaced), null, 'an unknown path is ignored');
+    });
+
+    test('after a swap, replaceSideData still targets the file, not the pane key', () => {
+        mount([seg(0x1000, [0x01])], [seg(0x1000, [0x01])]);
+        swapSides();
+        assert.strictEqual(currentSides()!.a.path, '/files/b.hex', 'pane A now shows the other file');
+
+        const replacedB = hydrateDiffSide(side('b.hex', [seg(0x2000, [0x09])], '/files/b.hex'));
+        const diff = replaceSideData('/files/b.hex', replacedB);
+        assert.ok(diff, 'the displayed side is replaced by its file path');
+        const after = currentSides()!;
+        assert.strictEqual(after.a.path, '/files/b.hex', 'the swap order survives');
+        assert.strictEqual(after.a.parseResult.segments[0].startAddress, 0x2000, 'the moved file re-aligns');
+        assert.strictEqual(after.b.path, '/files/a.hex', 'the other file is untouched');
+    });
+
+    test('replaceSideData preserves the view mode through the reload render path', () => {
+        mount([seg(0x1000, [0x01]), seg(0x1020, [0x02])], [seg(0x1000, [0x11]), seg(0x1020, [0x02])]);
+        setViewMode('diff');
+        const replaced = hydrateDiffSide(side('a.hex', [seg(0x1000, [0x01]), seg(0x1020, [0x22])], '/files/a.hex'));
+        replaceSideData('/files/a.hex', replaced);
+        assert.strictEqual(getViewMode(), 'diff', 'view mode survives the one-side update');
+        assert.strictEqual(rows('#diff-rows-a').length, 2, 'the diff-filtered rows reflect the recomputed model');
+    });
+
+    test('diffBaseChanged is accepted and malformed messages are ignored', () => {
+        let changed = 0;
+        const handlers = {
+            diffInit: () => { /* noop */ },
+            diffError: () => { /* noop */ },
+            diffProgress: () => { /* noop */ },
+            diffExternalChange: () => { /* noop */ },
+            diffExternalChangeError: () => { /* noop */ },
+            diffBaseChanged: () => { changed++; },
+        };
+        const valid = side('a.bin', [seg(0x08000000, [0x01])], '/files/a.bin', 'bin', 0x08000000);
+        assert.strictEqual(dispatchDiffMessage({ type: 'diffBaseChanged', side: valid }, handlers), true);
+        assert.strictEqual(changed, 1);
+
+        const malformed: unknown[] = [
+            { type: 'diffBaseChanged' },
+            { type: 'diffBaseChanged', side: {} },
+            { type: 'diffBaseChanged', side: { ...valid, format: 'nope' } },
+            { type: 'diffBaseChanged', side: { ...valid, parseResult: { recordCount: 'x', segments: [] } } },
+            null,
+        ];
+        for (const message of malformed) {
+            assert.strictEqual(dispatchDiffMessage(message, handlers), false, `rejected ${JSON.stringify(message)}`);
+        }
+        assert.strictEqual(changed, 1, 'no handler ran for a malformed base update');
     });
 
     test('accepts a raw-binary side in diffInit', () => {
@@ -860,6 +1116,7 @@ suite('HexScope Diff webview', () => {
             diffProgress: () => { /* noop */ },
             diffExternalChange: () => { /* noop */ },
             diffExternalChangeError: () => { /* noop */ },
+            diffBaseChanged: () => { /* noop */ },
         };
         assert.strictEqual(dispatchDiffMessage(message, handlers), true, 'bin is a supported diff format');
         assert.strictEqual(inits, 1);
@@ -890,6 +1147,7 @@ suite('HexScope Diff webview', () => {
             diffProgress: (message: DiffProgressMessage) => { stage = message.stage; },
             diffExternalChange: () => { /* noop */ },
             diffExternalChangeError: () => { /* noop */ },
+            diffBaseChanged: () => { /* noop */ },
         };
         assert.strictEqual(dispatchDiffMessage({ type: 'diffProgress', stage: 'parse', completed: 1, total: 2 }, handlers), true);
         assert.strictEqual(stage, 'parse');
@@ -918,6 +1176,7 @@ suite('HexScope Diff webview', () => {
             diffProgress: () => { progress++; },
             diffExternalChange: () => { /* noop */ },
             diffExternalChangeError: () => { /* noop */ },
+            diffBaseChanged: () => { /* noop */ },
         };
         assert.strictEqual(dispatchDiffMessage({ type: 'nope' }, handlers), false);
         assert.strictEqual(dispatchDiffMessage(null, handlers), false);
@@ -937,6 +1196,7 @@ suite('HexScope Diff webview', () => {
             diffProgress: () => { /* noop */ },
             diffExternalChange: () => { /* noop */ },
             diffExternalChangeError: () => { /* noop */ },
+            diffBaseChanged: () => { /* noop */ },
         };
         const validA = side('a.hex', [seg(0x1000, [0x01])]);
         const validB = side('b.hex', [seg(0x1000, [0x02])]);
@@ -948,6 +1208,7 @@ suite('HexScope Diff webview', () => {
             { type: 'diffInit', a: validA, b: validB, diff: { runs: [{ start: 'x', end: 1, kind: 'changed' }] } },
             { type: 'diffInit', a: { ...validA, parseResult: { recordCount: 'x', segments: [] } }, b: validB, diff: validDiff },
             { type: 'diffInit', a: validA, b: { ...validB, labels: 'x' }, diff: validDiff },
+            { type: 'diffInit', a: { ...validA, baseOverride: 'yes' }, b: validB, diff: validDiff },
             { type: 'diffInit', a: validA, b: validB, diff: { runs: 'x' } },
         ];
         for (const message of malformed) {
@@ -1150,6 +1411,7 @@ suite('HexScope Diff webview', () => {
             diffProgress: () => { /* noop */ },
             diffExternalChange: () => { changes++; },
             diffExternalChangeError: () => { errors++; },
+            diffBaseChanged: () => { /* noop */ },
         };
         assert.strictEqual(dispatchDiffMessage(externalChangeMessage([seg(0x1000, [0x01])], [seg(0x1000, [0x02])]), handlers), true);
         assert.strictEqual(dispatchDiffMessage(externalChangeErrorMessage('a', true), handlers), true);
