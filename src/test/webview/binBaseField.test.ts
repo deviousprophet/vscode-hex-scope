@@ -644,4 +644,34 @@ suite('webview raw-binary base field', () => {
         // Thicker separator for both profile/Base Address and tabs/ASCII.
         assert.match(toolbarCss, /\.tb-sep\s*\{[^}]*width:\s*2px/s);
     });
+
+    test('styles: the pencil Edit is hover/focus-revealed while Save/Cancel stay visible', () => {
+        const binCss = fs.readFileSync(BIN_BASE_CSS, 'utf8');
+
+        // Hidden by default but kept in layout/keyboard order (opacity, not display).
+        assert.match(binCss, /\.bin-base-field\s+#bin-base-edit\s*\{[^}]*opacity:\s*0\b/s,
+            'the pencil Edit starts hidden');
+        assert.match(binCss, /\.bin-base-field\s+#bin-base-edit\s*\{[^}]*transition:[^}]*opacity\s+\.1s/s,
+            'the reveal fades briefly instead of popping');
+
+        // Sidebar `.act-btn` parity: field hover/focus-within and its own focus reveal it.
+        assert.match(binCss, /\.bin-base-field:hover\s+#bin-base-edit[^{]*\{[^}]*opacity:\s*1\b/s,
+            'hovering the field reveals Edit');
+        assert.match(binCss, /\.bin-base-field:focus-within\s+#bin-base-edit[^{]*\{[^}]*opacity:\s*1\b/s,
+            'keyboard focus within the field reveals Edit');
+        assert.match(binCss, /#bin-base-edit:focus-visible[^{]*\{[^}]*opacity:\s*1\b/s,
+            'focus-visible reveals Edit');
+
+        // Disabled Edit still reveals, with its dimmed disabled look.
+        assert.match(binCss, /#bin-base-edit:disabled[^{]*\{[^}]*opacity:\s*\.5\b/s,
+            'disabled Edit reveals with its disabled appearance');
+
+        // Touch / no-hover surfaces always see it.
+        assert.match(binCss, /@media\s*\(hover:\s*none\)\s*\{[^}]*#bin-base-edit\s*\{[^}]*opacity:\s*1\b/s,
+            'no-hover surfaces keep Edit visible');
+
+        // Save/Cancel are never faded; they exist only in edit mode.
+        assert.doesNotMatch(binCss, /#bin-base-(save|cancel)[^{]*\{[^}]*opacity:\s*0\b/s,
+            'Save/Cancel must not share the reveal fade');
+    });
 });
