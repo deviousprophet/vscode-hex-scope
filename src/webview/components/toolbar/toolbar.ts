@@ -24,6 +24,8 @@ export interface ToolbarRenderState {
     ascii: boolean;
     editMode: boolean;
     dirtyCount: number;
+    /** False for raw binary files (no record list); hides the Records tab. */
+    showRecordView: boolean;
 }
 
 function activeClass(active: boolean): string {
@@ -66,7 +68,7 @@ export function renderToolbarHtml(searchBarHtml: string, s: ToolbarRenderState):
         <div id="toolbar">
             <div class="view-tabs">
                 <button id="btn-mem" class="${tabClass(s.view, 'memory')}">Memory</button>
-                <button id="btn-rec" class="${tabClass(s.view, 'record')}">Records</button>
+                <button id="btn-rec" class="${tabClass(s.view, 'record')}"${hiddenAttr(s.showRecordView)}>Records</button>
             </div>
             <div class="tb-sep"></div>
             <button id="btn-ascii-toggle" class="${activeClass(mem && s.ascii)} tb-ascii-btn" type="button" title="Show or hide the decoded ASCII column"${hiddenAttr(mem)}>ASCII</button>
@@ -90,6 +92,7 @@ export class Toolbar {
     private editMode = false;
     private ascii = false;
     private dirtyCount = 0;
+    private recordViewAvailable = true;
     private mounted = false;
 
     private static readonly CLICK_ACTIONS: ReadonlyArray<readonly [string, (t: Toolbar) => void]> = [
@@ -116,6 +119,7 @@ export class Toolbar {
             ascii: this.ascii,
             editMode: this.editMode,
             dirtyCount: this.dirtyCount,
+            showRecordView: this.recordViewAvailable,
         });
     }
 
@@ -132,6 +136,13 @@ export class Toolbar {
         setActive('btn-mem', v === 'memory');
         setActive('btn-rec', v === 'record');
         this.applyMemoryGating();
+    }
+
+    /** Records tab availability (raw binaries have no records); forces Memory when hidden. */
+    setRecordViewAvailable(show: boolean): void {
+        this.recordViewAvailable = show;
+        setDisplay('btn-rec', show);
+        if (!show && this.view === 'record') { this.cb.onViewChange?.('memory'); }
     }
 
     /** Edit button hidden / EDITING group shown within memory view. */

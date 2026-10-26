@@ -36,6 +36,7 @@ interface ToolbarRenderState {
     ascii: boolean;        // ASCII button active (memory view)
     editMode: boolean;     // Edit hidden / EDITING group shown
     dirtyCount: number;    // #edit-dirty-count text + Save disabled
+    showRecordView: boolean; // false for raw binaries → #btn-rec hidden
 }
 
 export function renderToolbarHtml(searchBarHtml: string, state: ToolbarRenderState): string;  // pure
@@ -49,6 +50,7 @@ export class Toolbar {
     setDirty(count: number): void;                   // #edit-dirty-count text + Save disabled (count===0)
 setSectionEdit(active: boolean, count?: number): void;  // sibling SELECTION chip (static mapped count); never alters the EDITING pill
 setStatus(message: string): void;                // transient #edit-status message; auto-clears after 3s
+setRecordViewAvailable(show: boolean): void;     // hide #btn-rec and force Memory when unavailable
 }
 ```
 
@@ -57,6 +59,7 @@ setStatus(message: string): void;                // transient #edit-status messa
 - **Report-only:** every button click → callback; component never mutates `S`, never posts `saveEdits`, never runs edit/undo logic.
 - **Host state via setters:** host calls `setView`/`setEditMode`/`setAscii`/`setDirty` on invalidation; component owns transient active/edit-group classes derived from them.
 - **Memory gating is internal to `setView`:** `applyMemoryGating` shows ascii button + Edit (mem && !editMode) / EDITING group (mem && editMode), and re-applies the ASCII `active` class on every view change (re-entry from record must not lose it).
+- **Records availability:** `setRecordViewAvailable(false)` (raw `.bin`) hides `#btn-rec` and reports `onViewChange('memory')` when record view is active; `renderToolbarHtml` applies `style="display:none"` to the tab when `showRecordView` is false. The host derives availability from `S.parseResult?.format !== 'bin'` and also guards `switchView('record')`.
 - **Dirty:** `setDirty(count)` sets `#edit-dirty-count` (empty at 0, else "N unsaved byte(s)") and Save `disabled = count===0`.
 - **Responsive:** `#toolbar` scrolls horizontally (`overflow-x: auto`) when content exceeds the width; the search input shrinks (flex `0 1 180px`, `min-width: 70px`) before the fixed nav buttons/select so narrow webviews never clip the rightmost controls.
 - **SearchBar slot:** `toHtml()` embeds `${searchBar.toHtml()}` — SearchBar is its own component, mounts independently, doc-delegated. Toolbar never writes SearchBar DOM.
@@ -75,6 +78,7 @@ setStatus(message: string): void;                // transient #edit-status messa
 - `#load-progress` (`role="status"`, `hidden`) — host-owned load-progress indicator rendered in the toolbar; toggled by host, not a component state.
 - SearchBar output embedded as the trailing slot.
 - **Profile picker is a host-side module (not a Toolbar slot):** `src/webview/profilePicker.ts` owns the dropdown + actions menu — `profilePicker.render()` writes the `#profile-picker` innerHTML, `seed()` initializes the toast baseline, `handleProfilesState` and `handleActivatePicker` are the delegated provider handlers. The `#profile-bar` second row is inserted after `#toolbar` (`insertAdjacentHTML('afterend', ...)` in `hexViewer.ts` `render()`), matching the toolbar chrome (`--toolbar-bg` + bottom border, ~31px, `overflow-x: auto`). `#toolbar` itself never contains profile markup.
+- **Raw-binary base field is a host-side module (not a Toolbar slot):** `src/webview/binBaseField.ts` (+ `.css`) mounts `#bin-base-field` after `#profile-picker` inside `#profile-bar`, for `.bin` only. It owns the uppercase **BASE ADDRESS** label (shared `.profile-label`, no title-case override), a read-only `0x%08X` value label (`#bin-base-value`, mono 11px bold) shown in view mode, and icon-only actions (pencil, check, X) using the shared `.addr-icon-btn` primitive in `styles/base.css` (22×22, secondary button tokens, hover/focus/disabled, with `title` + `aria-label`), also used by the diff side-head base controls. View mode shows the value + Edit, where the pencil starts at `opacity: 0` and is revealed by field hover/focus-within (and its own `:focus-visible`), matching the sidebar `.act-btn` actions, with a `@media (hover: none)` always-visible fallback; edit mode hides the value and reveals one bordered shared `.addr-field` box (`.addr-pfx` fixed `0x` + `.addr-input` digits flush inside the border, no gap) plus Save/Cancel, which are never faded. Label, value/box, and icons stay vertically centered on the 31px row. Save/Enter commit; Cancel/Escape revert to the value label; no blur commit; disabled Edit with a tooltip while dirty/locked; and `beginEdit()`/`focus()`; `hexViewer.ts` renders it on init/lock/edit-state changes and delegates the `focusBinBaseAddress` message to it. The shared `.tb-sep` is 2px. Toolbar remains unaware.
 - **Profile actions menu (R7):** `profilePicker.render()` renders the `#profile-select` dropdown plus a `⋮` button (`#profile-actions-btn`, `.sb-btn sb-btn-secondary`). The menu uses the **shared menu component** exactly like the hex-grid context menu: clicking the button calls `menuController.show(x, y, { innerHTML: profileActionsHtml(bound), emit: handleProfileAction })` with `x,y` from the button's bounding rect, so `positionMenu` renders the standard `#menu` panel (menu.css presentation — `.menu-item[data-cmd][role=menuitem]` rows + `.menu-header` + `.menu-label`). Items Save / Save as… / Rename / Delete carry `menu-disabled` when `S.profileState.current === null` (shared `.menu-item.menu-disabled` muted style in menu.css). `handleProfileAction` uses the typed `PROFILE_ACTION_MESSAGES: Record<ProfileAction, WebviewToProviderMessage>` map guarded by `isProfileAction(cmd)` before mapping the command to the `saveProfile`/`duplicateProfile`/`renameProfile`/`deleteProfile` provider messages. The profile bar is memory-view-only (`updateMemoryOnlyControls` toggles it with the search bar).
 - **Shared-profile surfacing (R9):** the persistent `.profile-shared-hint` span is gone. The select carries a `title` tooltip — bound profile name, or `"NAME · shared by N files"` when `boundFileCount > 1`, or "No profile bound to this file" when unbound. A **transient toast** fires only when the user switches to a shared profile: `profilePicker.handleProfilesState` compares `S.profileState.current` against a module `lastProfileCurrent` (seeded by `profilePicker.seed()` right after the initial render, so opening never toasts) and toasts when `cur !== lastProfileCurrent && cur !== null && boundFileCount > 1`. `handleProfilesState` destructures `S.profileState` once into locals.
 
@@ -83,6 +87,7 @@ setStatus(message: string): void;                // transient #edit-status messa
 | Condition | Behaviour |
 |---|---|
 | Record view | ASCII + edit buttons/groups hidden; profile bar hidden; search hidden (via SearchBar.setVisible); tabs active. |
+| Raw binary | Records tab hidden; Memory is the only content view (host forces it). |
 | Memory re-entry with ascii on | ASCII button shown AND `active` (re-applied by `applyMemoryGating`). |
 | Edit mode on | Edit hidden, EDITING group shown, Save/Cancel visible. |
 | dirtyCount 0 | `#edit-dirty-count` empty, Save disabled. |
@@ -93,7 +98,7 @@ setStatus(message: string): void;                // transient #edit-status messa
 
 ## Tests Required
 
-`src/test/webview/components/toolbar.test.ts` (mocha + jsdom + cssImportHook): pure render (tabs active, ASCII memory-gated, edit hidden while editMode, EDITING group, dirty + save disabled, SearchBar slot), callback reports (view/ascii/edit/save/cancel), setters (setView/setEditMode/setAscii/setDirty), ASCII active survives record→memory re-entry, idempotent mount. Existing `webview.test.ts` toolbar/edit assertions pass unchanged (parity gate). The profile bar + actions menu live in `src/webview/profilePicker.ts` (no shell unit harness — repo precedent: search/sidebar toggles likewise untested).
+`src/test/webview/components/toolbar.test.ts` (mocha + jsdom + cssImportHook): pure render (tabs active, ASCII memory-gated, edit hidden while editMode, EDITING group, dirty + save disabled, SearchBar slot), callback reports (view/ascii/edit/save/cancel), setters (setView/setEditMode/setAscii/setDirty), ASCII active survives record→memory re-entry, idempotent mount, Records tab hidden via `setRecordViewAvailable(false)` (and a reported Memory switch while record view is active). Existing `webview.test.ts` toolbar/edit assertions pass unchanged (parity gate). The profile bar + actions menu live in `src/webview/profilePicker.ts` (no shell unit harness — repo precedent: search/sidebar toggles likewise untested).
 
 ## Anti-patterns
 

@@ -15,8 +15,12 @@ import {
     JsonStore,
     applyMigrationSteps,
     attachProfileWatcher,
+    bindFile,
     bindingsJsonUri,
+    boundProfileId,
     collectProfileRecords,
+    createBoundProfile,
+    dropBindingFileKeys,
     emptyProfileRecord,
     hexScopeSchemasDir,
     migrateAndNormalize,
@@ -26,18 +30,29 @@ import {
     nextProfileOrdinal,
     normalizeBindings,
     normalizeProfilesRegistry,
+    normalizeBindingTable,
     perFileRelativePath,
     profilesJsonUri,
+    pruneBinBases,
+    pruneBindings,
+    readBinBase,
+    readBindingTable,
     readJson,
     readProfileRecord,
     removeProfileRecord,
     renameProfileRecord,
     resolveHexScopeRoot,
+    rewriteBindingFileKeys,
     seedSchemaCopies,
     typePoolJsonUri,
+    unbindFile,
     unwrapEnvelope,
+    updateBindingTable,
     withDataEnvelope,
     withEnvelope,
+    writeBinBase,
+    writeBindingEntry,
+    writeBindingTable,
     writeIfMissing,
     writeJson,
     writeProfileRecord,
@@ -45,17 +60,12 @@ import {
 } from '../../hexScopeStorage';
 import {
     applyTypeDeletion,
-    bindFile,
     bindingsUsing,
-    boundProfileId,
     collectTypeDeletionUsage,
-    createBoundProfile,
     deleteRegistryProfile,
     loadWorkspaceTypes,
-    pruneBindings,
     showHiddenFieldsPatch,
     stripDeletedTypeInstances,
-    unbindFile,
     workspaceTypePoolCache,
 } from '../../hexEditorSession';
 import type { MementoLike } from '../../hexScopeMigration';
@@ -523,6 +533,178 @@ suite('hexScopeStorage — data-schema migration runner', () => {
         assert.deepStrictEqual(normalizeBindings({ schemaVersion: DATA_SCHEMA_VERSION + 1, bindings: rows }), { value: [], changed: false, newer: true }, 'newer payload → empty + newer flag');
     });
 
+    test('normalizeBindingTable keeps valid binBases, drops invalid/duplicate entries, and is idempotent', () => {
+        const raw = {
+            schemaVersion: DATA_SCHEMA_VERSION,
+            bindings: [
+                { fileKey: REL, profileId: 'profile_1' },
+                { fileKey: '', profileId: 'x' },
+                { fileKey: 'empty.hex', profileId: '' },
+            ],
+            binBases: [
+                { fileKey: REL, baseAddress: 0 },
+                { fileKey: REL, baseAddress: 0x08000000 },
+                { fileKey: 'bad-negative.bin', baseAddress: -1 },
+                { fileKey: 'bad-float.bin', baseAddress: 1.5 },
+                { fileKey: 'bad-overflow.bin', baseAddress: 0x1_0000_0000 },
+                { fileKey: 'bad-string.bin', baseAddress: '0x1000' },
+                { fileKey: '', baseAddress: 0x1000 },
+                { fileKey: 'kept.bin', baseAddress: 0xFFFFFFFF },
+            ],
+        };
+        const normalized = normalizeBindingTable(raw);
+        assert.deepStrictEqual(normalized.value.bindings, [{ fileKey: REL, profileId: 'profile_1' }]);
+        assert.deepStrictEqual(normalized.value.binBases, [
+            { fileKey: REL, baseAddress: 0x08000000 },
+            { fileKey: 'kept.bin', baseAddress: 0xFFFFFFFF },
+        ], 'duplicates keep the last value; invalid entries are dropped');
+        assert.strictEqual(normalized.changed, true);
+        assert.strictEqual(normalizeBindingTable(normalized.value).changed, true, 're-stamping a bare table is a payload change, not a shape change');
+        assert.deepStrictEqual(normalizeBindingTable(normalized.value).value, normalized.value, 'idempotent values');
+
+        const stamped = { schemaVersion: DATA_SCHEMA_VERSION, ...normalized.value };
+        assert.strictEqual(normalizeBindingTable(stamped).changed, false, 'canonical stamped output is stable');
+    });
+
+    test('a table with no binBases stays byte-identical to the pre-feature payload', async () => {
+        const file = vscode.Uri.file(path.join(testRoot, 'boot.hex'));
+        await writeText(file, ':00000001FF\n');
+        await writeBindingTable(testRoot, { bindings: [{ fileKey: REL, profileId: 'profile_1' }], binBases: [] });
+        const data = (await readJsonValue(bindingsJsonUri(testRoot)) as { data: Record<string, unknown> }).data;
+        assert.deepStrictEqual(Object.keys(data).sort(), ['bindings', 'schemaVersion'], 'no empty binBases key is emitted');
+    });
+
+    test('read/writeBindingTable round-trips both arrays', async () => {
+        await writeBindingTable(testRoot, {
+            bindings: [{ fileKey: REL, profileId: 'profile_1' }],
+            binBases: [{ fileKey: REL, baseAddress: 0x08000000 }],
+        });
+        assert.deepStrictEqual(await readBindingTable(testRoot), {
+            bindings: [{ fileKey: REL, profileId: 'profile_1' }],
+            binBases: [{ fileKey: REL, baseAddress: 0x08000000 }],
+        });
+    });
+
+    test('bindFile and unbindFile leave every binBases entry untouched', async () => {
+        const file = vscode.Uri.file(path.join(testRoot, ...REL_WIN.split(path.sep)));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(file.fsPath)));
+        await writeText(file, ':00000001FF\n');
+        await writeBindingTable(testRoot, { bindings: [], binBases: [{ fileKey: REL, baseAddress: 0x08000000 }] });
+
+        await bindFile(testRoot, REL, 'profile_1');
+        assert.deepStrictEqual((await readBindingTable(testRoot))?.binBases, [{ fileKey: REL, baseAddress: 0x08000000 }], 'binding keeps the base');
+
+        await unbindFile(testRoot, REL);
+        assert.deepStrictEqual((await readBindingTable(testRoot))?.bindings, [], 'profile binding removed');
+        assert.deepStrictEqual((await readBindingTable(testRoot))?.binBases, [{ fileKey: REL, baseAddress: 0x08000000 }], 'unbind keeps the base');
+    });
+
+    test('profile deletion clears bindings but keeps every binBases entry', async () => {
+        const file = vscode.Uri.file(path.join(testRoot, ...REL_WIN.split(path.sep)));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(file.fsPath)));
+        await writeText(file, ':00000001FF\n');
+        await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
+        await bindFile(testRoot, REL, 'profile_1');
+        await writeBinBase(testRoot, REL, 0x1000);
+
+        await deleteRegistryProfile(testRoot, 'profile_1');
+
+        assert.deepStrictEqual((await readBindingTable(testRoot))?.bindings, []);
+        assert.deepStrictEqual((await readBindingTable(testRoot))?.binBases, [{ fileKey: REL, baseAddress: 0x1000 }], 'the per-file base survives profile deletion');
+    });
+
+    test('file rename rewrites both keys; file delete drops both', async () => {
+        const oldKey = 'firmware/boot.bin';
+        const newKey = 'firmware/app.bin';
+        const table = {
+            bindings: [{ fileKey: oldKey, profileId: 'profile_1' }],
+            binBases: [{ fileKey: oldKey, baseAddress: 0x08000000 }],
+        };
+        const renamed = rewriteBindingFileKeys(table, key => (key === oldKey ? newKey : null));
+        assert.strictEqual(renamed.changed, true);
+        assert.deepStrictEqual(renamed.table, {
+            bindings: [{ fileKey: newKey, profileId: 'profile_1' }],
+            binBases: [{ fileKey: newKey, baseAddress: 0x08000000 }],
+        });
+        assert.strictEqual(rewriteBindingFileKeys(table, () => null).changed, false, 'no matching key → identity');
+
+        const dropped = dropBindingFileKeys(renamed.table, new Set([newKey]));
+        assert.strictEqual(dropped.changed, true);
+        assert.deepStrictEqual(dropped.table, { bindings: [], binBases: [] });
+        assert.strictEqual(dropBindingFileKeys(renamed.table, new Set(['other.bin'])).changed, false);
+    });
+
+    test('readBinBase/writeBinBase round-trip; an unchanged value is a no-op', async () => {
+        const file = vscode.Uri.file(path.join(testRoot, 'boot.bin'));
+        await vscode.workspace.fs.writeFile(file, Uint8Array.from([1, 2, 3, 4]));
+        const rel = perFileRelativePath(testRoot, file);
+        assert.deepStrictEqual(await readBinBase(testRoot, rel), { value: 0, present: false });
+
+        assert.strictEqual(await writeBinBase(testRoot, rel, 0x08000000), true);
+        assert.deepStrictEqual(await readBinBase(testRoot, rel), { value: 0x08000000, present: true });
+        const before = await readText(bindingsJsonUri(testRoot));
+
+        assert.strictEqual(await writeBinBase(testRoot, rel, 0x08000000), false, 'same value performs no write');
+        assert.strictEqual(await readText(bindingsJsonUri(testRoot)), before);
+        assert.strictEqual(await writeBinBase(testRoot, rel, -1), false, 'invalid values never reach the writer');
+    });
+
+    test('writeBinBase declines a newer-than-build table', async () => {
+        const newer = JSON.stringify({
+            version: DATA_VERSION,
+            data: { schemaVersion: DATA_SCHEMA_VERSION + 1, bindings: [], binBases: [] },
+        }, null, 2);
+        await writeText(bindingsJsonUri(testRoot), newer);
+
+        assert.strictEqual(await writeBinBase(testRoot, 'boot.bin', 0x1000), false);
+        assert.strictEqual(await readText(bindingsJsonUri(testRoot)), newer, 'forward-only: the newer table survives');
+    });
+
+    test('pruneBinBases drops entries whose file no longer exists', async () => {
+        const staysUri = vscode.Uri.file(path.join(testRoot, 'stays.bin'));
+        await vscode.workspace.fs.writeFile(staysUri, Uint8Array.from([1]));
+
+        const pruned = await pruneBinBases(testRoot, [
+            { fileKey: 'stays.bin', baseAddress: 0x1000 },
+            { fileKey: 'gone.bin', baseAddress: 0x2000 },
+            { fileKey: 'never.bin', baseAddress: 0x3000 },
+        ]);
+        assert.deepStrictEqual(pruned, [{ fileKey: 'stays.bin', baseAddress: 0x1000 }]);
+    });
+
+    test('updateBindingTable preserves binBases and declines a newer table', async () => {
+        await vscode.workspace.fs.writeFile(vscode.Uri.file(path.join(testRoot, 'a.bin')), Uint8Array.from([1]));
+        await writeBindingTable(testRoot, { bindings: [], binBases: [{ fileKey: 'a.bin', baseAddress: 0x1000 }] });
+        const applied = await updateBindingTable(testRoot, table => ({
+            ...table,
+            bindings: [{ fileKey: 'a.hex', profileId: 'profile_1' }],
+        }));
+        assert.strictEqual(applied, true);
+        assert.deepStrictEqual((await readBindingTable(testRoot))?.binBases, [{ fileKey: 'a.bin', baseAddress: 0x1000 }]);
+
+        const newer = JSON.stringify({ version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION + 1, bindings: [], binBases: [] } });
+        await writeText(bindingsJsonUri(testRoot), newer);
+        assert.strictEqual(await updateBindingTable(testRoot, table => table), false, 'a newer table declines the write');
+        assert.strictEqual(await readText(bindingsJsonUri(testRoot)), newer);
+    });
+
+    test('writeBindingEntry (migration path) preserves binBases and never prunes', async () => {
+        await writeBindingTable(testRoot, { bindings: [], binBases: [{ fileKey: REL, baseAddress: 0x08000000 }] });
+
+        // The legacy tree may reference files not present on disk yet; the
+        // migration writer must insert the binding without dropping the base
+        // table (and without pruning the not-yet-existing binding).
+        await writeBindingEntry(testRoot, 'legacy/not-on-disk.hex', 'profile_1');
+
+        const table = await readBindingTable(testRoot);
+        assert.deepStrictEqual(table?.binBases, [{ fileKey: REL, baseAddress: 0x08000000 }], 'the per-file base survives migration');
+        assert.deepStrictEqual(
+            table?.bindings,
+            [{ fileKey: 'legacy/not-on-disk.hex', profileId: 'profile_1' }],
+            'the migration binding is written without pruning',
+        );
+    });
+
     test('a newer-than-build file is never clobbered by a registry or binding write (forward-only)', async () => {
         // Every read-modify-write path must decline when the data file is ahead of
         // the build — the file survives untouched (no downgrade, no data loss).
@@ -885,6 +1067,34 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         assert.strictEqual((payloadOf(onDisk, 'records') as Array<{ showHiddenFields: boolean }>)[0].showHiddenFields, true);
     });
 
+    test('createBoundProfile writes the profile and binding', async () => {
+        const file = vscode.Uri.file(path.join(testRoot, 'boot.bin'));
+        await vscode.workspace.fs.writeFile(file, Uint8Array.from([1, 2, 3, 4]));
+        const rel = perFileRelativePath(testRoot, file);
+
+        const id = await createBoundProfile(testRoot, rel);
+        const recs = await collectProfileRecords(testRoot);
+        assert.strictEqual(recs.length, 1);
+        assert.strictEqual(recs[0].id, id);
+        assert.strictEqual(recs[0].name, 'boot');
+        assert.strictEqual(await boundProfileId(testRoot, rel), id);
+        assert.deepStrictEqual(await readBinBase(testRoot, rel), { value: 0, present: false }, 'profile creation never writes a base');
+    });
+
+    test('createBoundProfile keeps a unique name so a same-named profile cannot discard it', async () => {
+        await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
+        const file = vscode.Uri.file(path.join(testRoot, 'boot.bin'));
+        await vscode.workspace.fs.writeFile(file, Uint8Array.from([1, 2, 3, 4]));
+        const rel = perFileRelativePath(testRoot, file);
+
+        const id = await createBoundProfile(testRoot, rel);
+        const recs = await collectProfileRecords(testRoot);
+        assert.strictEqual(recs.length, 2, 'the new profile survives normalization');
+        assert.strictEqual(recs[1].id, id);
+        assert.strictEqual(recs[1].name, 'boot 2');
+        assert.strictEqual(await boundProfileId(testRoot, rel), id);
+    });
+
     test('writeProfileRecord upserts; removeProfileRecord deletes; renameProfileRecord renames', async () => {
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_1', 'Boot'));
         await writeProfileRecord(testRoot, emptyProfileRecord('profile_2', 'App'));
@@ -923,6 +1133,21 @@ suite('hexScopeStorage — profile registry (single-file array) + bindings', () 
         const { value, changed } = normalizeBindings(raw);
         assert.deepStrictEqual(value, [{ fileKey: REL, profileId: 'profile_1' }]);
         assert.strictEqual(changed, true);
+    });
+
+    test('a legacy profile baseAddress is ignored and dropped on the next registry write', async () => {
+        const legacy = { ...emptyProfileRecord('profile_1', 'Boot'), baseAddress: 0x08000000 };
+        const normalized = normalizeProfilesRegistry([legacy]);
+        assert.strictEqual(normalized.changed, true, 'the removed key is a shape change');
+        assert.ok(!('baseAddress' in normalized.value[0]), 'the profile no longer carries a base');
+
+        await writeJson(profilesJsonUri(testRoot), withEnvelope(withDataEnvelope('records', [legacy])));
+        const store = registryStoreFor(testRoot);
+        const loaded = await store.load();
+        store.dispose();
+        assert.strictEqual(loaded[0].name, 'Boot', 'the rest of the record survives');
+        const onDisk = await readJsonValue(profilesJsonUri(testRoot)) as { data: { records: Array<Record<string, unknown>> } };
+        assert.ok(!('baseAddress' in onDisk.data.records[0]), 'the next registry write drops the key');
     });
 
     test('seeds exactly the three-tier schema copies, no ignore rules', async () => {

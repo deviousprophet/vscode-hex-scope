@@ -181,6 +181,30 @@ export function applyReload(a: DiffSideData, b: DiffSideData, diff: DiffModel): 
     renderDiffGrid();
 }
 
+/**
+ * Replace one side by file path (swap-safe: the pane key is display order, not
+ * file identity), recompute the diff, and re-render through the reload path so
+ * view mode and the scroll anchor survive. Returns null when neither side matches.
+ */
+export function replaceSideData(path: string, sideData: DiffSideData): DiffModel | null {
+    if (!data) { return null; }
+    const next = replacedSidePair(data, path, sideData);
+    if (!next) { return null; }
+    const diff = computeByteDiff(memorySegments(next.a), memorySegments(next.b));
+    applyReload(next.a, next.b, diff);
+    return diff;
+}
+
+function replacedSidePair(
+    current: DiffGridData,
+    path: string,
+    sideData: DiffSideData,
+): { a: DiffSideData; b: DiffSideData } | null {
+    if (current.a.path === path) { return { a: sideData, b: current.b }; }
+    if (current.b.path === path) { return { a: current.a, b: sideData }; }
+    return null;
+}
+
 interface ReloadAnchor {
     pane: DiffPane;
     address: number | null;

@@ -18,7 +18,9 @@
 .view-tabs button:hover:not(.active) { background: rgba(255,255,255,.07); }
 .view-tabs button.active             { background: var(--btn-bg); color: var(--btn-fg); }
 
-.tb-sep { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
+/* Thicker than standard chrome: separates profile ↔ Base Address and
+   Memory/Records ↔ ASCII. */
+.tb-sep { width: 2px; height: 16px; background: var(--border); flex-shrink: 0; }
 
 /* Toolbar ghost buttons: ASCII toggle + edit mode toggle (active states differ) */
 .tb-ascii-btn,

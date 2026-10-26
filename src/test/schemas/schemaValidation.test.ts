@@ -31,6 +31,11 @@ function errorsFor(schema: object, data: unknown): string[] {
 const typesEnvelope = (defs: unknown) => ({ version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, defs }, $schema: 'schemas/types.schema.json' });
 const profileEnvelope = (records: unknown) => ({ version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, records }, $schema: 'schemas/profiles.schema.json' });
 const bindingsEnvelope = (bindings: unknown) => ({ version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, bindings }, $schema: 'schemas/bindings.schema.json' });
+const bindingTableEnvelope = (bindings: unknown, binBases: unknown) => ({
+    version: DATA_VERSION,
+    data: { schemaVersion: DATA_SCHEMA_VERSION, bindings, binBases },
+    $schema: 'schemas/bindings.schema.json',
+});
 
 suite('hexScope schemas — positive fixtures', () => {
     test('profiles.json accepts a full ProfileRecord[] (with unique ids)', () => {
@@ -104,6 +109,17 @@ suite('hexScope schemas — positive fixtures', () => {
             { fileKey: 'firmware/app.hex', profileId: 'profile_2' },
         ];
         assert.deepStrictEqual(errorsFor(schema, bindingsEnvelope(data)), []);
+    });
+
+    test('bindings.json accepts an optional binBases table (0 and max)', () => {
+        const { schema } = loadSchema('bindings.schema.json');
+        const data = [
+            { fileKey: 'firmware/boot.bin', baseAddress: 0 },
+            { fileKey: 'firmware/app.bin', baseAddress: 4294967295 },
+        ];
+        assert.deepStrictEqual(errorsFor(schema, bindingTableEnvelope([], data)), []);
+        assert.deepStrictEqual(errorsFor(schema, bindingTableEnvelope([], [])), [], 'an empty table is valid');
+        assert.deepStrictEqual(errorsFor(schema, bindingsEnvelope([])), [], 'binBases is optional');
     });
 
     test('types.json accepts a full TypeDef[]', () => {
@@ -230,6 +246,16 @@ suite('hexScope schemas — positive fixtures', () => {
         assert.deepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
     });
 
+    test('profiles.json no longer accepts a profile-level baseAddress', () => {
+        const { schema } = loadSchema('profiles.schema.json');
+        const profile = {
+            id: 'profile_1', name: 'P', labels: [], segmentNames: {},
+            typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] },
+            endian: 'le', bitAllocation: 'msb', baseAddress: 0,
+        };
+        assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope([profile])), [], 'baseAddress moved to the per-file binBases table');
+    });
+
     test('integrity checks nested in a profile accept full configs', () => {
         const { schema } = loadSchema('profiles.schema.json');
         const data = [{
@@ -288,6 +314,22 @@ suite('hexScope schemas — negative cases', () => {
         const { schema } = loadSchema('profiles.schema.json');
         const data = [{ id: 'profile_1', name: 'P', labels: [], segmentNames: {}, typeInstances: [], activeChecks: { schemaVersion: 1, checks: [] }, endian: 'le', bitAllocation: 'sideways' }];
         assert.notDeepStrictEqual(errorsFor(schema, profileEnvelope(data)), []);
+    });
+
+    test('an out-of-range or non-integer binBases address fails bindings.json', () => {
+        const { schema } = loadSchema('bindings.schema.json');
+        for (const bad of [-1, 1.5, 4294967296, '0x1000', null]) {
+            assert.notDeepStrictEqual(
+                errorsFor(schema, bindingTableEnvelope([], [{ fileKey: 'boot.bin', baseAddress: bad }])),
+                [],
+                `${String(bad)} must fail`,
+            );
+        }
+        assert.notDeepStrictEqual(
+            errorsFor(schema, bindingTableEnvelope([], [{ baseAddress: 0 }])),
+            [],
+            'fileKey is required',
+        );
     });
 
     test('an empty or malformed addressSource fails profiles.json', () => {
@@ -484,28 +526,18 @@ suite('hexScope schemas — drift guard against TS types', () => {
         assert.deepStrictEqual(typeDef.properties.baseType.enum, Array.from(TYPE_BASE_TYPES));
     });
 
-    test('the three schemas declare an identical data.schemaVersion rule and the runtime constant is accepted', () => {
-        const keys: Record<string, string> = {
-            'profiles.schema.json': 'records',
-            'types.schema.json': 'defs',
-            'bindings.schema.json': 'bindings',
-        };
-        const rules: Array<{ schemaVersion: unknown; requiresVersion: boolean }> = [];
-        for (const [name, payloadKey] of Object.entries(keys)) {
-            const { schema } = loadSchema(name);
-            const data = (schema as { properties: { data: { required?: string[]; properties?: Record<string, unknown> } } }).properties.data;
-            assert.ok(data.required?.includes('schemaVersion'), `${name} requires data.schemaVersion`);
-            assert.ok(data.required?.includes(payloadKey), `${name} requires data.${payloadKey}`);
-            assert.deepStrictEqual(Object.keys(data.properties ?? {}).sort(), ['schemaVersion', payloadKey].sort(), `${name} declares exactly schemaVersion + ${payloadKey}`);
-            rules.push({ schemaVersion: (data.properties as Record<string, unknown>).schemaVersion, requiresVersion: !!data.required?.includes('schemaVersion') });
-        }
+    test('the three schemas declare an identical data.schemaVersion rule', () => {
+        const rules = Object.entries(SCHEMA_PAYLOAD_KEYS).map(([name, payloadKey]) => schemaDataRule(name, payloadKey));
         assert.deepStrictEqual(rules[1], rules[0], 'types and profiles declare the same data.schemaVersion rule');
         assert.deepStrictEqual(rules[2], rules[0], 'bindings and profiles declare the same data.schemaVersion rule');
         // The schemas pin `minimum: 1` and no `const` (older files stay authorable);
         // the runtime constant must satisfy that floor, and a payload stamped with
         // it must validate for all three — the drift guard against a bare bump.
         assert.deepStrictEqual(rules[0].schemaVersion, { type: 'integer', minimum: 1, description: 'Data-schema version of the payload. The current build migrates older values forward on load; a newer value is left untouched (forward-only).' }, 'the shared data.schemaVersion rule is the version floor (no const)');
-        for (const [name, payloadKey] of Object.entries(keys)) {
+    });
+
+    test('each schema accepts a payload stamped with the runtime data-schema version', () => {
+        for (const [name, payloadKey] of Object.entries(SCHEMA_PAYLOAD_KEYS)) {
             const { schema } = loadSchema(name);
             assert.deepStrictEqual(
                 errorsFor(schema, { version: DATA_VERSION, data: { schemaVersion: DATA_SCHEMA_VERSION, [payloadKey]: [] } }),
@@ -515,6 +547,39 @@ suite('hexScope schemas — drift guard against TS types', () => {
         }
     });
 });
+
+const SCHEMA_PAYLOAD_KEYS: Record<string, string> = {
+    'profiles.schema.json': 'records',
+    'types.schema.json': 'defs',
+    'bindings.schema.json': 'bindings',
+};
+
+interface SchemaDataRule {
+    schemaVersion: unknown;
+    requiresVersion: boolean;
+}
+
+/** Read + assert one schema's data payload keys; returns its version rule. */
+function schemaDataRule(name: string, payloadKey: string): SchemaDataRule {
+    const { schema } = loadSchema(name);
+    const data = (schema as { properties: { data: { required?: string[]; properties?: Record<string, unknown> } } }).properties.data;
+    assert.ok(data.required?.includes('schemaVersion'), `${name} requires data.schemaVersion`);
+    assert.ok(data.required?.includes(payloadKey), `${name} requires data.${payloadKey}`);
+    assert.deepStrictEqual(
+        Object.keys(data.properties ?? {}).sort(),
+        expectedDataKeys(name, payloadKey),
+        `${name} declares only its payload keys`,
+    );
+    return {
+        schemaVersion: (data.properties as Record<string, unknown>).schemaVersion,
+        requiresVersion: !!data.required?.includes('schemaVersion'),
+    };
+}
+
+function expectedDataKeys(name: string, payloadKey: string): string[] {
+    if (name === 'bindings.schema.json') { return ['schemaVersion', payloadKey, 'binBases'].sort(); }
+    return ['schemaVersion', payloadKey].sort();
+}
 suite('hexScope schemas — integrity check kinds', () => {
     const profile = (check: Record<string, unknown>) => [{
         id: 'profile_1', name: 'Firmware', labels: [], segmentNames: {}, typeInstances: [], endian: 'le', bitAllocation: 'msb',

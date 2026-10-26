@@ -1,5 +1,7 @@
 // ── Shared type definitions ───────────────────────────────────
 
+import type { HexScopeFormat } from './document';
+
 export interface SerializedRecord {
     lineNumber: number;
     raw: string;
@@ -26,7 +28,9 @@ export interface SerializedParseResult {
     checksumErrors: number;
     malformedLines: number;
     startAddress?: number;
-    format: 'ihex' | 'srec';
+    /** Raw-binary memory-map base; absent for record-based formats. */
+    baseAddress?: number;
+    format: HexScopeFormat;
 }
 
 export interface WireSegment {
@@ -41,7 +45,9 @@ export interface WireParseResult {
     checksumErrors: number;
     malformedLines: number;
     startAddress?: number;
-    format: 'ihex' | 'srec';
+    /** Raw-binary memory-map base; absent for record-based formats. */
+    baseAddress?: number;
+    format: HexScopeFormat;
 }
 
 export interface SegmentLabel {

@@ -1,7 +1,8 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { detectFormatFromParts, type HexScopeFormat } from '../core/document';
+import { detectFormatFromParts, isRawBinaryExtension, RAW_BINARY_WORKER_ERROR, type HexScopeFormat } from '../core/document';
 import { parseIntelHexCompact } from '../core/parser/intelHexParser';
 import { parseSRecCompact } from '../core/parser/srecParser';
+import { binAddressRangeFits, createBinParseResult, isValidBinBaseAddress } from '../core/parser/binImage';
 import { serializeCompactParseResult, compactTransferList, type SerializedCompactParseResult } from '../core/parser/compact';
 import { serializeParseResult } from '../core/wire';
 import type { ParseProgress } from '../core/parser/types';
@@ -14,6 +15,8 @@ export interface DiffParseJob {
     kind: 'diffParse';
     bytes: ArrayBuffer;
     extension: string;
+    /** Raw-binary memory-map base address; ignored for text formats. */
+    baseAddress?: number;
 }
 
 export interface HexParseJob {
@@ -79,6 +82,7 @@ interface RawJobData {
     bytes?: unknown;
     source?: unknown;
     extension?: unknown;
+    baseAddress?: unknown;
 }
 
 function isKnownJob(jobData: RawJobData | undefined): jobData is RawJobData {
@@ -92,7 +96,9 @@ function invalidJob(): Error {
 
 function readDiffJob(jobData: RawJobData): DiffParseJob {
     if (jobData.bytes instanceof ArrayBuffer && typeof jobData.extension === 'string') {
-        return { kind: 'diffParse', bytes: jobData.bytes, extension: jobData.extension };
+        const job: DiffParseJob = { kind: 'diffParse', bytes: jobData.bytes, extension: jobData.extension };
+        if (typeof jobData.baseAddress === 'number') { job.baseAddress = jobData.baseAddress; }
+        return job;
     }
     throw invalidJob();
 }
@@ -113,6 +119,14 @@ function readJob(jobData: RawJobData): ParseJob {
 type Port = NonNullable<typeof parentPort>;
 
 async function runDiffParse(port: Port, job: DiffParseJob): Promise<void> {
+    if (isRawBinaryExtension(job.extension)) {
+        const wire = parseRawBinaryDiff(job);
+        port.postMessage(
+            { type: 'result', format: 'bin', wire },
+            wire.segments.map(segment => segment.data),
+        );
+        return;
+    }
     const raw = new TextDecoder('utf-8').decode(new Uint8Array(job.bytes));
     const format: HexScopeFormat = detectFormatFromParts(job.extension, raw);
     let load = INITIAL_LOAD_FRACTION;
@@ -132,7 +146,22 @@ async function runDiffParse(port: Port, job: DiffParseJob): Promise<void> {
     );
 }
 
+/** Raw-binary diff side: one segment at the required base, no text decode or record parse. */
+function parseRawBinaryDiff(job: DiffParseJob): WireParseResult {
+    const bytes = new Uint8Array(job.bytes);
+    if (job.baseAddress === undefined || !isValidBinBaseAddress(job.baseAddress)) {
+        throw new Error('A base address is required for raw binary files.');
+    }
+    if (!binAddressRangeFits(job.baseAddress, bytes.length)) {
+        throw new Error('The raw binary base address and size exceed the 32-bit address space.');
+    }
+    return serializeParseResult(createBinParseResult(bytes, job.baseAddress), 'bin');
+}
+
 async function runHexParse(port: Port, job: HexParseJob): Promise<void> {
+    if (isRawBinaryExtension(job.extension)) {
+        throw new Error(RAW_BINARY_WORKER_ERROR);
+    }
     const format: HexScopeFormat = detectFormatFromParts(job.extension, job.source);
     let stage = INITIAL_STAGE_PROGRESS;
     const onProgress = (event: ParseProgress): void => {

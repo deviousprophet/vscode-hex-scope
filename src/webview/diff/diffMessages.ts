@@ -6,6 +6,7 @@ export type DiffErrorMessage = Extract<DiffProviderToWebview, { type: 'diffError
 export type DiffProgressMessage = Extract<DiffProviderToWebview, { type: 'diffProgress' }>;
 export type DiffExternalChangeMessage = Extract<DiffProviderToWebview, { type: 'diffExternalChange' }>;
 export type DiffExternalChangeErrorMessage = Extract<DiffProviderToWebview, { type: 'diffExternalChangeError' }>;
+export type DiffBaseChangedMessage = Extract<DiffProviderToWebview, { type: 'diffBaseChanged' }>;
 
 export interface DiffMessageHandlers {
     diffInit: (message: DiffInitMessage) => void;
@@ -13,10 +14,11 @@ export interface DiffMessageHandlers {
     diffProgress: (message: DiffProgressMessage) => void;
     diffExternalChange: (message: DiffExternalChangeMessage) => void;
     diffExternalChangeError: (message: DiffExternalChangeErrorMessage) => void;
+    diffBaseChanged: (message: DiffBaseChangedMessage) => void;
 }
 
 const DIFF_PROGRESS_STAGES: readonly DiffProgressStage[] = ['read', 'parse', 'diff'];
-const DIFF_FORMATS: readonly DiffSide['format'][] = ['ihex', 'srec'];
+const DIFF_FORMATS: readonly DiffSide['format'][] = ['ihex', 'srec', 'bin'];
 const DIFF_KINDS: readonly DiffKind[] = ['changed', 'added', 'removed'];
 
 function isString(value: unknown): value is string {
@@ -34,13 +36,22 @@ interface DiffSideShape {
     format?: unknown;
     parseResult?: unknown;
     labels?: unknown;
+    baseOverride?: unknown;
 }
 
 function hasSideHeader(side: DiffSideShape | null): boolean {
     if (!side) { return false; }
+    return hasSideIdentity(side) && isOptionalBoolean(side.baseOverride);
+}
+
+function hasSideIdentity(side: DiffSideShape): boolean {
     return isString(side.name)
         && isString(side.path)
         && DIFF_FORMATS.includes(side.format as DiffSide['format']);
+}
+
+function isOptionalBoolean(value: unknown): boolean {
+    return value === undefined || typeof value === 'boolean';
 }
 
 /** Structural `DiffSide` check so a malformed init is rejected before hydration can throw. */
@@ -141,12 +152,34 @@ function isExternalChangeErrorShape(value: DiffExternalChangeErrorShape | null):
     return value.side === 'a' || value.side === 'b';
 }
 
+interface DiffBaseChangedShape {
+    type?: unknown;
+    side?: unknown;
+}
+
+/** One rebuilt side: hydrated only after this structural check. */
+function isDiffBaseChanged(message: unknown): message is DiffBaseChangedMessage {
+    const value = message as DiffBaseChangedShape | null;
+    return !!value && value.type === 'diffBaseChanged' && isDiffSide(value.side);
+}
+
 /** Dispatch a known diff provider message; unknown/malformed messages return false and run no handler. */
 export function dispatchDiffMessage(message: unknown, handlers: DiffMessageHandlers): boolean {
+    return dispatchCore(message, handlers) || dispatchExternalChange(message, handlers);
+}
+
+/** The non-reload messages; each branch names its own guard and handler. */
+function dispatchCore(message: unknown, handlers: DiffMessageHandlers): boolean {
     if (isDiffInit(message)) { handlers.diffInit(message); return true; }
     if (isDiffError(message)) { handlers.diffError(message); return true; }
     if (isDiffProgress(message)) { handlers.diffProgress(message); return true; }
-    return dispatchExternalChange(message, handlers);
+    return dispatchBaseChanged(message, handlers);
+}
+
+function dispatchBaseChanged(message: unknown, handlers: DiffMessageHandlers): boolean {
+    if (!isDiffBaseChanged(message)) { return false; }
+    handlers.diffBaseChanged(message);
+    return true;
 }
 
 function dispatchExternalChange(message: unknown, handlers: DiffMessageHandlers): boolean {

@@ -21,11 +21,11 @@ Every self-contained webview component has one spec at `components/component-<na
 |---|---|
 | [Component Template](./components/component-template.md) | Starting point for any new component spec; naming + boundary rules |
 | [HexView Component](./components/component-hex-view.md) | Virtualized hex grid: header/rows/gaps/banners, match/sel paint, interaction |
-| [DiffView Component](./components/component-diff-view.md) | Read-only two-grid diff surface: union rows, diff classes, summary + nav, reuse of HexView |
+| [DiffView Component](./components/component-diff-view.md) | Read-only two-grid diff surface: union rows, diff classes, summary + nav, reuse of HexView, BIN side pill |
 | [Toolbar Component](./components/component-toolbar.md) | Top toolbar chrome: view tabs, ASCII toggle, edit-mode group, SearchBar slot |
 | [ExternalChange Component](./components/component-external-change.md) | External-change banners: conflict/reload/error + dismiss wiring |
 | [SearchBar Component](./components/component-search-bar.md) | Self-contained search bar UI unit: markup, UI state, input behaviours, styles |
-| [RecordView Component](./components/component-record-view.md) | Record table: IHEX/SREC row formatting, paging placeholders, scroll reporting |
+| [RecordView Component](./components/component-record-view.md) | Record table: IHEX/SREC row formatting, paging placeholders, scroll reporting (raw binaries are memory-only) |
 | [Sidebar Component](./components/component-sidebar.md) | Generic tabbed sidebar shell: tabs, resizer+persistence, header slot, injected panels |
 | [Inspector Component](./components/component-sidebar-inspector.md) | Sidebar Inspector panel: address/values, bit view, multi-byte, segments, labels + form |
 | [OverlayPanel Component](./components/component-sidebar-overlay-panel.md) | Sidebar Overlay panel: pins/instances + types/editor, decoded rows, pointers, bit layout |
@@ -37,8 +37,8 @@ Every self-contained webview component has one spec at `components/component-<na
 
 | Spec | Owns |
 |---|---|
-| [Firmware Document Formats](./document-formats.md) | IHEX/SREC parse, segments, serialization, checksum repair |
-| [Editor Session and Protocol](./editor-lifecycle.md) | Activation, provider/session lifecycle, host-webview messages |
+| [Firmware Document Formats](./document-formats.md) | IHEX/SREC/raw-binary parse, segments, serialization, checksum repair |
+| [Editor Session and Protocol](./editor-lifecycle.md) | Activation, provider/session lifecycle, host-webview messages, `.bin` base resolution |
 | [Memory, Record, and Navigation](./memory-navigation.md) | Addressed memory, gaps, virtual scroll, records, segments, labels |
 | [Search Engine](./search-engine.md) | Cancellable/chunked search, modes, match navigation |
 | [Selection, Inspector, and Byte Tools](./selection-inspect-copy.md) | Selection ranges, gap-filtered copy/analyze, Inspector decode, byte tools |

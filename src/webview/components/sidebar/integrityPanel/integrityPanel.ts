@@ -597,8 +597,8 @@ export class IntegrityPanel {
     private addressInputHtml(label: string, control: string, value: string, placeholder: string): string {
         return `
         <label class="integrity-form-field"><span>${label}</span>
-            <div class="integrity-address-input"><span class="integrity-addr-pfx">0x</span>
-                <input data-draft-control="${control}" class="sb-input" type="text" maxlength="8"
+            <div class="integrity-address-input addr-field"><span class="addr-pfx" aria-hidden="true">0x</span>
+                <input data-draft-control="${control}" class="addr-input" type="text" maxlength="8"
                     placeholder="${placeholder}" value="${esc(this.stripHexPrefix(value))}" autocomplete="off" spellcheck="false">
             </div>
         </label>`;

@@ -24,6 +24,7 @@ Current `BPR` default/contract is 16.
 ### 3. Contracts
 
 - Segment index is sorted ascending and stores inclusive `startAddr`/`endAddr` plus the source segment `offset`.
+- Raw `.bin` images are one contiguous segment at the effective per-file base (`bindings.json` `binBases`, or `0x00000000`); there are no records, so the Records tab/view is unavailable and the toolbar forces Memory. Stats show `BIN`, bytes, and segment count (no record count and no base address); the **BASE ADDRESS** field in the profile bar (uppercase label + read-only `0x%08X` value + pencil icon Edit revealed on field hover/focus, always visible on no-hover surfaces; the bordered text box appears only in edit mode with icon Save/Cancel, which stay visible while editing) is the only place the base is displayed/edited, and stored values otherwise reopen silently. Every byte consumer reads the same hydrated segment as HEX/SREC — no format branch in the memory grid, search, inspector, overlay, integrity, or scripts.
 - Byte lookup checks pending edits first, then mapped segment data; unmapped bytes return `undefined`.
 - Memory data rows are BPR-aligned. Gaps become explicit gap rows; never allocate rows for every missing address.
 - Memory view virtualizes visible rows plus buffer and caps physical scroll height for large logical ranges.
@@ -61,6 +62,8 @@ Current `BPR` default/contract is 16.
 ### 6. Tests Required
 
 - `src/test/webview/webview.test.ts`: segment index, edited byte precedence, gap rows, ordering, virtual scroll, navigation, segment navigator, Record view.
+- `src/test/webview/statsBar.test.ts`: `BIN` stats (base/bytes/segments, no record count) vs IHEX/SREC records.
+- `src/test/webview/components/toolbar.test.ts`: Records tab visible by default, hidden via `setRecordViewAvailable(false)`, and a forced Memory switch when hidden while active.
 - Compressed Memory rerender test: jump into a range above the physical-height cap, rebuild labels/rows, rerender the same container, and assert the first rendered address is unchanged.
 - Parser sample tests: mapped segment inputs and address gaps.
 - Add boundary cases for address `0`, last byte of segment, first byte after segment, huge gaps, and empty results.
@@ -103,6 +106,7 @@ interface DiffRow { address: number; kind: 'data' | 'gap'; gap?: { from: number;
 ### 3. Contracts
 
 - One row model is shared by both grids: the union of mapped 16-byte-aligned blocks from both sides, ascending. A block is `data` when either side maps any byte in it; `gap` only when neither side maps it.
+- Raw `.bin` sides are hydrated exactly like text sides; the union model aligns them by absolute address. Same-base images compare bytes directly; differing bases show added/removed/gap rows, never synthetic zero bytes.
 - `getSideByte` returns `undefined` for an address a side does not map — never a synthetic zero. A side renders an empty (`be`) cell there.
 - `diffKindAt` is a binary search over `DiffModel.runs`; `diffClassForSide` marks `changed` on both sides, `added` on B only, `removed` on A only.
 - Both grids render their own address column (no hidden-address variant) and identical row order.

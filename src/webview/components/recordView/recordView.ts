@@ -10,6 +10,7 @@
 // through callbacks the host wires.
 
 import { esc } from '../../utils';
+import type { HexScopeFormat } from '../../../core/document';
 import type { SerializedRecord } from '../../../core/types';
 import './recordView.css';
 
@@ -31,7 +32,7 @@ const IHEX_START_RECORD_TYPES = new Set([3, 5]);
 const SREC_EOF_RECORD_TYPES = new Set([7, 8, 9]);
 
 export interface RecordViewRenderInput {
-    format: 'ihex' | 'srec';
+    format: HexScopeFormat;
     /** The visible slice (host-computed); null = unloaded page → placeholder row. */
     records: readonly (SerializedRecord | null)[];
     /** Index of records[0] in the full record list. */
@@ -82,7 +83,7 @@ function recordRowsHtml(input: RecordViewRenderInput): string {
     return parts.join('');
 }
 
-function recordRowOrPlaceholder(record: SerializedRecord | null, format: 'ihex' | 'srec'): string {
+function recordRowOrPlaceholder(record: SerializedRecord | null, format: HexScopeFormat): string {
     return record ? recordRowHtml(record, format === 'srec') : PLACEHOLDER_ROW_HTML;
 }
 

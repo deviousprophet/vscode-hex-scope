@@ -9,7 +9,10 @@
     padding: 5px 12px; background: var(--toolbar-bg);
     border-bottom: 1px solid var(--border); font-family: var(--font-ui); font-size: 11px;
 }
-.diff-tb-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; min-height: 26px; }
+.diff-tb-row {
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+    gap: 8px; min-height: 26px; overflow-x: auto; overflow-y: hidden;
+}
 .diff-tb-left { display: flex; align-items: center; gap: 4px; justify-self: start; min-width: 0; }
 .diff-tb-center { display: flex; align-items: center; gap: 4px; justify-self: center; }
 .diff-tb-right { display: flex; align-items: center; justify-content: flex-end; justify-self: stretch; min-width: 0; }
@@ -19,18 +22,41 @@
 .diff-count-chg { color: var(--warn); }
 .diff-count-add { color: var(--ok); }
 .diff-count-del { color: var(--err); }
+
+/* Uniform action buttons matching the hex-view toolbar ghost controls:
+   transparent idle with a subdued border, brighter border + foreground on
+   hover, filled primary tokens for the active toggle, and a faded disabled
+   state. All six share one fixed width so the group stays uniform. */
 .diff-action {
-    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-    height: 26px; padding: 0 8px; flex-shrink: 0;
-    background: transparent; color: var(--addr-fg); border: 1px solid var(--border); border-radius: 3px;
-    font-size: 14px; line-height: 1; font-family: var(--font-ui); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+    flex: 0 0 84px; width: 84px; height: 22px; padding: 0 6px; box-sizing: border-box;
+    background: transparent;
+    color: var(--addr-fg);
+    border: 1px solid var(--border); border-radius: 3px;
+    font-size: 10px; line-height: 1; font-family: var(--font-ui); cursor: pointer;
+    transition: color .1s, border-color .1s, background .1s;
 }
-.diff-action-glyph { font-size: 14px; line-height: 1; }
-.diff-action-text { font-size: 10px; }
-.diff-action:hover:not(:disabled) { color: var(--fg); border-color: var(--fg); }
+.diff-action-glyph { font-size: 12px; line-height: 1; }
+.diff-action-text { font-size: 10px; line-height: 1; white-space: nowrap; }
+.diff-action:hover:not(:disabled) {
+    background: transparent;
+    color: var(--fg);
+    border-color: rgba(255,255,255,.35);
+}
 .diff-action:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: 1px; }
-.diff-action.active { background: var(--btn-bg); color: var(--btn-fg); border-color: transparent; }
-.diff-action:disabled { opacity: .45; cursor: default; }
+.diff-action.active {
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    border-color: transparent;
+}
+.diff-action.active:hover {
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    border-color: transparent;
+}
+.diff-action:disabled {
+    opacity: .35; cursor: default;
+}
 
 .diff-error { flex: 1; display: grid; place-items: center; padding: 24px; }
 .diff-error[hidden] { display: none; }

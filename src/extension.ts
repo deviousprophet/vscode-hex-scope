@@ -6,20 +6,44 @@ import { DiffEditorPanel } from './diff/diffEditorPanel';
 import { CompareSelectionStore, selectionName, type CompareSelection } from './diff/compareSelection';
 import { registerAddExampleScripts } from './addExampleScripts';
 import { registerCreateScript, registerManageScripts } from './manageScripts';
-import { detectFormatFromParts, repairChecksums } from './core/document';
+import { detectFormatFromParts, isRawBinaryExtension, isTextFormat, repairChecksums, type HexScopeTextFormat } from './core/document';
 import { parseIntelHex } from './core/parser/intelHexParser';
 import { parseSRec } from './core/parser/srecParser';
 import type { ParseResult } from './core/parser/types';
+import { fileExtension } from './core/pathName';
 
-const SUPPORTED_EXTENSIONS = ['hex', 'ihx', 'ihex', 'srec', 'mot', 's19', 's28', 's37'];
+const SUPPORTED_EXTENSIONS = ['hex', 'ihx', 'ihex', 'srec', 'mot', 's19', 's28', 's37', 'bin'];
 
 export const COMPARE_SELECT_HINT = 'Select a firmware file in the Explorer';
 export const COMPARE_TWO_HINT = 'Select exactly two firmware files';
 
-async function loadHexDocument(uri: vscode.Uri): Promise<{ raw: string; format: 'ihex' | 'srec'; parseResult: ParseResult }> {
+export const NO_BIN_PANEL_MESSAGE =
+    'HexScope: open a raw binary in the HexScope viewer to change its base address.';
+
+/** Palette entry point: focus the open raw binary's profile-bar base field. */
+export const FOCUS_BIN_BASE_MESSAGE = { type: 'focusBinBaseAddress' } as const;
+
+/**
+ * `Set Raw Binary Base Address`: ask the active HexScope panel to focus its
+ * profile-bar base field. With no panel, tell the user what to open instead of
+ * failing silently. Returns whether a panel received the request.
+ */
+export function requestBinBaseAddressChange(deliver: () => boolean, info: (message: string) => void): boolean {
+    if (deliver()) { return true; }
+    info(NO_BIN_PANEL_MESSAGE);
+    return false;
+}
+
+async function loadHexDocument(uri: vscode.Uri): Promise<{ raw: string; format: HexScopeTextFormat; parseResult: ParseResult }> {
+    const ext = fileExtension(uri);
+    if (isRawBinaryExtension(ext)) {
+        throw new Error('Raw binary files do not have a HEX/SREC text representation.');
+    }
     const raw = new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(uri));
-    const ext = uri.path.split('.').pop()?.toLowerCase() ?? '';
     const format = detectFormatFromParts(ext, raw);
+    if (!isTextFormat(format)) {
+        throw new Error('Raw binary files do not have a HEX/SREC text representation.');
+    }
     const parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
     return { raw, format, parseResult };
 }
@@ -27,6 +51,23 @@ async function loadHexDocument(uri: vscode.Uri): Promise<{ raw: string; format: 
 async function openNormalEditor(uri: vscode.Uri): Promise<void> {
     const doc = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(doc, { preview: false });
+}
+
+/** HEX/SREC open: open the custom editor when valid, else offer Quick Repair. */
+async function openTextInHexScope(target: vscode.Uri): Promise<void> {
+    const { parseResult } = await loadHexDocument(target);
+    if (parseResultIsValid(parseResult)) {
+        await vscode.commands.executeCommand('vscode.openWith', target, HexEditorProvider.viewType);
+        return;
+    }
+    await openNormalEditor(target);
+    const repair = await vscode.window.showWarningMessage(
+        'HexScope only opens valid files. Use Quick Repair to fix checksum errors in the normal editor.',
+        'Quick Repair'
+    );
+    if (repair) {
+        await vscode.commands.executeCommand('hexScope.quickRepair', target);
+    }
 }
 
 function commandTarget(uri?: vscode.Uri): vscode.Uri | undefined {
@@ -53,19 +94,11 @@ export function activate(context: vscode.ExtensionContext) {
             void (async () => {
                 const target = commandTarget(uri);
                 if (!target) { return; }
-                const { parseResult } = await loadHexDocument(target);
-                if (parseResultIsValid(parseResult)) {
+                if (isRawBinaryExtension(fileExtension(target))) {
                     await vscode.commands.executeCommand('vscode.openWith', target, HexEditorProvider.viewType);
                     return;
                 }
-                await openNormalEditor(target);
-                const repair = await vscode.window.showWarningMessage(
-                    'HexScope only opens valid files. Use Quick Repair to fix checksum errors in the normal editor.',
-                    'Quick Repair'
-                );
-                if (repair) {
-                    await vscode.commands.executeCommand('hexScope.quickRepair', target);
-                }
+                await openTextInHexScope(target);
             })();
         })
     );
@@ -108,6 +141,15 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('hexScope.runScript', () => {
             HexEditorProvider.postToActive({ type: 'activateScriptsTab' });
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('hexScope.setBinBaseAddress', () => {
+            requestBinBaseAddressChange(
+                () => HexEditorProvider.postToActive(FOCUS_BIN_BASE_MESSAGE),
+                message => { void vscode.window.showInformationMessage(message); },
+            );
         })
     );
 
@@ -230,11 +272,15 @@ function uniqueUris(uris: readonly vscode.Uri[]): vscode.Uri[] {
 async function runQuickRepair(uri?: vscode.Uri): Promise<void> {
     const target = uri ?? vscode.window.activeTextEditor?.document.uri;
     if (!target) { return; }
+    if (isRawBinaryExtension(fileExtension(target))) {
+        vscode.window.showInformationMessage('HexScope: raw binary files have no record checksums to repair.');
+        return;
+    }
     await repairTargetChecksums(target);
 }
 
 function isSupportedHexFile(uri: vscode.Uri): boolean {
-    return SUPPORTED_EXTENSIONS.includes(uri.path.split('.').pop()?.toLowerCase() ?? '');
+    return SUPPORTED_EXTENSIONS.includes(fileExtension(uri));
 }
 
 /** Read + parse, or undefined when the file is missing/moved/unreadable. */
@@ -247,6 +293,11 @@ async function readParseResult(uri: vscode.Uri): Promise<ParseResult | undefined
 }
 
 async function validateComparable(uri: vscode.Uri): Promise<boolean> {
+    if (isRawBinaryExtension(fileExtension(uri))) { return validateRawComparable(uri); }
+    return validateTextComparable(uri);
+}
+
+async function validateTextComparable(uri: vscode.Uri): Promise<boolean> {
     const parseResult = await readParseResult(uri);
     if (!parseResult) {
         await vscode.window.showWarningMessage(
@@ -264,6 +315,19 @@ async function validateComparable(uri: vscode.Uri): Promise<boolean> {
         await vscode.commands.executeCommand('hexScope.quickRepair', uri);
     }
     return false;
+}
+
+/** Raw binaries only need to exist and be readable; they have no records to validate. */
+async function validateRawComparable(uri: vscode.Uri): Promise<boolean> {
+    try {
+        await vscode.workspace.fs.stat(uri);
+        return true;
+    } catch {
+        await vscode.window.showWarningMessage(
+            `HexScope: cannot read ${selectionName(uri)} for comparison.`
+        );
+        return false;
+    }
 }
 
 async function repairTargetChecksums(target: vscode.Uri): Promise<void> {

@@ -2,7 +2,7 @@
   "name": "vscode-hex-scope",
   "displayName": "Hex Scope",
   "publisher": "deviousprophet",
-  "description": "Firmware memory explorer and editor for Intel HEX and Motorola SREC files.",
+  "description": "Firmware memory explorer and editor for Intel HEX, Motorola SREC, and raw binary files.",
   "version": "3.0.0",
   "license": "MIT",
   "repository": {
@@ -88,6 +88,9 @@
           },
           {
             "filenamePattern": "*.s37"
+          },
+          {
+            "filenamePattern": "*.bin"
           }
         ],
         "priority": "option"
@@ -134,6 +137,11 @@
         "command": "hexScope.openInHexScope",
         "title": "Open with HexScope Viewer",
         "icon": "$(symbol-misc)",
+        "category": "HexScope"
+      },
+      {
+        "command": "hexScope.setBinBaseAddress",
+        "title": "Set Raw Binary Base Address",
         "category": "HexScope"
       },
       {
@@ -201,50 +209,50 @@
       "explorer/context": [
         {
           "submenu": "hexScope.actions",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ || resourceExtname =~ /\\.bin$/i",
           "group": "navigation"
         }
       ],
       "editor/title": [
         {
           "submenu": "hexScope.actions",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && activeEditorIsNotPreview",
+          "when": "(resourceLangId =~ /^(intel-hex|srec)$/ || resourceExtname =~ /\\.bin$/i) && activeEditorIsNotPreview",
           "group": "navigation"
         }
       ],
       "editor/title/context": [
         {
           "submenu": "hexScope.actions",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ || resourceExtname =~ /\\.bin$/i",
           "group": "navigation"
         }
       ],
       "editor/context": [
         {
           "submenu": "hexScope.actions",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && activeCustomEditorId != 'hexScope.hexEditor'",
+          "when": "(resourceLangId =~ /^(intel-hex|srec)$/ || resourceExtname =~ /\\.bin$/i) && activeCustomEditorId != 'hexScope.hexEditor'",
           "group": "navigation"
         }
       ],
       "hexScope.actions": [
         {
           "command": "hexScope.openInHexScope",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/",
+          "when": "resourceLangId =~ /^(intel-hex|srec)$/ || resourceExtname =~ /\\.bin$/i",
           "group": "navigation"
         },
         {
           "command": "hexScope.selectAsFirst",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection && explorerViewletFocus",
+          "when": "(resourceLangId =~ /^(intel-hex|srec)$/ || resourceExtname =~ /\\.bin$/i) && !listMultiSelection && explorerViewletFocus",
           "group": "3_compare"
         },
         {
           "command": "hexScope.compareToStaged",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && !listMultiSelection && explorerViewletFocus && hexScope.hasCompareSelection",
+          "when": "(resourceLangId =~ /^(intel-hex|srec)$/ || resourceExtname =~ /\\.bin$/i) && !listMultiSelection && explorerViewletFocus && hexScope.hasCompareSelection",
           "group": "3_compare"
         },
         {
           "command": "hexScope.compareSelected",
-          "when": "resourceLangId =~ /^(intel-hex|srec)$/ && listDoubleSelection && explorerViewletFocus",
+          "when": "(resourceLangId =~ /^(intel-hex|srec)$/ || resourceExtname =~ /\\.bin$/i) && listDoubleSelection && explorerViewletFocus",
           "group": "3_compare"
         },
         {

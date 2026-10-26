@@ -25,6 +25,8 @@ export interface CompactParseResult {
     checksumErrors: number;
     malformedLines: number;
     startAddress?: number;
+    /** Raw-binary memory-map base; absent for record-based formats. */
+    baseAddress?: number;
 }
 
 /** Cloneable compact result: record-metadata pages + exact segment buffers, worker-transferable. */
@@ -36,6 +38,7 @@ export interface SerializedCompactParseResult {
     checksumErrors: number;
     malformedLines: number;
     startAddress?: number;
+    baseAddress?: number;
 }
 
 /** Wire-shape segment projection: exact `ArrayBuffer` slices, safe to transfer zero-copy. */
@@ -56,6 +59,7 @@ export function serializeCompactParseResult(result: CompactParseResult): Seriali
         checksumErrors: result.checksumErrors,
         malformedLines: result.malformedLines,
         startAddress: result.startAddress,
+        baseAddress: result.baseAddress,
     };
 }
 
@@ -68,6 +72,7 @@ export function hydrateCompactParseResult(payload: SerializedCompactParseResult)
         checksumErrors: payload.checksumErrors,
         malformedLines: payload.malformedLines,
         startAddress: payload.startAddress,
+        baseAddress: payload.baseAddress,
     };
 }
 

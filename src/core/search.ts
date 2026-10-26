@@ -1,4 +1,5 @@
 import type { SearchEndianness, SearchMode, SerializedSegment } from './types';
+import { bytesEqual } from './bytesEqual';
 
 export interface SearchRequest {
     mode: SearchMode;
@@ -461,15 +462,7 @@ function buildEndianNeedles(beBytes: number[], endianness: SearchEndianness): nu
 }
 
 function buildAutoEndianNeedles(beBytes: number[], leBytes: number[]): number[][] {
-    return arraysEqual(beBytes, leBytes) ? [beBytes] : [beBytes, leBytes];
-}
-
-function arraysEqual(a: number[], b: number[]): boolean {
-    if (a.length !== b.length) { return false; }
-    for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) { return false; }
-    }
-    return true;
+    return bytesEqual(beBytes, leBytes) ? [beBytes] : [beBytes, leBytes];
 }
 
 function sortSegmentsByStart(segments: SerializedSegment[]): SerializedSegment[] {

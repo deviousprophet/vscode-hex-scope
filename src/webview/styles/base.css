@@ -162,6 +162,70 @@ html, body {
 .compact-tabs button.active             { background: var(--btn-bg); color: var(--btn-fg); }
 .compact-tabs button:hover:not(.active) { color: var(--fg); }
 
+/* ── Shared address field (0x prefix + digits in one bordered box) ── */
+/* Used by the profile-bar Base Address edit mode and the Integrity     */
+/* panel's Start/End/Stored fields so both read as one control.        */
+.addr-field {
+    display: inline-flex; align-items: center; box-sizing: border-box;
+    height: 22px; min-width: 0;
+    background: var(--input-bg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    /* One border owns the prefix + digits; no gap between them. */
+    padding: 0 6px;
+}
+.addr-field:focus-within { border-color: var(--focus-bdr); }
+.addr-field.addr-invalid { border-color: #f48771; }
+/* Scoped to the shared box: the overlay panel keeps its own `.addr-pfx`
+   (loaded later in the bundle) for its legacy prefix spacing. */
+.addr-field > .addr-pfx {
+    flex-shrink: 0; margin: 0; padding: 0;
+    font-family: var(--font-editor); font-size: 11px;
+    color: var(--addr-fg);
+    /* Match the input's 20px line box (22px field - 2px border). The span
+       otherwise uses its own 11px line box while the input centers its text
+       in its own box, which makes the prefix sit about a pixel higher. */
+    line-height: 20px;
+    user-select: none;
+}
+.addr-input {
+    flex: 1; min-width: 0; box-sizing: border-box;
+    height: 20px;
+    border: none; outline: none; margin: 0; padding: 0;
+    background: transparent; color: var(--input-fg);
+    font-family: var(--font-editor); font-size: 11px; line-height: 20px;
+}
+.addr-input:disabled {
+    opacity: 1; cursor: default;
+    color: var(--input-fg); -webkit-text-fill-color: var(--input-fg);
+}
+
+/* ── Shared address-field icon actions (pencil / check / X / reset) ── */
+/* Used by the profile-bar Base Address field and the diff side-head   */
+/* base controls so both offer the same 22px secondary-button action.  */
+.addr-icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; padding: 0; flex-shrink: 0;
+    box-sizing: border-box; cursor: pointer;
+    font-family: var(--font-ui); font-size: 12px; line-height: 1;
+    background: var(--vscode-button-secondaryBackground, var(--input-bg));
+    color: var(--vscode-button-secondaryForeground, var(--fg));
+    border: 1px solid var(--vscode-button-border, var(--border)); border-radius: 3px;
+    transition: background .1s, color .1s, border-color .1s;
+}
+.addr-icon-btn:hover:not(:disabled) {
+    background: var(--vscode-button-secondaryHoverBackground, var(--btn-hover));
+}
+.addr-icon-btn:focus-visible {
+    outline: 1px solid var(--focus-bdr); outline-offset: 1px;
+}
+.addr-icon-btn:disabled {
+    opacity: .5; cursor: not-allowed;
+    color: var(--vscode-disabledForeground, var(--non-graphic));
+}
+/* `[hidden]` ties with `.addr-icon-btn` on specificity; this targeted rule
+   keeps inactive icon actions out of the layout. */
+.addr-icon-btn[hidden] { display: none; }
+
 /* ── Shared format pill (stats bar + diff side heads) ──────────── */
 .fmt-pill {
     font-family: var(--font-ui); font-size: 10px; font-weight: 700; letter-spacing: .04em;

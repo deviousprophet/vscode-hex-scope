@@ -73,6 +73,7 @@ import {
 } from './webviewMessageModel';
 import { contextCommandResult, copyCommandResult } from './contextCommands';
 import { showToast } from './components/toast';
+import { binBaseField, configureBinBaseField } from './binBaseField';
 import { formatCopyCommand } from '../core/byteTools/copy';
 import type { InstanceAddressRequestEntry, InstanceParamRequestEntry } from '../webviewProtocol';
 import {
@@ -940,6 +941,7 @@ function cancelEdits(): void {
     clearEditState('discard');
     toolbar.setEditMode(false);
     toolbar.setDirty(S.edits.size);
+    binBaseField.render();
     if (S.currentView === 'memory') { memRerender(); }
     inspectorPanel.setSelection(S.selStart, S.selEnd);
 }
@@ -1048,6 +1050,7 @@ function handleSessionKeypress(e: KeyboardEvent): void {
 /** Refresh edit-driven chrome after a local byte edit (typed/paste/fill/undo). */
 export function refreshAfterLocalEdit(): void {
     toolbar.setDirty(S.edits.size);
+    binBaseField.render();
     if (S.currentView === 'memory') { memRerender(); }
     // Full rerender wipes paint-based classes; re-apply the session tint.
     if (selEditSession) {
@@ -1104,7 +1107,7 @@ function handleEditBufferChar(selStart: number, char: string): void {
 
 function isEditBlocked(): boolean {
     return !S.editMode || S.lockedDueToExternalChange
-        || !!document.activeElement?.closest('#search-box, #menu');
+        || !!document.activeElement?.closest('#search-box, #menu, #bin-base-field');
 }
 
 function isSingleByteSelected(): boolean {
@@ -1215,12 +1218,33 @@ function isCopyKey(e: KeyboardEvent): boolean { return e.key === 'c'; }
 function isPasteKey(e: KeyboardEvent): boolean { return e.key === 'v'; }
 
 function onCopyPasteKeydown(e: KeyboardEvent): void {
-    if (!isModifierKey(e)) { return; }
-    if (isCopyKey(e)) { e.preventDefault(); doCopySelection(); return; }
-    if (isPasteKey(e)) { e.preventDefault(); doPasteToSelection(); return; }
+    if (!isClipboardShortcut(e)) { return; }
+    if (isCopyKey(e)) { handleCopyShortcut(e); return; }
+    handlePasteShortcut(e);
+}
+
+/** Modifier held and the focused element is not the base field (it owns its own clipboard). */
+function isClipboardShortcut(e: KeyboardEvent): boolean {
+    return isModifierKey(e) && !isBaseFieldTarget();
+}
+
+function handleCopyShortcut(e: KeyboardEvent): void {
+    e.preventDefault();
+    doCopySelection();
+}
+
+function handlePasteShortcut(e: KeyboardEvent): void {
+    e.preventDefault();
+    doPasteToSelection();
+}
+
+/** Text inputs own their own copy/paste; never hijack them for grid bytes. */
+function isBaseFieldTarget(): boolean {
+    return !!document.activeElement?.closest('#bin-base-field');
 }
 
 postProviderMessage({ type: 'ready' });
+configureBinBaseField(postProviderMessage);
 
 // ── Message handler ───────────────────────────────────────────────
 
@@ -1256,6 +1280,7 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     scriptSaveFailed: handleScriptSaveFailedMessage,
     activateScriptsTab: handleActivateScriptsTabMessage,
     activateProfilePicker: profilePicker.handleActivatePicker,
+    focusBinBaseAddress: handleFocusBinBaseAddressMessage,
 };
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
@@ -1479,6 +1504,11 @@ function handleActivateScriptsTabMessage(_msg: WebviewMessageByType<'activateScr
     scriptsPanel.setTabActive(true);
 }
 
+/** Palette entry: enter edit mode on the profile-bar field (refuse with a toast when guarded). */
+function handleFocusBinBaseAddressMessage(_msg: WebviewMessageByType<'focusBinBaseAddress'>): void {
+    focusBaseField();
+}
+
 function clearLoadProgress(): void {
     const progress = document.getElementById('search-progress');
     if (progress) {
@@ -1500,6 +1530,7 @@ function rebuildLabelsAndMemory(): void {
 
 function clearEditState(reason: ClearEditReason = 'refresh'): void {
     clearEditModel();
+    binBaseField.render();
     if (reason === 'discard') { integrityPanel.notifyEditsDiscarded(); }
     else { integrityPanel.notifyBytesChanged(); }
 }
@@ -1604,7 +1635,7 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
         ['labelsAndMemory', rebuildLabelsAndMemory],
         ['lockState', updateLockState],
         ['editControls', () => toolbar.setEditMode(S.editMode)],
-        ['dirtyBar', () => toolbar.setDirty(S.edits.size)],
+        ['dirtyBar', () => { toolbar.setDirty(S.edits.size); binBaseField.render(); }],
         ['stats', renderStatsBar],
         ['segments', () => inspectorPanel.setSegments(S.parseResult?.segments ?? [])],
         ['typeInstances', () => overlayPanel.setData(S.types, S.typeInstances)],
@@ -1654,6 +1685,7 @@ function preventClickWhenLocked(e: Event): void {
 // ── Main render ───────────────────────────────────────────────────
 
 function render(): void {
+    toolbar.setRecordViewAvailable(recordViewAvailable());
     const mem = S.currentView === 'memory';
     document.getElementById('app')!.innerHTML = `
         ${toolbar.toHtml(searchBar.toHtml())}
@@ -1689,6 +1721,7 @@ function setupRenderedUi(): void {
     toolbar.setDirty(S.edits.size);
     profilePicker.render();
     profilePicker.seed();
+    binBaseField.mount();
     setupRerenderCallbacks();
     initSearch(() => switchView('memory'), {
         setCount: (count, current) => searchBar.setCount(count, current),
@@ -1806,6 +1839,21 @@ function renderLoadError(message: string): void {
 
 function renderStatsBar(): void {
     renderStats(S.parseResult);
+}
+
+/**
+ * `Set Raw Binary Base Address` / `focusBinBaseAddress` entry: text documents,
+ * unsaved edits, and an unresolved external change refuse with a toast; only a
+ * clean raw document enters edit mode on the field.
+ */
+function focusBaseField(): void {
+    const refusal = binBaseField.focus();
+    if (refusal) { showToast(refusal); }
+}
+
+/** Record view exists only for record-based formats; raw binaries are memory-only. */
+function recordViewAvailable(): boolean {
+    return S.parseResult?.format !== 'bin';
 }
 
 // ── Memory view ───────────────────────────────────────────────────
@@ -2132,6 +2180,7 @@ function renderCurrentView(v: ViewName): void {
 }
 
 function switchView(v: ViewName): void {
+    if (v === 'record' && !recordViewAvailable()) { v = 'memory'; }
     if (v !== 'memory') { commitSelectedBytesSession(); }
     S.currentView = v;
     toolbar.setView(v);
@@ -2143,6 +2192,7 @@ function switchView(v: ViewName): void {
 /** Update UI lock state when external change occurs or is resolved. */
 function updateLockState(): void {
     updateExternalChangeLockState(S.lockedDueToExternalChange);
+    binBaseField.render();
 }
 
 function stageIntegrityEdits(edits: Array<[number, number]>): void {

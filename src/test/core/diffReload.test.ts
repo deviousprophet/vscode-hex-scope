@@ -2,9 +2,13 @@ import * as assert from 'assert';
 import { buildDiffState, reloadIsStale, reloadState, sideDefects } from '../../diff/diffReload';
 import type { WireParseResult } from '../../core/types';
 
-function wire(segments: Array<[number, number[]]>, defects: { checksumErrors?: number; malformedLines?: number } = {}): WireParseResult {
+function wire(
+    segments: Array<[number, number[]]>,
+    defects: { checksumErrors?: number; malformedLines?: number } = {},
+    format: WireParseResult['format'] = 'ihex',
+): WireParseResult {
     return {
-        recordCount: segments.length,
+        recordCount: format === 'bin' ? 0 : segments.length,
         segments: segments.map(([startAddress, bytes]) => ({
             startAddress,
             data: Uint8Array.from(bytes).buffer as ArrayBuffer,
@@ -12,7 +16,7 @@ function wire(segments: Array<[number, number[]]>, defects: { checksumErrors?: n
         totalDataBytes: segments.reduce((sum, [, bytes]) => sum + bytes.length, 0),
         checksumErrors: defects.checksumErrors ?? 0,
         malformedLines: defects.malformedLines ?? 0,
-        format: 'ihex',
+        format,
     };
 }
 
@@ -32,6 +36,10 @@ suite('diffExternalChange host decisions', () => {
         });
     });
 
+    test('raw-binary sides never report checksum/malformed defects (no repair action)', () => {
+        assert.strictEqual(sideDefects(wire([[0x08000000, [0x01, 0x02]]], {}, 'bin')), null);
+    });
+
     test('malformed lines block quick repair', () => {
         assert.deepStrictEqual(sideDefects(wire([[0x1000, [0x01]]], { checksumErrors: 1, malformedLines: 3 })), {
             checksumErrors: 1,
@@ -46,6 +54,16 @@ suite('diffExternalChange host decisions', () => {
         assert.strictEqual(state.a.format, 'ihex');
         assert.strictEqual(state.b.name, 'b.srec');
         assert.strictEqual(state.b.format, 'srec');
+        assert.deepStrictEqual(state.diff.summary, { changed: 1, added: 0, removed: 0 });
+    });
+
+    test('building a state with raw-binary sides keeps the format and address alignment', () => {
+        const state = buildDiffState(
+            REF_A, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') },
+            REF_B, { format: 'bin', wire: wire([[0x08000000, [0x02]]], {}, 'bin') },
+        );
+        assert.strictEqual(state.a.format, 'bin');
+        assert.strictEqual(state.b.format, 'bin');
         assert.deepStrictEqual(state.diff.summary, { changed: 1, added: 0, removed: 0 });
     });
 
@@ -77,5 +95,35 @@ suite('diffExternalChange host decisions', () => {
         assert.strictEqual(reloadIsStale(false, 1, 2, state), true, 'a newer reload of the same side wins');
         assert.strictEqual(reloadIsStale(true, 1, 1, state), true, 'a disposed panel posts nothing');
         assert.strictEqual(reloadIsStale(false, 1, 1, null), true, 'no loaded state means nothing to reload');
+    });
+
+    test('a comparison-only base override travels with its side and survives the other side reloading', () => {
+        const state = buildDiffState(
+            REF_A, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') },
+            REF_B, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') },
+        );
+        assert.strictEqual(state.a.baseOverride, undefined, 'a fresh load carries no override');
+
+        const overridden = reloadState(state, 'a', REF_A, { format: 'bin', wire: wire([[0x2000, [0x01]]], {}, 'bin') }, true);
+        assert.strictEqual(overridden.a.baseOverride, true);
+        assert.strictEqual(overridden.b.baseOverride, undefined);
+
+        const otherReloaded = reloadState(overridden, 'b', REF_B, { format: 'bin', wire: wire([[0x3000, [0x02]]], {}, 'bin') });
+        assert.strictEqual(otherReloaded.a.baseOverride, true, 'an external reload of the other side keeps the override');
+        assert.strictEqual(otherReloaded.b.baseOverride, undefined, 'the reloaded side keeps its own (absent) flag');
+        assert.strictEqual(otherReloaded.a.parseResult.segments[0].startAddress, 0x2000, 'the overridden base is re-anchored');
+    });
+
+    test('reloading an overridden side without a flag keeps it; an explicit false clears it', () => {
+        const state = buildDiffState(
+            REF_A, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') },
+            REF_B, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') },
+        );
+        const overridden = reloadState(state, 'a', REF_A, { format: 'bin', wire: wire([[0x08000000, [0x01]]], {}, 'bin') }, true);
+        const kept = reloadState(overridden, 'a', REF_A, { format: 'bin', wire: wire([[0x08000000, [0x02]]], {}, 'bin') });
+        assert.strictEqual(kept.a.baseOverride, true, 'omitting the flag preserves the current override');
+        const cleared = reloadState(kept, 'a', REF_A, { format: 'bin', wire: wire([[0x08000000, [0x02]]], {}, 'bin') }, false);
+        assert.strictEqual(cleared.a.baseOverride, undefined, 'Reset clears the flag');
+        assert.strictEqual(cleared.b, kept.b, 'the other side stays reused');
     });
 });

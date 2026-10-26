@@ -4,9 +4,25 @@ import { workBudgetRuntime, yieldWhenDue, type WorkBudgetOptions } from './workB
 
 type ParsedRecord = ParseResult['records'][number];
 
-export type HexScopeFormat = 'ihex' | 'srec';
+export type HexScopeTextFormat = 'ihex' | 'srec';
+export type HexScopeFormat = HexScopeTextFormat | 'bin';
+
+/** Defense-in-depth message when a raw image reaches the record-parsing worker. */
+export const RAW_BINARY_WORKER_ERROR = 'Raw binary files do not use the editor parse worker.';
+
+/** True for the record-based text formats (Intel HEX / Motorola SREC). */
+export function isTextFormat(format: HexScopeFormat): format is HexScopeTextFormat {
+    return format !== 'bin';
+}
+
+/** True when the extension names a raw binary image (case-insensitive). */
+export function isRawBinaryExtension(ext: string): boolean {
+    return ext.toLowerCase() === 'bin';
+}
 
 export function detectFormatFromParts(ext: string, raw: string): HexScopeFormat {
+    // A `.bin` file is raw bytes; never content-sniff it as HEX/SREC.
+    if (isRawBinaryExtension(ext)) { return 'bin'; }
     if (['srec', 'mot', 's19', 's28', 's37'].includes(ext)) { return 'srec'; }
     const firstLine = raw.trimStart().slice(0, 4);
     if (/^S[0-9]/i.test(firstLine)) { return 'srec'; }

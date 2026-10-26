@@ -23,7 +23,7 @@ src/test/webview/components/recordView.test.ts   (mocha + jsdom)
 
 ```typescript
 interface RecordViewRenderInput {
-    format: 'ihex' | 'srec';
+    format: HexScopeFormat;
     records: readonly (SerializedRecord | null)[];   // null = unloaded (placeholder row)
     recordOffset: number;        // index of records[0] in the full list
     totalHeight: number;         // full content height (px)
@@ -56,7 +56,7 @@ export class RecordView {
 - **Row formatting lives in component:** IHEX/SREC type label maps, badge classes, address text (8-hex uppercase `resolvedAddress`; `raddr-empty` + `—` dash for non-data types), data (hex bytes space-joined; error text on error), checksum cell (`—` on error, checksum hex + `.cok`/`.cerr`/`.cerr-tag`).
 - **Paging stays host:** `null` in `records` = unloaded → `tr.record-loading` "Loading…" placeholder. Component reports `onNeedPage(first,last)` when visible window touches unloaded indexes; host maps to pages, fills cache, re-renders. Component never imports `RecordPageCache`.
 - **Virtualization:** `mount()` one doc-delegated scroll listener filtered to rootSelector → `onScrollTop`; host computes slice via shared `render/virtualScroll.ts` + `clampWindowTop` (shared util). No bespoke scroll math in component.
-- **Visibility:** host keeps the `visibleClass` toggle on `#record-view`; component mounts once.
+- **Visibility:** host keeps the `visibleClass` toggle on `#record-view`; component mounts once. Raw `.bin` documents hide the Records tab and force Memory, so the record table is unreachable for them (a bin result has zero records if it ever renders).
 - **Empty/resize:** `renderEmpty(msg)`; resize recompute = host re-feeds slice (component does not own resize).
 - Markup/row cell classes byte-identical to pre-refactor; record text escaped via `esc()`/`textContent`.
 - Zero `S` import; no postProviderMessage; no size math beyond host-fed layout.

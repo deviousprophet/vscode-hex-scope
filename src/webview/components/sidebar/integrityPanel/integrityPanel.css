@@ -407,28 +407,11 @@
     width: 100%;
 }
 
+/* Width/full-row hook only — the border, prefix, and digits come from the
+   shared `.addr-field` primitive in styles/base.css. */
 .integrity-address-input {
-    align-items: center;
-    display: flex;
-    min-width: 0;
-}
-
-/* Address prefix — local copy of the legacy `.addr-pfx` so the panel
-   stops borrowing an overlay-owned class (that rule stays in overlayPanel.css
-   for overlay's own markup). */
-.integrity-addr-pfx {
-    flex-shrink: 0;
-    font-family: var(--font-editor); font-size: 11px;
-    color: var(--addr-fg); line-height: 1;
-    padding: 2px 0 2px 2px;
-    user-select: none;
-}
-
-.integrity-address-input .sb-input {
-    box-sizing: border-box;
-    flex: 1;
-    min-width: 0;
     width: 100%;
+    min-width: 0;
 }
 
 .integrity-form-error:empty { display: none; }

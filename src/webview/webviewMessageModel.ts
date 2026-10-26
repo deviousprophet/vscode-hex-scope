@@ -88,6 +88,7 @@ const MODEL_APPLIERS: ModelAppliers = {
     scriptSaveFailed: applyPassiveMessage,
     activateScriptsTab: applyPassiveMessage,
     activateProfilePicker: applyPassiveMessage,
+    focusBinBaseAddress: applyPassiveMessage,
 };
 
 function applyPassiveMessage(): WebviewModelUpdate { return { invalidations: {} }; }

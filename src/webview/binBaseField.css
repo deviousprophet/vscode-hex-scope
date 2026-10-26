@@ -1,0 +1,55 @@
+/* ── Raw-binary base-address field (profile bar) ──────────────── */
+.bin-base-field {
+    display: flex; align-items: center; gap: 6px;
+    flex-shrink: 0; white-space: nowrap;
+}
+.bin-base-field[hidden] { display: none; }
+/* `[hidden]` must beat the shared `.addr-field` display for the edit box. */
+.bin-base-field [hidden] { display: none; }
+
+/* Uppercase BASE ADDRESS, matching the shared `.profile-label` (PROFILE).
+   The label rides the 31px profile-bar row via `align-items:center`. */
+.bin-base-field .base-field-label { line-height: 1; }
+
+/* Read-only `0x%08X` value shown in view mode; the edit box replaces it. */
+.base-value {
+    font-family: var(--font-editor); font-size: 11px; font-weight: 700;
+    color: var(--fg); line-height: 1;
+}
+
+/* Edit-mode address box: shared `.addr-field` geometry, profile-bar width. */
+.bin-base-field .base-edit-box { width: 86px; }
+
+/* Icon Edit/Save/Cancel actions use the shared `.addr-icon-btn` primitive
+   (22px, secondary button tokens) from styles/base.css. */
+
+/* Pencil Edit mirrors the sidebar `.act-btn` affordance: icon-only and hidden
+   until the field is hovered or receives keyboard focus. It keeps its layout
+   slot (no row shift) and stays focusable; the no-hover fallback keeps it
+   discoverable on touch surfaces. Save/Cancel are never faded — they only
+   exist while editing. */
+.bin-base-field #bin-base-edit {
+    opacity: 0;
+    transition: opacity .1s, background .1s, color .1s, border-color .1s;
+}
+.bin-base-field:hover #bin-base-edit,
+.bin-base-field:focus-within #bin-base-edit,
+.bin-base-field #bin-base-edit:focus-visible { opacity: 1; }
+
+/* A disabled Edit still reveals on hover/focus with its dimmed look + tooltip. */
+.bin-base-field #bin-base-edit:disabled { opacity: 0; }
+.bin-base-field:hover #bin-base-edit:disabled,
+.bin-base-field:focus-within #bin-base-edit:disabled,
+.bin-base-field #bin-base-edit:disabled:focus-visible { opacity: .5; }
+
+/* Touch / no-hover surfaces cannot discover a hover-only control. */
+@media (hover: none) {
+    .bin-base-field #bin-base-edit { opacity: 1; }
+    .bin-base-field #bin-base-edit:disabled { opacity: .5; }
+}
+
+.base-field-error {
+    font-size: 10px; color: #f48771; font-family: var(--font-ui);
+    white-space: nowrap;
+}
+.base-field-error[hidden] { display: none; }
