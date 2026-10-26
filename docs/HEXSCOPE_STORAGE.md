@@ -71,12 +71,13 @@ records and deduplicate by id + case-insensitive name (`normalizeProfilesRegistr
   `binBases` table of `bindings.json` (`{ fileKey, baseAddress }`); profiles no
   longer carry a base. Opening a `.bin` maps at its stored value when it still
   fits the file (explicit `0` included), else `0x00000000`; it never prompts and
-  never writes `.hexscope`. The **Base Address** field in the profile bar (a
-  read-only `0x%08X` view with Edit, then Save/Cancel) writes the entry on an
-  explicit Save/Enter commit (no profile or binding is created, so the file
-  stays **No Profile**). Switching, duplicating, or deleting a profile does not
-  change or remove a base; two files sharing a profile keep independent bases.
-  Rename rewrites both `bindings` and `binBases` keys; delete prunes both. The
+  never writes `.hexscope`. The **Base Address** field in the profile bar (an
+  always-visible fixed-`0x` text box, disabled until Edit, then Save/Cancel)
+  writes the entry on an explicit Save/Enter commit (no profile or binding is
+  created, so the file stays **No Profile**). Switching, duplicating, or
+  deleting a profile does not change or remove a base; two files sharing a
+  profile keep independent bases. Rename rewrites both `bindings` and `binBases`
+  keys; delete prunes both. The
   value applies when a document opens or through an explicit field commit; an
   open comparison captures each side's base at load and never writes
   `.hexscope`.

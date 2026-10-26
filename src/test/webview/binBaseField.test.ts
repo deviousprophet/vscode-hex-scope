@@ -1,9 +1,10 @@
 // ── Raw-binary base-address field (webview) ──────────────────────
-// The profile-bar field is the only editor for a `.bin` base. It has an
-// explicit view mode (read-only 0x%08X + Edit) and edit mode (fixed-prefix
-// input + Save/Cancel). Save/Enter commits, Cancel/Escape reverts, blur does
-// nothing, and Edit stays disabled while edits are unsaved or an external
-// change is unresolved.
+// The profile-bar field is the only editor for a `.bin` base. Its fixed-prefix
+// text box is always visible: disabled in view mode (alongside Edit) and
+// enabled in edit mode (alongside Save/Cancel). Save/Enter commits,
+// Cancel/Escape reverts and disables the input again, blur does nothing, and
+// Edit stays disabled while edits are unsaved or an external change is
+// unresolved.
 
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
@@ -79,17 +80,12 @@ function cancelButton(): HTMLButtonElement {
     return document.getElementById('bin-base-cancel') as HTMLButtonElement;
 }
 
-function valueElement(): HTMLElement {
-    return document.getElementById('bin-base-value') as HTMLElement;
-}
-
-function valueText(): string {
-    return valueElement().textContent ?? '';
+function digits(): string {
+    return input().value;
 }
 
 function isEditing(): boolean {
-    const wrap = document.getElementById('bin-base-input-wrap') as HTMLElement;
-    return wrap.hidden === false;
+    return saveButton().hidden === false;
 }
 
 function errorText(): string {
@@ -142,7 +138,7 @@ suite('webview raw-binary base field', () => {
         if (currentDom) { cleanupDom(currentDom); currentDom = null; }
     });
 
-    test('renders only for raw binaries, after the profile picker', () => {
+    test('renders only for raw binaries, after the profile picker, with an always-visible text box', () => {
         currentDom = installDom();
         S.parseResult = binResult();
         mountField();
@@ -152,9 +148,26 @@ suite('webview raw-binary base field', () => {
         const host = document.getElementById('bin-base-field') as HTMLElement;
         assert.strictEqual(host.hidden, false);
         assert.strictEqual(bar.querySelector('.base-field-label')?.textContent, 'Base Address');
+
+        const wrap = document.getElementById('bin-base-input-wrap') as HTMLElement;
+        assert.ok(wrap, 'the text-box wrapper is always present');
+        assert.strictEqual(wrap.hidden, false);
+        assert.strictEqual(document.getElementById('bin-base-value'), null, 'no read-only value label');
+        const prefix = wrap.querySelector('.base-addr-pfx') as HTMLElement;
+        assert.ok(prefix, 'the fixed prefix exists');
+        assert.strictEqual(prefix.textContent, '0x');
+        assert.strictEqual(prefix.getAttribute('aria-hidden'), 'true');
+        assert.strictEqual(prefix.contains(input()), false, 'prefix is outside the input');
+        assert.strictEqual(input().getAttribute('maxlength'), '8');
+        assert.strictEqual(input().getAttribute('placeholder'), '00000000');
+
+        assert.strictEqual(input().disabled, true, 'view mode disables the text box');
+        assert.strictEqual(digits(), '08000000');
         assert.strictEqual(editButton().hidden, false, 'view mode shows Edit');
-        assert.strictEqual(isEditing(), false, 'view mode hides the input');
-        assert.strictEqual(valueText(), '0x08000000');
+        assert.strictEqual(editButton().disabled, false);
+        assert.strictEqual(saveButton().hidden, true);
+        assert.strictEqual(cancelButton().hidden, true);
+        assert.strictEqual(isEditing(), false);
     });
 
     test('stays hidden for text formats and when no document is loaded', () => {
@@ -172,22 +185,23 @@ suite('webview raw-binary base field', () => {
         assert.strictEqual((document.getElementById('bin-base-field') as HTMLElement).hidden, true);
     });
 
-    test('shows parseResult.baseAddress as 0x plus eight uppercase digits (explicit 0 included)', () => {
+    test('shows parseResult.baseAddress as eight uppercase digits in the disabled text box (explicit 0 included)', () => {
         currentDom = installDom();
         S.parseResult = binResult();
         mountField();
-        assert.strictEqual(valueText(), '0x08000000');
+        assert.strictEqual(input().disabled, true);
+        assert.strictEqual(digits(), '08000000');
 
         S.parseResult = binResult({ baseAddress: 0, segments: [{ startAddress: 0, data: new Uint8Array(16) }] });
         binBaseField.render();
-        assert.strictEqual(valueText(), '0x00000000');
+        assert.strictEqual(digits(), '00000000');
 
         S.parseResult = binResult({ baseAddress: undefined, segments: [{ startAddress: 0x2000, data: new Uint8Array(4) }] });
         binBaseField.render();
-        assert.strictEqual(valueText(), '0x00000000', 'absent base falls back to 0, not the segment start');
+        assert.strictEqual(digits(), '00000000', 'absent base falls back to 0, not the segment start');
     });
 
-    test('Edit reveals the fixed-prefix input and Save/Cancel, and focuses the digits', () => {
+    test('Edit enables the always-visible input, shows Save/Cancel, and focuses the digits', () => {
         currentDom = installDom();
         S.parseResult = binResult();
         mountField();
@@ -195,20 +209,11 @@ suite('webview raw-binary base field', () => {
         startEditing();
 
         assert.strictEqual(isEditing(), true);
+        assert.strictEqual(input().disabled, false, 'edit mode enables the text box');
         assert.strictEqual(editButton().hidden, true, 'Edit is replaced by Save/Cancel');
         assert.strictEqual(saveButton().hidden, false);
         assert.strictEqual(cancelButton().hidden, false);
-        assert.strictEqual(valueElement().hidden, true, 'the read-only value is replaced by the input');
-
-        const prefix = document.querySelector('#bin-base-field .base-addr-pfx') as HTMLElement;
-        assert.ok(prefix, 'the prefix exists');
-        assert.strictEqual(prefix.textContent, '0x');
-        assert.strictEqual(prefix.getAttribute('aria-hidden'), 'true');
-        assert.ok(prefix.closest('.base-input-wrap'), 'prefix lives in the input wrapper');
-        assert.strictEqual(prefix.contains(input()), false, 'prefix is outside the input');
-        assert.strictEqual(input().getAttribute('maxlength'), '8');
-        assert.strictEqual(input().getAttribute('placeholder'), '00000000');
-        assert.strictEqual(input().value, '08000000', 'the prefix is never part of the value');
+        assert.strictEqual(digits(), '08000000', 'the prefix is never part of the value');
         assert.strictEqual(document.activeElement, input());
         assert.strictEqual(input().selectionStart, 0);
         assert.strictEqual(input().selectionEnd, 8);
@@ -225,8 +230,9 @@ suite('webview raw-binary base field', () => {
 
         assert.deepStrictEqual(posts, [{ type: 'setBinBaseAddress', value: 0x08010000 }]);
         assert.strictEqual(isEditing(), false, 'back to view mode');
+        assert.strictEqual(input().disabled, true, 'view mode disables the text box again');
         assert.strictEqual(editButton().hidden, false);
-        assert.strictEqual(valueText(), '0x08010000', 'the committed value is shown until the host rehydrates');
+        assert.strictEqual(digits(), '08010000', 'the committed value is shown until the host rehydrates');
         assert.strictEqual(input().getAttribute('aria-invalid'), null);
     });
 
@@ -241,7 +247,7 @@ suite('webview raw-binary base field', () => {
 
         assert.deepStrictEqual(posts, [{ type: 'setBinBaseAddress', value: 0x1234ABCD }]);
         assert.strictEqual(isEditing(), false);
-        assert.strictEqual(valueText(), '0x1234ABCD');
+        assert.strictEqual(input().disabled, true);
         assert.strictEqual(input().value, '1234ABCD', 'canonicalized in place without the prefix');
     });
 
@@ -256,7 +262,8 @@ suite('webview raw-binary base field', () => {
         press('Enter');
 
         assert.deepStrictEqual(posts, [{ type: 'setBinBaseAddress', value: 0x08010000 }]);
-        assert.strictEqual(valueText(), '0x08010000');
+        assert.strictEqual(input().disabled, true);
+        assert.strictEqual(digits(), '08010000');
     });
 
     test('a typed 0x prefix is stripped so it cannot consume digit slots', () => {
@@ -289,6 +296,7 @@ suite('webview raw-binary base field', () => {
         click(saveButton());
         assert.deepStrictEqual(posts, []);
         assert.strictEqual(isEditing(), true);
+        assert.strictEqual(input().disabled, false, 'the invalid draft keeps the input enabled');
     });
 
     test('a malformed prefixed paste is not truncated into a valid address', () => {
@@ -306,6 +314,7 @@ suite('webview raw-binary base field', () => {
         click(saveButton());
         assert.deepStrictEqual(posts, []);
         assert.strictEqual(isEditing(), true);
+        assert.strictEqual(input().disabled, false, 'the invalid draft keeps the input enabled');
     });
 
     test('an unchanged Save sends nothing and returns to view mode', () => {
@@ -319,10 +328,11 @@ suite('webview raw-binary base field', () => {
 
         assert.deepStrictEqual(posts, [], 'unchanged commit is a no-op');
         assert.strictEqual(isEditing(), false);
-        assert.strictEqual(valueText(), '0x08000000');
+        assert.strictEqual(input().disabled, true);
+        assert.strictEqual(digits(), '08000000');
     });
 
-    test('Cancel reverts without sending and returns to view mode', () => {
+    test('Cancel reverts without sending, disables the input, and returns to view mode', () => {
         currentDom = installDom();
         S.parseResult = binResult();
         mountField();
@@ -332,11 +342,12 @@ suite('webview raw-binary base field', () => {
         click(cancelButton());
 
         assert.strictEqual(isEditing(), false);
-        assert.strictEqual(valueText(), '0x08000000');
+        assert.strictEqual(input().disabled, true);
+        assert.strictEqual(digits(), '08000000');
         assert.deepStrictEqual(posts, []);
     });
 
-    test('Escape reverts without sending and returns to view mode', () => {
+    test('Escape reverts without sending, disables the input, and returns to view mode', () => {
         currentDom = installDom();
         S.parseResult = binResult();
         mountField();
@@ -346,7 +357,8 @@ suite('webview raw-binary base field', () => {
         press('Escape');
 
         assert.strictEqual(isEditing(), false);
-        assert.strictEqual(valueText(), '0x08000000');
+        assert.strictEqual(input().disabled, true);
+        assert.strictEqual(digits(), '08000000');
         assert.deepStrictEqual(posts, []);
     });
 
@@ -361,6 +373,7 @@ suite('webview raw-binary base field', () => {
 
         assert.deepStrictEqual(posts, [], 'blur never commits');
         assert.strictEqual(isEditing(), true, 'blur keeps the edit open for Save/Cancel');
+        assert.strictEqual(input().disabled, false, 'the input stays enabled');
         assert.strictEqual(input().value, '1000', 'the draft survives a blur');
     });
 
@@ -375,6 +388,7 @@ suite('webview raw-binary base field', () => {
 
         assert.deepStrictEqual(posts, []);
         assert.strictEqual(isEditing(), true);
+        assert.strictEqual(input().disabled, false, 'the invalid draft stays editable');
         assert.strictEqual(input().getAttribute('aria-invalid'), 'true');
         assert.match(errorText(), /hexadecimal/i);
     });
@@ -390,6 +404,7 @@ suite('webview raw-binary base field', () => {
 
         assert.deepStrictEqual(posts, [], 'base + size overflows the 32-bit space');
         assert.strictEqual(isEditing(), true);
+        assert.strictEqual(input().disabled, false, 'the overflowing draft stays editable');
         assert.strictEqual(input().getAttribute('aria-invalid'), 'true');
         assert.match(errorText(), /32-bit/i);
     });
@@ -405,6 +420,7 @@ suite('webview raw-binary base field', () => {
 
         assert.deepStrictEqual(posts, []);
         assert.strictEqual(isEditing(), true);
+        assert.strictEqual(input().disabled, false, 'the empty draft stays editable');
         assert.strictEqual(input().getAttribute('aria-invalid'), 'true');
         assert.match(errorText(), /enter a base address/i);
     });
@@ -424,6 +440,8 @@ suite('webview raw-binary base field', () => {
 
         assert.deepStrictEqual(posts, [{ type: 'setBinBaseAddress', value: 0x1000 }]);
         assert.strictEqual(isEditing(), false);
+        assert.strictEqual(input().disabled, true);
+        assert.strictEqual(digits(), '00001000');
         assert.strictEqual(errorText(), '');
     });
 
@@ -436,6 +454,7 @@ suite('webview raw-binary base field', () => {
 
         assert.strictEqual(editButton().disabled, true);
         assert.strictEqual(editButton().title, BASE_ADDRESS_DIRTY_MESSAGE);
+        assert.strictEqual(input().disabled, true, 'the text box is disabled while dirty');
         assert.strictEqual(binBaseField.beginEdit(), BASE_ADDRESS_DIRTY_MESSAGE, 'the palette path reports the refusal');
         assert.strictEqual(isEditing(), false, 'a guarded field never enters edit mode');
     });
@@ -448,6 +467,7 @@ suite('webview raw-binary base field', () => {
 
         assert.strictEqual(editButton().disabled, true);
         assert.strictEqual(editButton().title, BASE_ADDRESS_LOCKED_MESSAGE);
+        assert.strictEqual(input().disabled, true, 'the text box is disabled while locked');
         assert.strictEqual(binBaseField.beginEdit(), BASE_ADDRESS_LOCKED_MESSAGE);
         assert.strictEqual(isEditing(), false);
     });
@@ -464,7 +484,8 @@ suite('webview raw-binary base field', () => {
         binBaseField.render();
 
         assert.strictEqual(isEditing(), false, 'the draft is dropped');
-        assert.strictEqual(valueText(), '0x08000000', 'the committed value is restored');
+        assert.strictEqual(input().disabled, true, 'the input is disabled again');
+        assert.strictEqual(digits(), '08000000', 'the committed value is restored');
         assert.strictEqual(editButton().disabled, true);
         assert.strictEqual(editButton().title, BASE_ADDRESS_DIRTY_MESSAGE);
         assert.deepStrictEqual(posts, []);
@@ -481,7 +502,8 @@ suite('webview raw-binary base field', () => {
         binBaseField.render();
 
         assert.strictEqual(isEditing(), false);
-        assert.strictEqual(valueText(), '0x08000000');
+        assert.strictEqual(input().disabled, true);
+        assert.strictEqual(digits(), '08000000');
         assert.strictEqual(editButton().disabled, true);
         assert.strictEqual(editButton().title, BASE_ADDRESS_LOCKED_MESSAGE);
     });
@@ -501,7 +523,8 @@ suite('webview raw-binary base field', () => {
 
         assert.strictEqual(editButton().disabled, false);
         assert.strictEqual(editButton().title, 'Edit the raw binary base address');
-        assert.strictEqual(valueText(), '0x00001000');
+        assert.strictEqual(input().disabled, true, 'view mode keeps the input disabled');
+        assert.strictEqual(digits(), '00001000');
     });
 
     test('a fresh mount starts in view mode with the effective base', () => {
@@ -515,7 +538,8 @@ suite('webview raw-binary base field', () => {
         mountField();
 
         assert.strictEqual(isEditing(), false, 'full re-render resets to view mode');
-        assert.strictEqual(valueText(), '0x08000000');
+        assert.strictEqual(input().disabled, true, 'a fresh mount disables the input');
+        assert.strictEqual(digits(), '08000000');
     });
 
     test('focus enters edit mode and selects only the digits', () => {
@@ -525,6 +549,7 @@ suite('webview raw-binary base field', () => {
 
         assert.strictEqual(binBaseField.focus(), null);
         assert.strictEqual(isEditing(), true);
+        assert.strictEqual(input().disabled, false);
         assert.strictEqual(document.activeElement, input());
         assert.strictEqual(input().value, '08000000');
         assert.strictEqual(input().value.includes('0x'), false, 'the prefix cannot be selected as part of the value');
@@ -542,6 +567,7 @@ suite('webview raw-binary base field', () => {
 
         assert.strictEqual(binBaseField.focus(), null);
         assert.strictEqual(isEditing(), true);
+        assert.strictEqual(input().disabled, false);
         assert.strictEqual(input().value, '1234', 're-entering edit does not reset the draft');
         assert.deepStrictEqual(posts, []);
     });
@@ -553,5 +579,6 @@ suite('webview raw-binary base field', () => {
 
         assert.strictEqual(binBaseField.focus(), 'Base address applies only to raw binary files.');
         assert.strictEqual(isEditing(), false);
+        assert.strictEqual(input().disabled, true);
     });
 });

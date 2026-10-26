@@ -11,12 +11,6 @@
    `.profile-label` used by the profile picker. */
 .bin-base-field .profile-label { text-transform: none; }
 
-/* View mode: read-only 0x%08X value. */
-.base-value {
-    font-family: var(--font-editor); font-size: 11px; font-weight: 600;
-    color: var(--fg); line-height: 1;
-}
-
 /* Compact Edit / Save / Cancel actions; ride the shared `.sb-btn` primitive
    with profile-bar sizing only. */
 .bin-base-field .base-btn {
@@ -27,7 +21,6 @@
 .base-input-wrap {
     display: flex; align-items: center;
 }
-.base-input-wrap[hidden] { display: none; }
 
 /* Fixed `0x` chrome — local copy of the Integrity panel's address prefix
    (`integrity-addr-pfx`) so both fields read the same. */
@@ -49,7 +42,14 @@
 }
 .base-input:focus { border-color: var(--focus-bdr); outline: none; }
 .base-input[aria-invalid='true'] { border-color: #f48771; }
-.base-input:disabled { opacity: .5; }
+/* View mode keeps the text-box chrome: a disabled input must still read as a
+   normal field, not as a faded label. Only focus/interaction is removed. */
+.base-input:disabled {
+    opacity: 1; cursor: default;
+    background: var(--input-bg); color: var(--input-fg);
+    -webkit-text-fill-color: var(--input-fg);
+    border-color: var(--input-bdr);
+}
 
 .base-field-error {
     font-size: 10px; color: #f48771; font-family: var(--font-ui);

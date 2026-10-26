@@ -1,9 +1,10 @@
 // ── Raw-binary base-address field (profile bar) ───────────────────
-// `.bin` only: a read-only address with explicit Edit / Save / Cancel
-// actions after the profile picker. The host owns persistence; the field
-// validates inline and reports a commit. It is the only editor for the value
-// (the palette command just enters edit mode), so no prompt/dialog exists
-// anywhere in the flow.
+// `.bin` only: an always-visible text box (fixed `0x` prefix + eight hex
+// digits) with explicit Edit / Save / Cancel actions after the profile
+// picker. The box is disabled in view mode and enabled in edit mode. The host
+// owns persistence; the field validates inline and reports a commit. It is the
+// only editor for the value (the palette command just enters edit mode), so no
+// prompt/dialog exists anywhere in the flow.
 
 import './binBaseField.css';
 
@@ -21,7 +22,6 @@ import type { WebviewToProviderMessage } from '../webviewProtocol';
 const HOST_ID = 'bin-base-field';
 const INPUT_ID = 'bin-base-input';
 const INPUT_WRAP_ID = 'bin-base-input-wrap';
-const VALUE_ID = 'bin-base-value';
 const EDIT_ID = 'bin-base-edit';
 const SAVE_ID = 'bin-base-save';
 const CANCEL_ID = 'bin-base-cancel';
@@ -37,7 +37,7 @@ const TOO_LONG_MESSAGE = 'Use up to eight hex digits (0x00000000–0xFFFFFFFF).'
 /** Provider post seam; the host wires `postProviderMessage` once at startup. */
 let postMessage: (message: WebviewToProviderMessage) => void = () => {};
 
-/** Explicit view/edit mode: read-only value vs. fixed-prefix input + Save/Cancel. */
+/** Explicit view/edit mode: disabled fixed-prefix text box vs. enabled one + Save/Cancel. */
 let editing = false;
 /** Just-committed value shown until the host's fresh `init` replaces the parse result. */
 let pendingBase: number | null = null;
@@ -67,14 +67,6 @@ function inputElement(): HTMLInputElement | null {
     return byId(INPUT_ID) as HTMLInputElement | null;
 }
 
-function inputWrapElement(): HTMLElement | null {
-    return byId(INPUT_WRAP_ID);
-}
-
-function valueElement(): HTMLElement | null {
-    return byId(VALUE_ID);
-}
-
 function editButtonElement(): HTMLButtonElement | null {
     return byId(EDIT_ID) as HTMLButtonElement | null;
 }
@@ -96,7 +88,7 @@ function committedBase(): number {
     return S.parseResult?.baseAddress ?? 0;
 }
 
-/** Base shown in view mode: the last commit until the host rehydrates. */
+/** Base shown by the field: the last commit until the host rehydrates. */
 function displayedBase(): number {
     return pendingBase ?? committedBase();
 }
@@ -128,14 +120,13 @@ function fieldHtml(): string {
     return `<div id="${HOST_ID}" class="bin-base-field" hidden>
         <span class="tb-sep" aria-hidden="true"></span>
         <label class="profile-label base-field-label" for="${INPUT_ID}">Base Address</label>
-        <span id="${VALUE_ID}" class="base-value"></span>
-        <button id="${EDIT_ID}" class="sb-btn sb-btn-secondary base-btn" type="button">Edit</button>
-        <div id="${INPUT_WRAP_ID}" class="base-input-wrap" hidden>
+        <div id="${INPUT_WRAP_ID}" class="base-input-wrap">
             <span class="base-addr-pfx" aria-hidden="true">0x</span>
             <input id="${INPUT_ID}" class="base-input" type="text" maxlength="8"
                 placeholder="${DIGITS_PLACEHOLDER}" spellcheck="false" autocomplete="off"
-                aria-label="${INPUT_ARIA_LABEL}">
+                aria-label="${INPUT_ARIA_LABEL}" disabled>
         </div>
+        <button id="${EDIT_ID}" class="sb-btn sb-btn-secondary base-btn" type="button">Edit</button>
         <button id="${SAVE_ID}" class="sb-btn sb-btn-secondary base-btn" type="button" hidden>Save</button>
         <button id="${CANCEL_ID}" class="sb-btn sb-btn-secondary base-btn" type="button" hidden>Cancel</button>
         <span id="${ERROR_ID}" class="base-field-error" role="alert" hidden></span>
@@ -172,13 +163,16 @@ function clearAppliedPending(): void {
     }
 }
 
-/** View mode: value + Edit. Edit mode: fixed-prefix input + Save/Cancel. */
+/**
+ * View mode: disabled text box + Edit. Edit mode: enabled text box + Save/Cancel.
+ * The wrapper and input are always visible; only the enablement changes.
+ */
 function applyMode(): void {
-    setHidden(valueElement(), editing);
-    setHidden(inputWrapElement(), !editing);
     setHidden(editButtonElement(), editing);
     setHidden(saveButtonElement(), !editing);
     setHidden(cancelButtonElement(), !editing);
+    const input = inputElement();
+    if (input) { input.disabled = !editing; }
     syncModeValue();
     if (!editing) { clearFieldError(); }
 }
@@ -188,8 +182,6 @@ function setHidden(element: HTMLElement | null, hidden: boolean): void {
 }
 
 function syncModeValue(): void {
-    const value = valueElement();
-    if (value) { value.textContent = formatBinBaseAddress(displayedBase()); }
     if (!shouldPreserveInput()) { setInputValue(); }
 }
 
@@ -216,7 +208,7 @@ function applyButtonState(button: HTMLButtonElement | null, state: BaseAddressFi
 
 function applyInputState(input: HTMLInputElement | null, state: BaseAddressFieldState): void {
     if (!input) { return; }
-    input.disabled = state.disabled;
+    input.disabled = state.disabled || !editing;
     input.title = state.tooltip ?? ENABLED_TITLE;
 }
 
