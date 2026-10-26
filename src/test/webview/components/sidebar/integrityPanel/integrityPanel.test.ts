@@ -195,6 +195,24 @@ suite('IntegrityPanel mount + render', () => {
         assert.ok(addBtn.closest('.sb-section-actions'), 'add button lives in the section header');
         assert.ok(addBtn.disabled, 'add button disabled while form open');
     });
+
+    test('address fields reuse the shared bordered address-field primitive', () => {
+        harness.sel.value = { start: 0x1000, end: 0x1002 };
+        click(dom, document.getElementById('integrity-add-btn'));
+        const form = integrityForm('add');
+        for (const control of ['start', 'end', 'stored']) {
+            const inputEl = form.querySelector<HTMLInputElement>(`[data-draft-control="${control}"]`)!;
+            const field = inputEl.closest('.integrity-address-input') as HTMLElement;
+            assert.ok(field.classList.contains('addr-field'), `${control}: shared .addr-field container`);
+            assert.ok(inputEl.classList.contains('addr-input'), `${control}: shared .addr-input digits box`);
+            assert.strictEqual(inputEl.classList.contains('sb-input'), false, `${control}: no second border from .sb-input`);
+            const prefix = field.querySelector('.addr-pfx') as HTMLElement;
+            assert.ok(prefix, `${control}: fixed 0x prefix inside the same border`);
+            assert.strictEqual(prefix.textContent, '0x');
+            assert.strictEqual(prefix.getAttribute('aria-hidden'), 'true');
+            assert.strictEqual(field.querySelector('.integrity-addr-pfx'), null, `${control}: old prefix class is gone`);
+        }
+    });
 });
 
 suite('IntegrityPanel checks', () => {

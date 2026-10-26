@@ -162,6 +162,38 @@ html, body {
 .compact-tabs button.active             { background: var(--btn-bg); color: var(--btn-fg); }
 .compact-tabs button:hover:not(.active) { color: var(--fg); }
 
+/* ── Shared address field (0x prefix + digits in one bordered box) ── */
+/* Used by the profile-bar Base Address edit mode and the Integrity     */
+/* panel's Start/End/Stored fields so both read as one control.        */
+.addr-field {
+    display: inline-flex; align-items: center; box-sizing: border-box;
+    height: 22px; min-width: 0;
+    background: var(--input-bg);
+    border: 1px solid var(--input-bdr); border-radius: 3px;
+    /* One border owns the prefix + digits; no gap between them. */
+    padding: 0 6px;
+}
+.addr-field:focus-within { border-color: var(--focus-bdr); }
+.addr-field.addr-invalid { border-color: #f48771; }
+/* Scoped to the shared box: the overlay panel keeps its own `.addr-pfx`
+   (loaded later in the bundle) for its legacy prefix spacing. */
+.addr-field > .addr-pfx {
+    flex-shrink: 0; margin: 0; padding: 0;
+    font-family: var(--font-editor); font-size: 11px;
+    color: var(--addr-fg); line-height: 1;
+    user-select: none;
+}
+.addr-input {
+    flex: 1; min-width: 0; box-sizing: border-box;
+    border: none; outline: none; margin: 0; padding: 0;
+    background: transparent; color: var(--input-fg);
+    font-family: var(--font-editor); font-size: 11px; line-height: 1;
+}
+.addr-input:disabled {
+    opacity: 1; cursor: default;
+    color: var(--input-fg); -webkit-text-fill-color: var(--input-fg);
+}
+
 /* ── Shared format pill (stats bar + diff side heads) ──────────── */
 .fmt-pill {
     font-family: var(--font-ui); font-size: 10px; font-weight: 700; letter-spacing: .04em;

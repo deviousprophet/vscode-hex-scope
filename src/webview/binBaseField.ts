@@ -1,7 +1,8 @@
 // ── Raw-binary base-address field (profile bar) ───────────────────
-// `.bin` only: an always-visible text box (fixed `0x` prefix + eight hex
-// digits) with explicit Edit / Save / Cancel actions after the profile
-// picker. The box is disabled in view mode and enabled in edit mode. The host
+// `.bin` only: an uppercase BASE ADDRESS label, a read-only `0x%08X` value,
+// and icon Edit/Save/Cancel actions after the profile picker. View mode shows
+// the value label; edit mode replaces it with one bordered `0x` text box
+// (shared `.addr-field` geometry) and focuses/selects the digits. The host
 // owns persistence; the field validates inline and reports a commit. It is the
 // only editor for the value (the palette command just enters edit mode), so no
 // prompt/dialog exists anywhere in the flow.
@@ -22,12 +23,14 @@ import type { WebviewToProviderMessage } from '../webviewProtocol';
 const HOST_ID = 'bin-base-field';
 const INPUT_ID = 'bin-base-input';
 const INPUT_WRAP_ID = 'bin-base-input-wrap';
+const VALUE_ID = 'bin-base-value';
 const EDIT_ID = 'bin-base-edit';
 const SAVE_ID = 'bin-base-save';
 const CANCEL_ID = 'bin-base-cancel';
 const ERROR_ID = 'bin-base-error';
-const ENABLED_TITLE = 'Hexadecimal address where byte 0 maps (0x00000000–0xFFFFFFFF)';
-const EDIT_TITLE = 'Edit the raw binary base address';
+const EDIT_TITLE = 'Edit base address';
+const SAVE_TITLE = 'Save base address';
+const CANCEL_TITLE = 'Cancel base address';
 const INPUT_ARIA_LABEL = 'Raw binary base address, hexadecimal digits (0x prefix is fixed)';
 const DIGITS_PLACEHOLDER = '00000000';
 /** Copied/typed prefix; it is fixed chrome, so it must never consume digit slots. */
@@ -37,7 +40,7 @@ const TOO_LONG_MESSAGE = 'Use up to eight hex digits (0x00000000–0xFFFFFFFF).'
 /** Provider post seam; the host wires `postProviderMessage` once at startup. */
 let postMessage: (message: WebviewToProviderMessage) => void = () => {};
 
-/** Explicit view/edit mode: disabled fixed-prefix text box vs. enabled one + Save/Cancel. */
+/** Explicit view/edit mode: read-only value label vs. bordered edit box + Save/Cancel. */
 let editing = false;
 /** Just-committed value shown until the host's fresh `init` replaces the parse result. */
 let pendingBase: number | null = null;
@@ -65,6 +68,14 @@ function hostElement(): HTMLElement | null {
 
 function inputElement(): HTMLInputElement | null {
     return byId(INPUT_ID) as HTMLInputElement | null;
+}
+
+function inputWrapElement(): HTMLElement | null {
+    return byId(INPUT_WRAP_ID);
+}
+
+function valueElement(): HTMLElement | null {
+    return byId(VALUE_ID);
 }
 
 function editButtonElement(): HTMLButtonElement | null {
@@ -120,15 +131,19 @@ function fieldHtml(): string {
     return `<div id="${HOST_ID}" class="bin-base-field" hidden>
         <span class="tb-sep" aria-hidden="true"></span>
         <label class="profile-label base-field-label" for="${INPUT_ID}">Base Address</label>
-        <div id="${INPUT_WRAP_ID}" class="base-input-wrap">
-            <span class="base-addr-pfx" aria-hidden="true">0x</span>
-            <input id="${INPUT_ID}" class="base-input" type="text" maxlength="8"
+        <span id="${VALUE_ID}" class="base-value">0x00000000</span>
+        <div id="${INPUT_WRAP_ID}" class="addr-field base-edit-box" hidden>
+            <span class="addr-pfx" aria-hidden="true">0x</span>
+            <input id="${INPUT_ID}" class="addr-input" type="text" maxlength="8"
                 placeholder="${DIGITS_PLACEHOLDER}" spellcheck="false" autocomplete="off"
-                aria-label="${INPUT_ARIA_LABEL}" disabled>
+                aria-label="${INPUT_ARIA_LABEL}">
         </div>
-        <button id="${EDIT_ID}" class="sb-btn sb-btn-secondary base-btn" type="button">Edit</button>
-        <button id="${SAVE_ID}" class="sb-btn sb-btn-secondary base-btn" type="button" hidden>Save</button>
-        <button id="${CANCEL_ID}" class="sb-btn sb-btn-secondary base-btn" type="button" hidden>Cancel</button>
+        <button id="${EDIT_ID}" class="base-icon-btn" type="button"
+            title="${EDIT_TITLE}" aria-label="${EDIT_TITLE}">&#9998;</button>
+        <button id="${SAVE_ID}" class="base-icon-btn" type="button"
+            title="${SAVE_TITLE}" aria-label="${SAVE_TITLE}" hidden>&#10003;</button>
+        <button id="${CANCEL_ID}" class="base-icon-btn" type="button"
+            title="${CANCEL_TITLE}" aria-label="${CANCEL_TITLE}" hidden>&#10005;</button>
         <span id="${ERROR_ID}" class="base-field-error" role="alert" hidden></span>
     </div>`;
 }
@@ -164,15 +179,15 @@ function clearAppliedPending(): void {
 }
 
 /**
- * View mode: disabled text box + Edit. Edit mode: enabled text box + Save/Cancel.
- * The wrapper and input are always visible; only the enablement changes.
+ * View mode: read-only value label + Edit. Edit mode: bordered address box
+ * (hidden in view mode) + Save/Cancel.
  */
 function applyMode(): void {
     setHidden(editButtonElement(), editing);
     setHidden(saveButtonElement(), !editing);
     setHidden(cancelButtonElement(), !editing);
-    const input = inputElement();
-    if (input) { input.disabled = !editing; }
+    setHidden(valueElement(), editing);
+    setHidden(inputWrapElement(), !editing);
     syncModeValue();
     if (!editing) { clearFieldError(); }
 }
@@ -182,6 +197,8 @@ function setHidden(element: HTMLElement | null, hidden: boolean): void {
 }
 
 function syncModeValue(): void {
+    const value = valueElement();
+    if (value) { value.textContent = formatBinBaseAddress(displayedBase()); }
     if (!shouldPreserveInput()) { setInputValue(); }
 }
 
@@ -197,19 +214,12 @@ function setInputValue(): void {
 
 function applyFieldState(state: BaseAddressFieldState): void {
     applyButtonState(editButtonElement(), state);
-    applyInputState(inputElement(), state);
 }
 
 function applyButtonState(button: HTMLButtonElement | null, state: BaseAddressFieldState): void {
     if (!button) { return; }
     button.disabled = state.disabled;
     button.title = state.tooltip ?? EDIT_TITLE;
-}
-
-function applyInputState(input: HTMLInputElement | null, state: BaseAddressFieldState): void {
-    if (!input) { return; }
-    input.disabled = state.disabled || !editing;
-    input.title = state.tooltip ?? ENABLED_TITLE;
 }
 
 /**
@@ -328,6 +338,7 @@ function onFieldKeydown(event: KeyboardEvent): void {
 
 function showFieldError(message: string): void {
     inputElement()?.setAttribute('aria-invalid', 'true');
+    inputWrapElement()?.classList.add('addr-invalid');
     const error = errorElement();
     if (!error) { return; }
     error.textContent = message;
@@ -336,6 +347,7 @@ function showFieldError(message: string): void {
 
 function clearFieldError(): void {
     inputElement()?.removeAttribute('aria-invalid');
+    inputWrapElement()?.classList.remove('addr-invalid');
     const error = errorElement();
     if (!error) { return; }
     error.textContent = '';

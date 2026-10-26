@@ -4,52 +4,47 @@
     flex-shrink: 0; white-space: nowrap;
 }
 .bin-base-field[hidden] { display: none; }
-/* `[hidden]` must beat the shared `.sb-btn` display for Save/Cancel. */
+/* `[hidden]` must beat the shared `.addr-field` display for the edit box. */
 .bin-base-field [hidden] { display: none; }
 
-/* This label reads as prose ("Base Address"), unlike the uppercase
-   `.profile-label` used by the profile picker. */
-.bin-base-field .profile-label { text-transform: none; }
+/* Uppercase BASE ADDRESS, matching the shared `.profile-label` (PROFILE).
+   The label rides the 31px profile-bar row via `align-items:center`. */
+.bin-base-field .base-field-label { line-height: 1; }
 
-/* Compact Edit / Save / Cancel actions; ride the shared `.sb-btn` primitive
-   with profile-bar sizing only. */
-.bin-base-field .base-btn {
-    height: 22px; padding: 0 8px;
-    font-size: 10px; line-height: 1;
-}
-
-.base-input-wrap {
-    display: flex; align-items: center;
+/* Read-only `0x%08X` value shown in view mode; the edit box replaces it. */
+.base-value {
+    font-family: var(--font-editor); font-size: 11px; font-weight: 700;
+    color: var(--fg); line-height: 1;
 }
 
-/* Fixed `0x` chrome — local copy of the Integrity panel's address prefix
-   (`integrity-addr-pfx`) so both fields read the same. */
-.base-addr-pfx {
-    flex-shrink: 0;
-    font-family: var(--font-editor); font-size: 11px;
-    color: var(--addr-fg); line-height: 1;
-    padding: 2px 0 2px 2px;
-    user-select: none;
-}
+/* Edit-mode address box: shared `.addr-field` geometry, profile-bar width. */
+.bin-base-field .base-edit-box { width: 86px; }
 
-.base-input {
-    box-sizing: border-box;
-    width: 68px; height: 22px;
-    font-family: var(--font-editor); font-size: 11px;
-    background: var(--input-bg); color: var(--input-fg);
-    border: 1px solid var(--input-bdr); border-radius: 3px;
-    padding: 0 4px;
+/* Square icon-only Edit / Save / Cancel actions (pencil / check / X).
+   Secondary button tokens, matching the diff action contract. */
+.bin-base-field .base-icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; padding: 0; flex-shrink: 0;
+    box-sizing: border-box; cursor: pointer;
+    font-family: var(--font-ui); font-size: 12px; line-height: 1;
+    background: var(--vscode-button-secondaryBackground, var(--input-bg));
+    color: var(--vscode-button-secondaryForeground, var(--fg));
+    border: 1px solid var(--vscode-button-border, var(--border)); border-radius: 3px;
+    transition: background .1s, color .1s, border-color .1s;
 }
-.base-input:focus { border-color: var(--focus-bdr); outline: none; }
-.base-input[aria-invalid='true'] { border-color: #f48771; }
-/* View mode keeps the text-box chrome: a disabled input must still read as a
-   normal field, not as a faded label. Only focus/interaction is removed. */
-.base-input:disabled {
-    opacity: 1; cursor: default;
-    background: var(--input-bg); color: var(--input-fg);
-    -webkit-text-fill-color: var(--input-fg);
-    border-color: var(--input-bdr);
+.bin-base-field .base-icon-btn:hover:not(:disabled) {
+    background: var(--vscode-button-secondaryHoverBackground, var(--btn-hover));
 }
+.bin-base-field .base-icon-btn:focus-visible {
+    outline: 1px solid var(--focus-bdr); outline-offset: 1px;
+}
+.bin-base-field .base-icon-btn:disabled {
+    opacity: .5; cursor: not-allowed;
+    color: var(--vscode-disabledForeground, var(--non-graphic));
+}
+/* `[hidden]` ties with `.base-icon-btn` on specificity; this targeted rule
+   keeps the inactive Edit/Save/Cancel buttons out of the layout. */
+.bin-base-field .base-icon-btn[hidden] { display: none; }
 
 .base-field-error {
     font-size: 10px; color: #f48771; font-family: var(--font-ui);
