@@ -8,10 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Raw binary `.bin` files open as address-aware memory at a per-file base address, defaulting to `0x00000000`, with byte editing and a direct byte-for-byte Save
+- A **BASE ADDRESS** field in the profile bar edits the stored per-file base, independent of the annotation profile, and the value is reused on later opens
+- Raw binaries compare by absolute address with `.bin`, Intel HEX, or SREC files; each raw side can use a comparison-only base override that is never saved
 - `HexScope: Manage Scripts` works without an open hex document: pick a script to open it, create one from a template, or choose example, permission, folder, and reveal actions
-- Create a script from one of four templates — via `HexScope: New Script` in the Command Palette, the **＋ New** button, or the manager: the name is suggested, duplicates are refused with a clear message (never overwritten), writes require a trusted workspace, and the new script opens immediately
-- The Scripts panel gains a **＋ New** split button whose caret menu lists the four templates plus **Browse examples…** and **Add all examples**; the empty state points at **＋ New**, and empty provider pickers offer **Create … script** and **Open scripts folder**
-- Bundled example scripts with `hexscope.d.ts` IntelliSense types, installed by `HexScope: Add Example Scripts` or the New menu — **Browse examples…** installs only the checked rows, **Add all examples** installs the catalog, existing files are always skipped, and a minimal `hello.js` shows the required `run(api)` export
+- Create a script from one of four templates — via `HexScope: New Script` in the Command Palette, the **＋ Add** chooser, or the manager: the name is suggested, duplicates are refused with a clear message (never overwritten), writes require a trusted workspace, and the new script opens immediately
+- The Scripts panel's header **＋ Add** opens a chooser with the four templates, **Browse examples…**, and **Add all examples**; the empty state points at **＋ Add**, and empty provider pickers offer **Create … script** and **Open scripts folder**
+- Bundled example scripts with `hexscope.d.ts` IntelliSense types, installed by `HexScope: Add Example Scripts` or the **＋ Add** chooser — **Browse examples…** installs only the checked rows, **Add all examples** installs the catalog, existing files are always skipped, and a minimal `hello.js` shows the required `run(api)` export
 - Role scripts: declare `@script integrity`, `@script address`, or `@script size` and export typed entries (`verifyIntegrity`, `getIntegrityValue`, `getAddress`, `getSize`) that receive `api.context`
 - The Scripts panel groups scripts into collapsible **Actions** and **Providers** (Actions first): provider cards show a job chip — `Integrity check` / `Instance address` / `Array size` — and **Open** instead of a Run button that would only fail, and scripts with unrecognized exports get an inspect-exports hint instead of a failing Run
 - Script-backed integrity checks that can verify a range, provide replacement bytes, or both, with optional auto-fix and row-level errors
@@ -27,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scripts can be deleted from **HexScope: Manage Scripts** or the card menu: a modal confirm, the script's stored grants are revoked, and the list updates immediately
 
 ### Changed
+- Inspector, Integrity, Overlay, and Scripts share one **＋ Add** create control: header actions expand a collapsed section, in-form row actions stay inline, and create-mode submit labels say `Add`
+- The diff toolbar actions share one uniform size and use theme-aware button colors for clear idle, active, hover, and disabled states
 - Dangerous script calls use one inline approval with scoped choices instead of a modal prompt plus a separate Apply & Save step; approved writes commit as one undoable save, `exec` approvals are never stored, and an unanswered prompt denies after two minutes
 - Script approvals last for the workspace session instead of being re-confirmed after the file changes or the editor reopens
 - `.ts` scripts Run when the optional esbuild compiler resolves (local development) instead of being blocked for every workspace
