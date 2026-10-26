@@ -5,11 +5,11 @@ All notable changes to the Hex Scope extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.0] - 2026-10-26
 
 ### Added
 - Raw binary `.bin` files open as address-aware memory at a per-file base address, defaulting to `0x00000000`, with byte editing and a direct byte-for-byte Save
-- A **BASE ADDRESS** field in the profile bar edits the stored per-file base, independent of the annotation profile, and the value is reused on later opens
+- A **BASE ADDRESS** field in the profile bar edits the stored per-file base, independent of the annotation profile, with explicit edit, save, and cancel controls, and the value is reused on later opens
 - Raw binaries compare by absolute address with `.bin`, Intel HEX, or SREC files; each raw side can use a comparison-only base override that is never saved
 - `HexScope: Manage Scripts` works without an open hex document: pick a script to open it, create one from a template, or choose example, permission, folder, and reveal actions
 - Create a script from one of four templates — via `HexScope: New Script` in the Command Palette, the **＋ Add** chooser, or the manager: the name is suggested, duplicates are refused with a clear message (never overwritten), writes require a trusted workspace, and the new script opens immediately
@@ -24,17 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Script cards show capability and role badges, and every card opens from its name or context menu (Open / Copy path / Reveal in Explorer / Show details / Manage permissions / Delete)
 - Approved script writes commit as one undoable save and report their lifecycle in the result card — `Saving …` then `Saved … · Ctrl+Z to undo` — with a save summary (mapped range, byte count, before/after bytes) and a distinct failed-save state that says nothing was saved
 - Failed, timed-out, or cancelled runs discard their staged writes — nothing is left to save
-- Adding, editing, or deleting a script under `.hexscope/scripts/` refreshes the list automatically (250 ms debounce); manual Refresh stays
-- JavaScript-first TypeScript path: `.ts` cards add **Open setup guide** and **Create JavaScript version** (writes a `.js` sibling with a conversion header, never overwriting) when the optional esbuild compiler is unavailable
+- The script list refreshes automatically when a script under `.hexscope/scripts/` is added, edited, or deleted; manual Refresh stays
+- JavaScript-first TypeScript path: `.ts` cards add **Open setup guide** and **Create JavaScript version** (writes a `.js` sibling with a conversion header, never overwriting) when the optional TypeScript compiler is unavailable
 - The Permissions section lists every script, session, and workspace grant with per-row and bulk revoke; grants are revoked when the script changes or is deleted, and workspace grants persist across VS Code restarts
 - Scripts can be deleted from **HexScope: Manage Scripts** or the card menu: a modal confirm, the script's stored grants are revoked, and the list updates immediately
 
 ### Changed
 - Inspector, Integrity, Overlay, and Scripts share one **＋ Add** create control: header actions expand a collapsed section, in-form row actions stay inline, and create-mode submit labels say `Add`
 - The diff toolbar actions share one uniform size and use theme-aware button colors for clear idle, active, hover, and disabled states
+- Raw binary documents hide the Records view and show only binary-relevant stats
 - Dangerous script calls use one inline approval with scoped choices instead of a modal prompt plus a separate Apply & Save step; approved writes commit as one undoable save, `exec` approvals are never stored, and an unanswered prompt denies after two minutes
 - Script approvals last for the workspace session instead of being re-confirmed after the file changes or the editor reopens
-- `.ts` scripts Run when the optional esbuild compiler resolves (local development) instead of being blocked for every workspace
+- `.ts` scripts run when the optional TypeScript compiler is available instead of being blocked in every workspace
 
 ## [3.0.0] - 2026-10-19
 
