@@ -138,11 +138,11 @@ function fieldHtml(): string {
                 placeholder="${DIGITS_PLACEHOLDER}" spellcheck="false" autocomplete="off"
                 aria-label="${INPUT_ARIA_LABEL}">
         </div>
-        <button id="${EDIT_ID}" class="base-icon-btn" type="button"
+        <button id="${EDIT_ID}" class="addr-icon-btn" type="button"
             title="${EDIT_TITLE}" aria-label="${EDIT_TITLE}">&#9998;</button>
-        <button id="${SAVE_ID}" class="base-icon-btn" type="button"
+        <button id="${SAVE_ID}" class="addr-icon-btn" type="button"
             title="${SAVE_TITLE}" aria-label="${SAVE_TITLE}" hidden>&#10003;</button>
-        <button id="${CANCEL_ID}" class="base-icon-btn" type="button"
+        <button id="${CANCEL_ID}" class="addr-icon-btn" type="button"
             title="${CANCEL_TITLE}" aria-label="${CANCEL_TITLE}" hidden>&#10005;</button>
         <span id="${ERROR_ID}" class="base-field-error" role="alert" hidden></span>
     </div>`;

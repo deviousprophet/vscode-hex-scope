@@ -883,18 +883,28 @@ suite('HexScope Diff webview', () => {
         assert.ok(/\.diff-action\.active:hover\s*\{[^}]*background:\s*var\(--btn-bg\)/.test(css), 'active hover keeps the primary fill');
         assert.ok(/\.diff-action:focus-visible\s*\{[^}]*outline:\s*1px solid var\(--focus-bdr\)/.test(css), 'keyboard focus keeps a visible ring');
         assert.ok(!/\.diff-action[^{]*\{[^}]*vscode-button-secondary/.test(css), 'no secondary button-token fill remains on the actions');
-        assert.ok(/\.diff-side-base\s*\{/.test(css), 'the side-head base label is styled');
+        assert.ok(/\.diff-side-base\s*\{/.test(css), 'the read-only side-head base value is styled');
+        assert.ok(/\.diff-base-label\s*\{[^}]*text-transform:\s*uppercase/s, 'the side-head base label is uppercase');
+        assert.ok(/\.diff-base-label\s*\{[^}]*letter-spacing:/s, 'the side-head base label is tracked out');
         assert.ok(/\.diff-base-actions\s*\{/.test(css), 'the side-head base controls are styled');
-        assert.ok(/\.diff-base-editor\s*\{/.test(css), 'the inline base editor is styled');
+        assert.ok(/\.diff-base-field\s*\{[^}]*width:\s*86px[^}]*flex-shrink:\s*0/s, 'edit mode reuses the shared field at profile-bar width without shrinking');
+        assert.ok(!/\.diff-base-(btn|pfx|input)\b/.test(css), 'the text buttons and bespoke prefix/input styles are gone');
         assert.ok(/\.diff-override-flag\s*\{/.test(css), 'the override marker is styled');
+        assert.ok(/\.diff-side-head\s+\.diff-base-edit\s*\{[^}]*opacity:\s*0/s, 'the pencil starts hidden');
+        assert.ok(/\.diff-side-head:hover\s+\.diff-base-edit[^{]*\{[^}]*opacity:\s*1/s, 'hover reveals the pencil');
+        assert.ok(/\.diff-side-head:focus-within\s+\.diff-base-edit[^{]*\{[^}]*opacity:\s*1/s, 'focus-within reveals the pencil');
+        assert.ok(/@media\s*\(hover:\s*none\)\s*\{[^}]*\.diff-base-edit\s*\{[^}]*opacity:\s*1/s, 'no-hover surfaces keep the pencil visible');
         assert.ok(!/codicon|@font-face/.test(css), 'action bar stays Unicode-only (no icon font)');
         assert.ok(!css.includes('.loading-bar-fill.det'), 'the determinate loading bar override is gone (parity with the hex view)');
         const baseCss = fs.readFileSync(path.resolve(__dirname, '../../../src/webview/styles/base.css'), 'utf8');
         assert.ok(/\.loading-shell\[hidden\][^{]*\{[^}]*display:\s*none/.test(baseCss), 'loading card collapses when hidden');
         assert.ok(/\.fmt-pill\s*\{/.test(baseCss), 'shared format pill utility');
+        assert.ok(/\.addr-icon-btn\s*\{[^}]*width:\s*22px[^}]*height:\s*22px/s, 'shared 22px icon-action primitive');
+        assert.ok(/\.addr-icon-btn\s*\{[^}]*vscode-button-secondaryBackground/s, 'icon actions use the secondary tokens');
+        assert.ok(/\.addr-field\s*\{[^}]*height:\s*22px/s, 'the diff editor reuses the shared bordered address field');
     });
 
-    test('side heads render the name, the shared format pill, and a raw-binary base', () => {
+    test('side heads render the name, the shared format pill, and a read-only raw-binary base', () => {
         const html = renderSideHeadHtml('firmware.hex', 'srec');
         assert.ok(html.includes('fmt-pill'), 'uses the shared pill class');
         assert.ok(html.includes('>SREC<'), 'format label rendered');
@@ -903,26 +913,37 @@ suite('HexScope Diff webview', () => {
         assert.ok(renderSideHeadHtml('a<b.hex', 'ihex').includes('a&lt;b.hex'), 'label escaped');
         const bin = renderSideHeadHtml('firmware.bin', 'bin', 0x08000000, { side: 'a' });
         assert.ok(bin.includes('>BIN<'), 'raw binaries render the BIN pill');
-        assert.ok(bin.includes('Base 0x08000000'), 'the effective base is visible in the side head');
-        assert.ok(!renderSideHeadHtml('firmware.hex', 'ihex').includes('Base '), 'text sides show no base');
-        assert.ok(renderSideHeadHtml('firmware.bin', 'bin').includes('Base 0x00000000'), 'a missing base defaults to 0');
+        assert.ok(bin.includes('>BASE ADDRESS<'), 'the base label is uppercase');
+        assert.ok(bin.includes('>0x08000000<'), 'the effective base is visible in the side head');
+        assert.ok(bin.includes('class="diff-side-base"'), 'the base value is read-only text');
+        assert.ok(!bin.includes('addr-field'), 'view mode shows no edit box');
+        assert.ok(!renderSideHeadHtml('firmware.hex', 'ihex').includes('BASE ADDRESS'), 'text sides show no base');
+        assert.ok(renderSideHeadHtml('firmware.bin', 'bin').includes('>0x00000000<'), 'a missing base defaults to 0');
         const css = fs.readFileSync(path.resolve(__dirname, '../../../src/webview/styles/base.css'), 'utf8');
         assert.ok(/\.fmt-pill\s*\{/.test(css), '.fmt-pill lives in base.css');
     });
 
-    test('a raw side head offers Edit base; text sides offer no controls', () => {
+    test('a raw side head offers hover-revealed icon controls; text sides offer none', () => {
         const raw = renderSideHeadHtml('firmware.bin', 'bin', 0x08000000, { side: 'a' });
-        assert.ok(raw.includes('data-diff-base-action="edit"'), 'Edit base control present');
+        assert.ok(raw.includes('data-diff-base-action="edit"'), 'pencil Edit control present');
         assert.ok(raw.includes('data-side="a"'), 'side key carried on the control');
-        assert.ok(raw.includes('>Edit base</button>'), 'visible label');
-        assert.ok(!raw.includes('>Reset</button>'), 'Reset only appears once overridden');
+        assert.ok(raw.includes('&#9998;'), 'pencil glyph, no text label');
+        assert.ok(raw.includes('title="Edit base address"'), 'pencil title');
+        assert.ok(raw.includes('aria-label="Edit base address"'), 'pencil accessible label');
+        assert.ok(raw.includes('addr-icon-btn diff-base-edit'), 'pencil uses the shared icon-button class');
+        assert.ok(!/>Edit base</.test(raw), 'no text button');
+        assert.ok(!raw.includes('data-diff-base-action="reset"'), 'Reset only appears once overridden');
         assert.ok(!raw.includes('override'), 'no override marker before an override');
         const overridden = renderSideHeadHtml('firmware.bin', 'bin', 0x08000000, { side: 'b', baseOverride: true });
         assert.ok(overridden.includes('override'), 'overridden sides carry the marker');
         assert.ok(overridden.includes('data-diff-base-action="reset"'), 'Reset control present');
         assert.ok(overridden.includes('data-side="b"'), 'Reset targets the right side');
+        assert.ok(overridden.includes('&#8634;'), 'reset glyph');
+        assert.ok(overridden.includes('title="Reset base address"'), 'reset title');
+        assert.ok(overridden.includes('aria-label="Reset base address"'), 'reset accessible label');
+        assert.ok(!overridden.includes('>Reset</button>'), 'no text Reset button');
         const text = renderSideHeadHtml('firmware.hex', 'ihex', undefined, { side: 'a' });
-        assert.ok(!text.includes('Edit base'), 'text sides never show base controls');
+        assert.ok(!text.includes('BASE ADDRESS'), 'text sides never show base controls');
         assert.ok(!text.includes('data-diff-base-action'), 'text sides carry no base action attributes');
     });
 
@@ -939,15 +960,30 @@ suite('HexScope Diff webview', () => {
         assert.strictEqual(overridden.baseOverride, true, 'the comparison-only flag survives hydration');
     });
 
-    test('Edit base opens the inline editor; Apply posts a changed base and closes', () => {
+    test('the pencil opens the inline editor; check posts a changed base and closes', () => {
         const { posts } = installBaseEditorHarness(0x08000000, 16);
         beginDiffBaseEdit('a', 0x08000000);
         const input = baseInput('a');
         assert.ok(input, 'inline input rendered');
         assert.strictEqual(input!.value, '08000000', 'digits prefill without the fixed 0x prefix');
-        assert.strictEqual(document.querySelector('#diff-head-a .diff-base-pfx')?.textContent, '0x');
-        assert.ok(document.querySelector('#diff-head-a [data-diff-base-action="apply"]'), 'Apply present');
-        assert.ok(document.querySelector('#diff-head-a [data-diff-base-action="cancel"]'), 'Cancel present');
+        assert.ok(input!.classList.contains('addr-input'), 'the digits input is the shared primitive');
+        assert.strictEqual(input!.dataset.diffBaseInput, 'a', 'the delegated input handler can identify the side');
+        const field = document.querySelector('#diff-head-a .addr-field');
+        assert.ok(field, 'edit mode reuses the shared bordered address field');
+        assert.ok(field!.classList.contains('diff-base-field'), 'the shared field is sized for the side head');
+        assert.strictEqual(document.querySelector('#diff-head-a .diff-base-label')?.textContent, 'BASE ADDRESS');
+        assert.strictEqual(document.querySelector('#diff-head-a .addr-pfx')?.textContent, '0x');
+        const apply = document.querySelector('#diff-head-a [data-diff-base-action="apply"]') as HTMLButtonElement;
+        const cancel = document.querySelector('#diff-head-a [data-diff-base-action="cancel"]') as HTMLButtonElement;
+        assert.ok(apply, 'check action present');
+        assert.ok(cancel, 'X action present');
+        assert.strictEqual(apply.textContent, '\u2713', 'check glyph, no text label');
+        assert.strictEqual(apply.getAttribute('aria-label'), 'Apply base address');
+        assert.strictEqual(cancel.textContent, '\u2715', 'X glyph, no text label');
+        assert.strictEqual(cancel.title, 'Cancel base address');
+        assert.ok(apply.classList.contains('addr-icon-btn'), 'check uses the shared icon-button class');
+        assert.ok(cancel.classList.contains('addr-icon-btn'), 'X uses the shared icon-button class');
+        assert.strictEqual(document.querySelector('#diff-head-a .diff-base-btn'), null, 'no text buttons remain');
 
         updateDiffBaseDraft('0x2000');
         assert.strictEqual(input!.value, '2000', 'a typed 0x prefix is stripped so it cannot consume digit slots');
@@ -1014,7 +1050,11 @@ suite('HexScope Diff webview', () => {
         const harness = installBaseEditorHarness(0x08000000, 16);
         harness.render('a', 0x08000000, true);
         assert.ok(document.querySelector('#diff-head-a .diff-override-flag'), 'overridden side marks it');
-        assert.ok(document.querySelector('#diff-head-a [data-diff-base-action="reset"]'), 'Reset offered');
+        const reset = document.querySelector('#diff-head-a [data-diff-base-action="reset"]') as HTMLButtonElement;
+        assert.ok(reset, 'Reset offered');
+        assert.strictEqual(reset.textContent, '\u21BA', 'reset glyph, no text label');
+        assert.strictEqual(reset.getAttribute('aria-label'), 'Reset base address');
+        assert.ok(reset.classList.contains('addr-icon-btn'), 'Reset uses the shared icon-button class');
         assert.strictEqual(document.querySelector('#diff-head-b .diff-override-flag'), null, 'other side stays plain');
         handleDiffBaseAction('reset', 'a', 0x08000000);
         assert.deepStrictEqual(harness.posts, [{ type: 'resetDiffBaseAddress', path: '/files/fw-a.bin' }]);

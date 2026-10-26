@@ -161,37 +161,45 @@ export function renderSideHeadHtml(
     return format === 'bin' ? head + renderRawSideHead(baseAddress ?? 0, options) : head;
 }
 
+const BASE_LABEL = ` <span class="diff-base-label">BASE ADDRESS</span>`;
+const BASE_OVERRIDE_FLAG = ` <span class="diff-override-flag" title="Base overridden for this comparison only">override</span>`;
+
 function renderRawSideHead(baseAddress: number, options: SideHeadRenderOptions): string {
-    const parts = [` <span class="diff-side-base">Base ${esc(formatBinBaseAddress(baseAddress))}</span>`];
-    if (options.baseOverride) {
-        parts.push(` <span class="diff-override-flag" title="Base overridden for this comparison only">override</span>`);
+    // Edit mode mirrors the profile-bar field: uppercase label + the shared
+    // bordered address box + check/X icon actions.
+    if (options.side && options.baseEditor) {
+        return BASE_LABEL + renderBaseEditor(options.side, options.baseEditor);
     }
-    if (!options.side) { return parts.join(''); }
-    parts.push(options.baseEditor
-        ? renderBaseEditor(options.side, options.baseEditor)
-        : renderBaseActions(options.side, !!options.baseOverride));
-    return parts.join('');
+    return renderBaseView(baseAddress, options);
+}
+
+function renderBaseView(baseAddress: number, options: SideHeadRenderOptions): string {
+    const head = BASE_LABEL +
+        ` <span class="diff-side-base">${esc(formatBinBaseAddress(baseAddress))}</span>` +
+        (options.baseOverride ? BASE_OVERRIDE_FLAG : '');
+    if (!options.side) { return head; }
+    return head + renderBaseActions(options.side, !!options.baseOverride);
 }
 
 function renderBaseActions(side: 'a' | 'b', overridden: boolean): string {
-    const buttons = [baseButton('edit', side, 'Edit base', 'Edit the comparison-only base address')];
+    const buttons = [baseIconButton('edit', side, '&#9998;', 'Edit base address', 'diff-base-edit')];
     if (overridden) {
-        buttons.push(baseButton('reset', side, 'Reset', 'Reset to the stored per-file base'));
+        buttons.push(baseIconButton('reset', side, '&#8634;', 'Reset base address', 'diff-base-reset'));
     }
     return ` <span class="diff-base-actions">${buttons.join('')}</span>`;
 }
 
 function renderBaseEditor(side: 'a' | 'b', editor: DiffBaseEditorView): string {
     const invalid = editor.error !== null ? ' aria-invalid="true"' : '';
-    return ` <span class="diff-base-editor">` +
-        `<span class="diff-base-pfx" aria-hidden="true">0x</span>` +
-        `<input id="diff-base-input-${side}" class="diff-base-input" type="text" maxlength="8" ` +
-        `value="${esc(editor.draft)}" spellcheck="false" autocomplete="off"${invalid} ` +
+    return ` <span class="addr-field diff-base-field">` +
+        `<span class="addr-pfx" aria-hidden="true">0x</span>` +
+        `<input id="diff-base-input-${side}" class="addr-input" data-diff-base-input="${side}" ` +
+        `type="text" maxlength="8" value="${esc(editor.draft)}" spellcheck="false" autocomplete="off"${invalid} ` +
         `aria-label="Raw binary base address, hexadecimal digits (0x prefix is fixed)">` +
-        baseButton('apply', side, 'Apply', 'Apply this base to the comparison') +
-        baseButton('cancel', side, 'Cancel', 'Cancel the base change') +
-        renderBaseError(side, editor.error) +
-        `</span>`;
+        `</span>` +
+        baseIconButton('apply', side, '&#10003;', 'Apply base address', 'diff-base-apply') +
+        baseIconButton('cancel', side, '&#10005;', 'Cancel base address', 'diff-base-cancel') +
+        renderBaseError(side, editor.error);
 }
 
 function renderBaseError(side: 'a' | 'b', error: string | null): string {
@@ -200,7 +208,13 @@ function renderBaseError(side: 'a' | 'b', error: string | null): string {
         : `<span id="diff-base-error-${side}" class="diff-base-error" role="alert">${esc(error)}</span>`;
 }
 
-function baseButton(action: string, side: 'a' | 'b', text: string, title: string): string {
-    return `<button type="button" class="diff-base-btn" data-diff-base-action="${action}" ` +
-        `data-side="${side}" title="${title}">${text}</button>`;
+function baseIconButton(
+    action: string,
+    side: 'a' | 'b',
+    glyph: string,
+    label: string,
+    className: string,
+): string {
+    return `<button type="button" class="addr-icon-btn ${className}" data-diff-base-action="${action}" ` +
+        `data-side="${side}" title="${label}" aria-label="${label}">${glyph}</button>`;
 }

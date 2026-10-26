@@ -12,10 +12,18 @@
     font-family: var(--font-ui); font-size: 11px; font-weight: 700; color: var(--addr-active-fg);
 }
 .diff-side-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Uppercase BASE ADDRESS, matching the profile-bar field label. */
+.diff-base-label {
+    flex-shrink: 0;
+    font-family: var(--font-ui); font-size: 10px; font-weight: 400;
+    letter-spacing: .04em; text-transform: uppercase;
+    color: var(--addr-fg); line-height: 1;
+}
+/* Read-only `0x%08X` value in view mode; edit mode swaps in `.addr-field`. */
 .diff-side-base {
     flex-shrink: 0;
     font-family: var(--font-editor); font-size: 10px; font-weight: 400;
-    color: var(--addr-fg);
+    color: var(--addr-fg); line-height: 1;
 }
 /* `override` marks a comparison-only base; it is never written to `.hexscope`. */
 .diff-override-flag {
@@ -24,33 +32,29 @@
     color: var(--warn); border: 1px solid var(--warn); border-radius: 3px; padding: 0 4px;
 }
 .diff-base-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.diff-base-editor { display: flex; align-items: center; gap: 4px; flex-shrink: 0; min-width: 0; }
-.diff-base-btn {
-    height: 20px; padding: 0 6px; box-sizing: border-box;
-    font-family: var(--font-ui); font-size: 10px; line-height: 1; cursor: pointer;
-    background: var(--vscode-button-secondaryBackground, var(--input-bg));
-    color: var(--vscode-button-secondaryForeground, var(--fg));
-    border: 1px solid var(--vscode-button-border, var(--border)); border-radius: 3px;
-}
-.diff-base-btn:hover { background: var(--vscode-button-secondaryHoverBackground, var(--btn-hover)); }
-.diff-base-btn:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: 1px; }
-.diff-base-pfx {
-    flex-shrink: 0; user-select: none;
-    font-family: var(--font-editor); font-size: 10px; color: var(--addr-fg); line-height: 1;
-}
-.diff-base-input {
-    box-sizing: border-box; width: 72px; height: 20px; padding: 0 4px;
-    font-family: var(--font-editor); font-size: 10px;
-    background: var(--input-bg); color: var(--input-fg);
-    border: 1px solid var(--input-bdr); border-radius: 3px;
-}
-.diff-base-input:focus { border-color: var(--focus-bdr); outline: none; }
-.diff-base-input[aria-invalid='true'] { border-color: #f48771; }
+/* Edit mode reuses the shared `.addr-field` (border/prefix/digits) and
+   `.addr-icon-btn` actions from styles/base.css at the profile-bar width.
+   Non-shrinking so a long file name truncates before the controls. */
+.diff-base-field { width: 86px; flex-shrink: 0; font-weight: 400; }
 .diff-base-error {
     min-width: 0; overflow: hidden; text-overflow: ellipsis;
     font-family: var(--font-ui); font-size: 9px; color: #f48771;
 }
 .diff-base-error[hidden] { display: none; }
+
+/* Pencil Edit mirrors the sidebar `.act-btn` and the profile-bar field:
+   hidden until the side head is hovered or focused, always visible on
+   touch/no-hover surfaces. Check/X/Reset are never faded. */
+.diff-side-head .diff-base-edit {
+    opacity: 0;
+    transition: opacity .1s, background .1s, color .1s, border-color .1s;
+}
+.diff-side-head:hover .diff-base-edit,
+.diff-side-head:focus-within .diff-base-edit,
+.diff-side-head .diff-base-edit:focus-visible { opacity: 1; }
+@media (hover: none) {
+    .diff-side-head .diff-base-edit { opacity: 1; }
+}
 .diff-grid-root { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 .diff-empty { padding: 30px 20px; color: var(--non-graphic); font-size: 12px; }

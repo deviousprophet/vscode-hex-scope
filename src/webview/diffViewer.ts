@@ -98,8 +98,13 @@ function sideData(side: 'a' | 'b'): DiffSideData | null {
 
 function onSideHeadInput(event: Event): void {
     const input = event.target as HTMLInputElement | null;
-    if (!input?.classList.contains('diff-base-input')) { return; }
+    if (!isBaseEditorInput(input)) { return; }
     updateDiffBaseDraft(input.value);
+}
+
+/** The shared `.addr-input` inside a side head carries the editor side marker. */
+function isBaseEditorInput(input: HTMLInputElement | null): input is HTMLInputElement {
+    return !!input?.dataset.diffBaseInput;
 }
 
 function onSideHeadKeydown(event: KeyboardEvent): void {
@@ -108,7 +113,7 @@ function onSideHeadKeydown(event: KeyboardEvent): void {
 
 function onSideHeadPaste(event: ClipboardEvent): void {
     const input = event.target as HTMLInputElement | null;
-    if (!input?.classList.contains('diff-base-input')) { return; }
+    if (!isBaseEditorInput(input)) { return; }
     const text = (event.clipboardData?.getData('text') ?? '').trim();
     if (!text) { return; }
     event.preventDefault();

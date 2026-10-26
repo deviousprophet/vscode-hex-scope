@@ -1,11 +1,12 @@
 // ── Diff raw-binary base editor (comparison-only) ──────────────────
-// The raw side head exposes `Edit base`; editing shows a fixed `0x` prefix,
-// an eight-digit input, and Apply/Cancel. A valid Apply posts
-// `setDiffBaseAddress` targeting the *displayed side's file path* to the host,
-// which re-reads/re-parses only that side and reposts `diffBaseChanged`; Reset
-// posts `resetDiffBaseAddress` for the same path. Path identity (not the pane
-// key) keeps a swap safe. Nothing here persists: the override lives only in the
-// open comparison panel.
+// The raw side head exposes a hover/focus-revealed pencil; editing shows the
+// shared bordered `.addr-field` (fixed `0x` prefix + eight digits) with check
+// (Apply) / X (Cancel) icon actions. A valid Apply posts `setDiffBaseAddress`
+// targeting the *displayed side's file path* to the host, which re-reads/
+// re-parses only that side and reposts `diffBaseChanged`; Reset (an icon shown
+// when overridden) posts `resetDiffBaseAddress` for the same path. Path identity
+// (not the pane key) keeps a swap safe. Nothing here persists: the override
+// lives only in the open comparison panel.
 
 import type { DiffSideKey, DiffWebviewToProvider } from '../../diffProtocol';
 import { formatBinBaseAddress, parseBinBaseAddress } from '../../core/parser/binImage';
@@ -60,7 +61,7 @@ export function diffBaseEditorOptions(side: DiffSideKey, baseOverride = false): 
     return { side, baseOverride, baseEditor: editor };
 }
 
-/** `Edit base`: prefill the effective base, reveal the editor, and focus/select the digits. */
+/** Pencil Edit: prefill the effective base, reveal the editor, and focus/select the digits. */
 export function beginDiffBaseEdit(side: DiffSideKey, baseAddress: number): void {
     editing = { side, draft: digits(baseAddress), baseAddress, error: null };
     host.rerender();

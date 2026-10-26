@@ -190,6 +190,9 @@ suite('webview raw-binary base field', () => {
         assert.strictEqual(cancelButton().textContent, '\u2715', 'X glyph, no text label');
         assert.strictEqual(cancelButton().title, 'Cancel base address');
         assert.strictEqual(cancelButton().getAttribute('aria-label'), 'Cancel base address');
+        for (const button of [editButton(), saveButton(), cancelButton()]) {
+            assert.ok(button.classList.contains('addr-icon-btn'), 'actions use the shared icon-button primitive');
+        }
     });
 
     test('stays hidden for text formats and when no document is loaded', () => {
@@ -637,11 +640,12 @@ suite('webview raw-binary base field', () => {
         assert.doesNotMatch(binCss, /text-transform:\s*none/, 'the base label inherits the uppercase profile-label');
         assert.match(toolbarCss, /\.profile-label\s*\{[^}]*text-transform:\s*uppercase/s);
 
-        // Square icon-only actions on the secondary button tokens.
-        assert.match(binCss, /\.base-icon-btn\s*\{[^}]*width:\s*22px[^}]*height:\s*22px/s);
-        assert.match(binCss, /\.base-icon-btn\s*\{[^}]*vscode-button-secondaryBackground/s);
-        assert.match(binCss, /\.base-icon-btn\[hidden\]\s*\{\s*display:\s*none/s, 'hidden icon actions stay out of the layout');
-        assert.match(binCss, /\.base-icon-btn:disabled\s*\{[^}]*vscode-disabledForeground/s);
+        // Square icon-only actions live in the shared `.addr-icon-btn` primitive.
+        assert.match(baseCss, /\.addr-icon-btn\s*\{[^}]*width:\s*22px[^}]*height:\s*22px/s);
+        assert.match(baseCss, /\.addr-icon-btn\s*\{[^}]*vscode-button-secondaryBackground/s);
+        assert.match(baseCss, /\.addr-icon-btn\[hidden\]\s*\{\s*display:\s*none/s, 'hidden icon actions stay out of the layout');
+        assert.match(baseCss, /\.addr-icon-btn:disabled\s*\{[^}]*vscode-disabledForeground/s);
+        assert.doesNotMatch(binCss, /\.base-icon-btn/, 'the field no longer owns a local icon-button class');
 
         // Thicker separator for both profile/Base Address and tabs/ASCII.
         assert.match(toolbarCss, /\.tb-sep\s*\{[^}]*width:\s*2px/s);
