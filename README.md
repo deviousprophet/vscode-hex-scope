@@ -11,11 +11,14 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX, Motorola SREC, 
 
 ## What it does
 
-Hex Scope turns a firmware image into an address-aware hex grid. Gaps between mapped regions stay visible, and edits are applied by absolute address, so the same workflow works for Intel HEX, Motorola SREC, and raw `.bin` files. HEX/SREC files also get a Records view with per-record checksum status.
-
-Select bytes to read them as scalar values or as a C-style type you define, with arrays, nested types, pointers, and bit fields. Search finds a byte sequence, a numeric value in either endianness, an ASCII string, or an address. Integrity checks compute CRC-16/32, MD5, or SHA-1/256/512 over a range and compare the result with the value stored in the image, highlighting mismatches and staging fixes.
-
-Edits are undoable. Save rewrites the affected records and their checksums for HEX/SREC, while a raw binary is written byte-for-byte; Quick Repair fixes broken record checksums, and the read-only diff compares two images by address. Repetitive work can be scripted with TypeScript or JavaScript in `.hexscope/scripts/` for reading and writing bytes, computing hashes, running external tools, or calling HTTP endpoints, with confirmation for writes and external actions. See the [scripting guide](docs/SCRIPTING.md).
+| Capability | What you get |
+|---|---|
+| Open | Intel HEX, Motorola SREC, and raw binary as address-aware memory, with gaps between mapped regions. HEX/SREC also get a records table with per-record checksum status. |
+| Inspect | Selected bytes as integers or as C types with arrays, nested types, pointers, and bit fields. |
+| Search | Byte sequences, numeric values in either endianness, ASCII text, or addresses. |
+| Check | CRC-16/32, MD5, or SHA-1/256/512 over a range, compared with the value stored in the image; mismatches can be staged as fixes. |
+| Edit | Undoable byte edits, checksum-aware Save for HEX/SREC, byte-for-byte Save for raw binaries, Quick Repair, copy/export, and a read-only two-file diff. |
+| Automate | TypeScript or JavaScript in `.hexscope/scripts/` for reads, writes, hashes, external tools, and HTTP, with confirmation for writes and external actions. See the [scripting guide](docs/SCRIPTING.md). |
 
 ## Quick start
 
