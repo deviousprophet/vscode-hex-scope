@@ -1504,7 +1504,7 @@ function handleActivateScriptsTabMessage(_msg: WebviewMessageByType<'activateScr
     scriptsPanel.setTabActive(true);
 }
 
-/** Palette/base-stat entry: focus the profile-bar field (refuse with a toast when guarded). */
+/** Palette entry: enter edit mode on the profile-bar field (refuse with a toast when guarded). */
 function handleFocusBinBaseAddressMessage(_msg: WebviewMessageByType<'focusBinBaseAddress'>): void {
     focusBaseField();
 }
@@ -1838,13 +1838,13 @@ function renderLoadError(message: string): void {
 }
 
 function renderStatsBar(): void {
-    renderStats(S.parseResult, focusBaseField);
+    renderStats(S.parseResult);
 }
 
 /**
- * One guard for both the Base stat and the `Set Raw Binary Base Address`
- * command: text documents, unsaved edits, and an unresolved external change
- * refuse with a toast; only a clean raw document focuses the field.
+ * `Set Raw Binary Base Address` / `focusBinBaseAddress` entry: text documents,
+ * unsaved edits, and an unresolved external change refuse with a toast; only a
+ * clean raw document enters edit mode on the field.
  */
 function focusBaseField(): void {
     const refusal = binBaseField.focus();

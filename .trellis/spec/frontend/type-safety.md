@@ -7,7 +7,7 @@
 - `src/core/parser/binImage.ts`: raw-image base-address parsing/validation (`isValidBinBaseAddress`, `binAddressRangeFits`), formatting, parse-result construction (including the optional `baseAddress` carried through compact/wire serialization), and edit application/revert.
 - `src/core/types.ts`: hydrated webview records/segments, `WireParseResult` binary boundary types, labels, search, memory rows, and overlay types.
 - `src/webviewProtocol.ts`: exhaustive cross-runtime message unions (single-file editor), including the base-field pair (`focusBinBaseAddress` host→webview, `setBinBaseAddress { value }` webview→host).
-- `src/webview/baseAddressChange.ts`: `baseAddressChangeRefusal(state)` (toast text or null) and `baseAddressFieldState(state)` (visible/disabled/tooltip) — the shared webview guards used by the field and the Base stat/command focus path.
+- `src/webview/baseAddressChange.ts`: `baseAddressChangeRefusal(state)` (toast text or null) and `baseAddressFieldState(state)` (visible/disabled/tooltip) — the shared webview guards used by the field Edit button and the command focus path.
 - `src/hexScopeStorage.ts`: `BinBase` / `BindingTable` (the `bindings.json` payload: profile bindings plus per-file raw-binary bases).
 - `src/diffProtocol.ts`: the diff panel's own host↔webview union + `diffMessageType`/`diffCopyText` parsers.
 - Feature core modules own feature-specific unions/results: `IntegrityValidation<T>`, `SearchMode`, `PointerDerefTarget`, and overlay parse results.

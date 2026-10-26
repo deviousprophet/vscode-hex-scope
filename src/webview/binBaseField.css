@@ -4,9 +4,44 @@
     flex-shrink: 0; white-space: nowrap;
 }
 .bin-base-field[hidden] { display: none; }
+/* `[hidden]` must beat the shared `.sb-btn` display for Save/Cancel. */
+.bin-base-field [hidden] { display: none; }
+
+/* This label reads as prose ("Base Address"), unlike the uppercase
+   `.profile-label` used by the profile picker. */
+.bin-base-field .profile-label { text-transform: none; }
+
+/* View mode: read-only 0x%08X value. */
+.base-value {
+    font-family: var(--font-editor); font-size: 11px; font-weight: 600;
+    color: var(--fg); line-height: 1;
+}
+
+/* Compact Edit / Save / Cancel actions; ride the shared `.sb-btn` primitive
+   with profile-bar sizing only. */
+.bin-base-field .base-btn {
+    height: 22px; padding: 0 8px;
+    font-size: 10px; line-height: 1;
+}
+
+.base-input-wrap {
+    display: flex; align-items: center;
+}
+.base-input-wrap[hidden] { display: none; }
+
+/* Fixed `0x` chrome — local copy of the Integrity panel's address prefix
+   (`integrity-addr-pfx`) so both fields read the same. */
+.base-addr-pfx {
+    flex-shrink: 0;
+    font-family: var(--font-editor); font-size: 11px;
+    color: var(--addr-fg); line-height: 1;
+    padding: 2px 0 2px 2px;
+    user-select: none;
+}
 
 .base-input {
-    width: 92px; height: 22px;
+    box-sizing: border-box;
+    width: 68px; height: 22px;
     font-family: var(--font-editor); font-size: 11px;
     background: var(--input-bg); color: var(--input-fg);
     border: 1px solid var(--input-bdr); border-radius: 3px;

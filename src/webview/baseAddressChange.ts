@@ -21,7 +21,7 @@ export interface BaseAddressFieldState {
 
 /**
  * Toast message when the base-address change request must be refused, or null
- * when the webview may focus the field. Shared by the Base stat and the
+ * when the webview may focus the field. Shared by the field Edit button and the
  * `Set Raw Binary Base Address` command handler.
  */
 export function baseAddressChangeRefusal(state: BaseAddressChangeState): string | null {

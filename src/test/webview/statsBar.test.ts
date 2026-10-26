@@ -51,46 +51,39 @@ suite('webview stats bar', () => {
         if (currentDom) { cleanupDom(currentDom); currentDom = null; }
     });
 
-    test('raw binaries show BIN, base, bytes, and segments without a record count', () => {
+    test('raw binaries show BIN, bytes, and segments without a record count', () => {
         currentDom = installDom();
         renderStats(parseResult('bin', 1024));
-        assert.deepStrictEqual(stats(currentDom), ['BIN', 'Base=0x08000000', 'Bytes=1.0 KB', 'Segments=1']);
+        assert.deepStrictEqual(stats(currentDom), ['BIN', 'Bytes=1.0 KB', 'Segments=1']);
     });
 
-    test('the raw-binary Base value is a focus button wired to the callback', () => {
+    test('raw binaries never show a base address in the stats bar', () => {
         currentDom = installDom();
-        let clicks = 0;
-        renderStats(parseResult('bin', 16), () => { clicks += 1; });
+        const result = parseResult('bin', 16);
+        result.baseAddress = 0x08000000;
+        renderStats(result);
 
-        const button = currentDom.window.document.getElementById('stats-base-change');
-        assert.ok(button, 'the Base value is an actionable control');
-        assert.strictEqual(button.tagName, 'BUTTON');
-        assert.strictEqual(button.getAttribute('type'), 'button');
-        assert.strictEqual(button.className, 'svl base-change');
-        assert.strictEqual(button.textContent, '0x08000000');
-        assert.strictEqual(button.title, 'Edit raw binary base address', 'the stat focuses the profile-bar field');
-        assert.strictEqual(button.getAttribute('aria-label'), 'Edit raw binary base address (currently 0x08000000)');
-        button.dispatchEvent(new currentDom.window.MouseEvent('click', { bubbles: true }));
-        assert.strictEqual(clicks, 1);
-        assert.deepStrictEqual(stats(currentDom), ['BIN', 'Base=0x08000000', 'Bytes=16 B', 'Segments=1']);
+        assert.deepStrictEqual(stats(currentDom), ['BIN', 'Bytes=16 B', 'Segments=1']);
+        assert.strictEqual(currentDom.window.document.getElementById('stats-base-change'), null);
+        assert.strictEqual(currentDom.window.document.querySelector('.base-change'), null);
     });
 
     test('text formats render no base-change button', () => {
         currentDom = installDom();
-        renderStats(parseResult('ihex', 8), () => {});
+        renderStats(parseResult('ihex', 8));
 
         assert.strictEqual(currentDom.window.document.getElementById('stats-base-change'), null);
         assert.deepStrictEqual(stats(currentDom), ['IHEX', 'Bytes=8 B', 'Records=7', 'Segments=1']);
     });
 
-    test('an empty raw image reports its chosen base and zero segments', () => {
+    test('an empty raw image reports zero bytes and zero segments', () => {
         currentDom = installDom();
         const empty: SerializedParseResult = {
             records: [], recordCount: 0, segments: [], totalDataBytes: 0,
             checksumErrors: 0, malformedLines: 0, baseAddress: 0x1000, format: 'bin',
         };
         renderStats(empty);
-        assert.deepStrictEqual(stats(currentDom), ['BIN', 'Base=0x00001000', 'Bytes=0 B', 'Segments=0']);
+        assert.deepStrictEqual(stats(currentDom), ['BIN', 'Bytes=0 B', 'Segments=0']);
     });
 
     test('text formats keep the record count in the stats bar', () => {
