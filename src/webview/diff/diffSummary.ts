@@ -35,12 +35,13 @@ export function renderDiffSummaryHtml(
         actionButton('diff-show-diff', '≠', 'Show diff', 'Show differences only', viewMode === 'diff') +
         actionButton('diff-prev', '▲', 'Prev diff', 'Previous difference') +
         actionButton('diff-next', '▼', 'Next diff', 'Next difference') +
+        actionButton('diff-sync', '⇅', 'Sync scroll', 'Sync scroll', syncScroll) +
         `</div>` +
         `<div class="diff-tb-center">${actionButton('diff-swap', '⇄', 'Swap sides', 'Swap sides')}</div>` +
         `<div class="diff-tb-right"><div class="diff-search-slot" id="diff-search"></div></div>` +
         `</div>` +
         `<div class="diff-tb-row">` +
-        `<div class="diff-tb-left">${actionButton('diff-sync', '⇅', 'Sync scroll', 'Sync scroll', syncScroll)}</div>` +
+        `<div class="diff-tb-left"></div>` +
         `<div class="diff-tb-center diff-stat">${renderDiffStat(diff)}</div>` +
         `<div class="diff-tb-right"></div>` +
         `</div>`;

@@ -23,34 +23,39 @@
 .diff-count-add { color: var(--ok); }
 .diff-count-del { color: var(--err); }
 
-/* Uniform action buttons. Color contract: secondary button tokens for the idle
-   state, secondary-hover on hover, primary button tokens for the active toggle,
-   the focus ring for keyboard focus, and the disabled foreground for disabled
-   actions. Fallbacks keep the same contrast outside a VS Code theme. */
+/* Uniform action buttons matching the hex-view toolbar ghost controls:
+   transparent idle with a subdued border, brighter border + foreground on
+   hover, filled primary tokens for the active toggle, and a faded disabled
+   state. All six share one fixed width so the group stays uniform. */
 .diff-action {
-    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-    flex: 0 0 96px; width: 96px; height: 26px; padding: 0 6px; box-sizing: border-box;
-    background: var(--vscode-button-secondaryBackground, var(--input-bg));
-    color: var(--vscode-button-secondaryForeground, var(--fg));
-    border: 1px solid var(--vscode-button-border, var(--border)); border-radius: 3px;
-    font-size: 14px; line-height: 1; font-family: var(--font-ui); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+    flex: 0 0 84px; width: 84px; height: 22px; padding: 0 6px; box-sizing: border-box;
+    background: transparent;
+    color: var(--addr-fg);
+    border: 1px solid var(--border); border-radius: 3px;
+    font-size: 10px; line-height: 1; font-family: var(--font-ui); cursor: pointer;
+    transition: color .1s, border-color .1s, background .1s;
 }
-.diff-action-glyph { font-size: 14px; line-height: 1; }
-.diff-action-text { font-size: 10px; white-space: nowrap; }
+.diff-action-glyph { font-size: 12px; line-height: 1; }
+.diff-action-text { font-size: 10px; line-height: 1; white-space: nowrap; }
 .diff-action:hover:not(:disabled) {
-    background: var(--vscode-button-secondaryHoverBackground, var(--btn-hover));
-    color: var(--vscode-button-secondaryForeground, var(--fg));
+    background: transparent;
+    color: var(--fg);
+    border-color: rgba(255,255,255,.35);
 }
 .diff-action:focus-visible { outline: 1px solid var(--focus-bdr); outline-offset: 1px; }
 .diff-action.active {
-    background: var(--vscode-button-background, var(--btn-bg));
-    color: var(--vscode-button-foreground, var(--btn-fg));
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    border-color: transparent;
+}
+.diff-action.active:hover {
+    background: var(--btn-bg);
+    color: var(--btn-fg);
     border-color: transparent;
 }
 .diff-action:disabled {
-    background: var(--vscode-button-secondaryBackground, var(--input-bg));
-    color: var(--vscode-disabledForeground, var(--non-graphic));
-    cursor: default; opacity: .6;
+    opacity: .35; cursor: default;
 }
 
 .diff-error { flex: 1; display: grid; place-items: center; padding: 24px; }

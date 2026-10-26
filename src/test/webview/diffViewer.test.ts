@@ -377,16 +377,16 @@ suite('HexScope Diff webview', () => {
         assert.ok(text.includes('1 removed'), `removed count in "${text}"`);
         const actions = [...document.querySelectorAll<HTMLButtonElement>('#diff-summary .diff-action')];
         assert.deepStrictEqual(actions.map(button => button.id), [
-            'diff-show-all', 'diff-show-diff', 'diff-prev', 'diff-next', 'diff-swap', 'diff-sync',
+            'diff-show-all', 'diff-show-diff', 'diff-prev', 'diff-next', 'diff-sync', 'diff-swap',
         ]);
         assert.deepStrictEqual(
             actions.map(button => button.querySelector('.diff-action-glyph')?.textContent),
-            ['≡', '≠', '▲', '▼', '⇄', '⇅'],
+            ['≡', '≠', '▲', '▼', '⇅', '⇄'],
             'each action keeps its Unicode glyph',
         );
         assert.deepStrictEqual(
             actions.map(button => button.querySelector('.diff-action-text')?.textContent),
-            ['Show all', 'Show diff', 'Prev diff', 'Next diff', 'Swap sides', 'Sync scroll'],
+            ['Show all', 'Show diff', 'Prev diff', 'Next diff', 'Sync scroll', 'Swap sides'],
             'each action shows a visible text label',
         );
         assert.ok(
@@ -413,13 +413,13 @@ suite('HexScope Diff webview', () => {
         const [rowOne, rowTwo] = toolbarRows;
         assert.deepStrictEqual(
             [...rowOne.querySelectorAll('.diff-tb-left .diff-action')].map(b => b.id),
-            ['diff-show-all', 'diff-show-diff', 'diff-prev', 'diff-next'],
-            'row 1 left holds the mode toggle then prev/next',
+            ['diff-show-all', 'diff-show-diff', 'diff-prev', 'diff-next', 'diff-sync'],
+            'row 1 left holds the mode toggle, prev/next, then sync',
         );
         assert.strictEqual(rowOne.querySelector('.diff-tb-center .diff-action')?.id, 'diff-swap', 'swap sits on the split');
         assert.ok(rowOne.querySelector('.diff-tb-right #diff-search #search-input'), 'search bar sits in row 1 right');
         assert.strictEqual(rowOne.querySelector('.diff-stat'), null, 'row 1 carries no diff stat');
-        assert.strictEqual(rowTwo.querySelector('.diff-tb-left .diff-action')?.id, 'diff-sync', 'sync sits in row 2 left');
+        assert.strictEqual(rowTwo.querySelector('.diff-action'), null, 'row 2 carries no action buttons');
         assert.ok(rowTwo.querySelector('.diff-tb-center.diff-stat'), 'diff stat is centered on row 2');
         assert.ok(rowTwo.querySelector('.diff-stat')!.textContent!.includes('1 changed'), 'row 2 stat carries the counts');
     });
@@ -867,16 +867,22 @@ suite('HexScope Diff webview', () => {
         assert.ok(/\.diff-root\[hidden\][^{]*\{[^}]*display:\s*none/.test(css), 'diff root collapses while the loading card shows');
         assert.ok(/\.diff-tb-row\s*\{[^}]*grid-template-columns:\s*1fr auto 1fr/.test(css), 'toolbar rows keep the left/center/right slots');
         assert.ok(/\.diff-tb-row\s*\{[^}]*overflow-x:\s*auto/.test(css), 'a narrow split scrolls the action row rather than wrapping');
-        assert.ok(/\.diff-action\s*\{[^}]*height:\s*26px/.test(css), 'action buttons keep a comfortable 26px height');
-        assert.ok(/\.diff-action\s*\{[^}]*width:\s*96px/.test(css), 'all six actions share one fixed 96px width');
+        assert.ok(/\.diff-action\s*\{[^}]*height:\s*22px/.test(css), 'action buttons match the compact 22px toolbar height');
+        assert.ok(/\.diff-action\s*\{[^}]*width:\s*84px/.test(css), 'all six actions share one fixed 84px width');
         assert.ok(/\.diff-action\s*\{[^}]*padding:\s*0 6px/.test(css), 'uniform action padding');
-        assert.ok(!/\.diff-action\s*\{[^}]*width:\s*26px/.test(css), 'action buttons no longer square icon-only buttons');
-        assert.ok(/\.diff-action\s*\{[^}]*vscode-button-secondaryBackground/.test(css), 'idle actions use the secondary button fill');
-        assert.ok(/\.diff-action:hover:not\(:disabled\)\s*\{[^}]*vscode-button-secondaryHoverBackground/.test(css), 'hover uses the secondary hover fill');
-        assert.ok(/\.diff-action\.active\s*\{[^}]*vscode-button-background/.test(css), 'the active toggle uses the primary button fill');
-        assert.ok(/\.diff-action:disabled\s*\{[^}]*vscode-disabledForeground/.test(css), 'disabled actions use the disabled foreground');
-        assert.ok(/\.diff-action-glyph\s*\{/.test(css), 'the glyph span is styled');
-        assert.ok(/\.diff-action-text\s*\{/.test(css), 'the visible text span is styled');
+        assert.ok(/\.diff-action\s*\{[^}]*background:\s*transparent/.test(css), 'idle actions are ghost controls');
+        assert.ok(/\.diff-action:hover:not\(:disabled\)\s*\{[^}]*color:\s*var\(--fg\)/.test(css), 'hover brightens the ghost foreground');
+        assert.ok(/\.diff-action\.active\s*\{[^}]*background:\s*var\(--btn-bg\)/.test(css), 'the active toggle uses the primary fill');
+        assert.ok(/\.diff-action:disabled\s*\{[^}]*opacity:\s*\.35/.test(css), 'disabled actions fade to .35');
+        assert.ok(/\.diff-action-glyph\s*\{[^}]*font-size:\s*12px/.test(css), 'the glyph span uses the 12px glyph size');
+        assert.ok(/\.diff-action-text\s*\{[^}]*font-size:\s*10px/.test(css), 'the visible text span uses 10px text');
+        assert.ok(/\.diff-action\s*\{[^}]*flex:\s*0 0 84px/.test(css), 'the fixed width is a non-shrinking flex basis');
+        assert.ok(/\.diff-action\s*\{[^}]*font-size:\s*10px/.test(css), 'the button text sits on the 10px floor');
+        assert.ok(/\.diff-action:hover:not\(:disabled\)\s*\{[^}]*background:\s*transparent/.test(css), 'hover keeps the ghost background');
+        assert.ok(/\.diff-action:hover:not\(:disabled\)\s*\{[^}]*border-color:\s*rgba\(255,\s*255,\s*255,\s*\.35\)/.test(css), 'hover brightens the ghost border');
+        assert.ok(/\.diff-action\.active:hover\s*\{[^}]*background:\s*var\(--btn-bg\)/.test(css), 'active hover keeps the primary fill');
+        assert.ok(/\.diff-action:focus-visible\s*\{[^}]*outline:\s*1px solid var\(--focus-bdr\)/.test(css), 'keyboard focus keeps a visible ring');
+        assert.ok(!/\.diff-action[^{]*\{[^}]*vscode-button-secondary/.test(css), 'no secondary button-token fill remains on the actions');
         assert.ok(/\.diff-side-base\s*\{/.test(css), 'the side-head base label is styled');
         assert.ok(/\.diff-base-actions\s*\{/.test(css), 'the side-head base controls are styled');
         assert.ok(/\.diff-base-editor\s*\{/.test(css), 'the inline base editor is styled');
