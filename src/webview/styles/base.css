@@ -180,14 +180,19 @@ html, body {
 .addr-field > .addr-pfx {
     flex-shrink: 0; margin: 0; padding: 0;
     font-family: var(--font-editor); font-size: 11px;
-    color: var(--addr-fg); line-height: 1;
+    color: var(--addr-fg);
+    /* Match the input's 20px line box (22px field - 2px border). The span
+       otherwise uses its own 11px line box while the input centers its text
+       in its own box, which makes the prefix sit about a pixel higher. */
+    line-height: 20px;
     user-select: none;
 }
 .addr-input {
     flex: 1; min-width: 0; box-sizing: border-box;
+    height: 20px;
     border: none; outline: none; margin: 0; padding: 0;
     background: transparent; color: var(--input-fg);
-    font-family: var(--font-editor); font-size: 11px; line-height: 1;
+    font-family: var(--font-editor); font-size: 11px; line-height: 20px;
 }
 .addr-input:disabled {
     opacity: 1; cursor: default;

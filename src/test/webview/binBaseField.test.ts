@@ -626,6 +626,8 @@ suite('webview raw-binary base field', () => {
         assert.match(baseCss, /\.addr-field\s*\{[^}]*height:\s*22px/s, '.addr-field owns the bordered box');
         assert.match(baseCss, /\.addr-field\s*\{[^}]*align-items:\s*center/s, 'prefix + digits stay vertically centered');
         assert.match(baseCss, /\.addr-field\s*>\s*\.addr-pfx\s*\{/, 'the shared prefix scopes out the overlay legacy rule');
+        assert.match(baseCss, /\.addr-field\s*>\s*\.addr-pfx\s*\{[^}]*line-height:\s*20px/s, 'prefix and input share the 20px line box');
+        assert.match(baseCss, /\.addr-input\s*\{[^}]*height:\s*20px[^}]*line-height:\s*20px/s, 'input text centers on the same line box');
         assert.match(baseCss, /\.addr-input\s*\{[^}]*border:\s*none/s, '.addr-input is the shared borderless digits input');
 
         // Read-only value label + uppercase label, no title-case override.
