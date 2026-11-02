@@ -377,16 +377,20 @@ function applyRecordEdits(rec: ParsedRecord, edits: Map<number, number>): number
 }
 
 function buildIntelHexDataRecord(addr16: number, data: number[]): string {
+    return buildIntelHexRecord(0, addr16, data);
+}
+
+function buildIntelHexRecord(recordType: number, address: number, data: number[]): string {
     const bc = data.length;
-    const ah = (addr16 >> 8) & 0xFF;
-    const al = addr16 & 0xFF;
-    let sum = bc + ah + al;
+    const ah = (address >> 8) & 0xFF;
+    const al = address & 0xFF;
+    let sum = bc + ah + al + recordType;
     for (const b of data) { sum += b; }
     const chk = ((~sum + 1) & 0xFF);
     const body =
         bc.toString(16).toUpperCase().padStart(2, '0') +
-        addr16.toString(16).toUpperCase().padStart(4, '0') +
-        '00' +
+        address.toString(16).toUpperCase().padStart(4, '0') +
+        recordType.toString(16).toUpperCase().padStart(2, '0') +
         data.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('') +
         chk.toString(16).toUpperCase().padStart(2, '0');
     return ':' + body;
@@ -402,6 +406,357 @@ export function buildSRecDataRecord(type: number, address: number, data: number[
     const chkHex = chk.toString(16).toUpperCase().padStart(2, '0');
     return `S${type}${bcHex}${addrHex}${dataHex}${chkHex}`;
 }
+
+// ── Structural document rebuild ─────────────────────────────────────────────
+// Length-changing saves cannot use the line-splice fast path: every data record
+// after an insert/delete moves. Rebuild the data records from the edited
+// segments while preserving non-data records (headers, execution start
+// addresses, unknown/malformed lines) and the original EOL style.
+
+interface RebuildSegment {
+    startAddress: number;
+    data: ArrayLike<number>;
+}
+
+interface LineLayout {
+    eol: string;
+    trailingNewline: boolean;
+    lines: string[];
+}
+
+function lineLayout(raw: string): LineLayout {
+    const trailingNewline = /\r?\n$/.test(raw);
+    const lines = raw === '' ? [] : raw.split(/\r?\n/);
+    if (trailingNewline) { lines.pop(); }
+    return { eol: raw.includes('\r\n') ? '\r\n' : '\n', trailingNewline, lines };
+}
+
+function joinLayout(layout: LineLayout, lines: string[]): string {
+    const text = lines.join(layout.eol);
+    return layout.trailingNewline ? `${text}${layout.eol}` : text;
+}
+
+/** Rebuild an IHEX/SREC document from edited segments (structural save). */
+export function rebuildTextDocument(
+    originalRaw: string,
+    segments: ReadonlyArray<RebuildSegment>,
+    format: HexScopeTextFormat,
+): string {
+    const layout = lineLayout(originalRaw);
+    return format === 'srec'
+        ? rebuildSRec(layout, segments)
+        : rebuildIntelHex(layout, segments);
+}
+
+function rebuildIntelHex(layout: LineLayout, segments: ReadonlyArray<RebuildSegment>): string {
+    const scan = scanIntelHex(layout.lines);
+    const dataLines = buildIntelHexDataLines(segments, dominantLength(scan.dataLengths));
+    return joinLayout(layout, [...scan.preservedBefore, ...dataLines, ...scan.preservedAfter, INTEL_EOF]);
+}
+
+interface IntelScan {
+    dataLengths: number[];
+    preservedBefore: string[];
+    preservedAfter: string[];
+}
+
+function scanIntelHex(lines: string[]): IntelScan {
+    const scan: IntelScan = { dataLengths: [], preservedBefore: [], preservedAfter: [] };
+    let firstData = -1;
+    for (let i = 0; i < lines.length; i++) {
+        firstData = scanIntelHexLine(lines, i, firstData, scan);
+    }
+    return scan;
+}
+
+function scanIntelHexLine(lines: string[], index: number, firstData: number, scan: IntelScan): number {
+    const header = intelLineHeader(lines[index]);
+    if (header === null) {
+        pushPreserved(lines[index], index, firstData, scan.preservedBefore, scan.preservedAfter);
+        return firstData;
+    }
+    return handleIntelHeader(lines[index], index, header, firstData, scan);
+}
+
+function handleIntelHeader(
+    line: string,
+    index: number,
+    header: { count: number; addr16: number; type: number },
+    firstData: number,
+    scan: IntelScan,
+): number {
+    if (header.type === 0) {
+        scan.dataLengths.push(header.count);
+        return firstDataOr(index, firstData);
+    }
+    if (header.type === 1) { return firstData; }
+    if (isIntelExtendedAddress(header.type)) { return firstData; }
+    pushPreserved(line, index, firstData, scan.preservedBefore, scan.preservedAfter);
+    return firstData;
+}
+
+function isIntelExtendedAddress(type: number): boolean {
+    return type === 2 || type === 4;
+}
+
+function firstDataOr(index: number, firstData: number): number {
+    return firstData < 0 ? index : firstData;
+}
+
+const INTEL_EOF = ':00000001FF';
+
+function pushPreserved(
+    line: string,
+    index: number,
+    firstData: number,
+    before: string[],
+    after: string[],
+): void {
+    if (firstData < 0 || index < firstData) { before.push(line); }
+    else { after.push(line); }
+}
+
+function dominantLength(lengths: readonly number[]): number {
+    return bestLength(countLengths(lengths));
+}
+
+function countLengths(lengths: readonly number[]): Map<number, number> {
+    const counts = new Map<number, number>();
+    for (const length of lengths) { counts.set(length, (counts.get(length) ?? 0) + 1); }
+    return counts;
+}
+
+function bestLength(counts: ReadonlyMap<number, number>): number {
+    let best = 16;
+    let bestCount = -1;
+    for (const [length, count] of counts) {
+        if (!isUsableLength(length)) { continue; }
+        if (count <= bestCount) { continue; }
+        best = length;
+        bestCount = count;
+    }
+    return best;
+}
+
+function isUsableLength(length: number): boolean {
+    return length > 0 && length <= 255;
+}
+
+interface IntelEmitState {
+    upper: number;
+}
+
+function buildIntelHexDataLines(segments: ReadonlyArray<RebuildSegment>, chunkSize: number): string[] {
+    const lines: string[] = [];
+    const state: IntelEmitState = { upper: 0 };
+    for (const segment of sortedSegments(segments)) {
+        appendIntelHexSegment(lines, segment, chunkSize, state);
+    }
+    return lines;
+}
+
+function appendIntelHexSegment(
+    lines: string[],
+    segment: RebuildSegment,
+    chunkSize: number,
+    state: IntelEmitState,
+): void {
+    const data = Array.from(segment.data);
+    let offset = 0;
+    while (offset < data.length) {
+        offset = appendIntelHexChunk(lines, segment, data, offset, chunkSize, state);
+    }
+}
+
+function appendIntelHexChunk(
+    lines: string[],
+    segment: RebuildSegment,
+    data: number[],
+    offset: number,
+    chunkSize: number,
+    state: IntelEmitState,
+): number {
+    const address = segment.startAddress + offset;
+    if (address < 0 || address > 0xFFFFFFFF) { return data.length; }
+    appendIntelUpperRecord(lines, state, address);
+    // A data record never crosses the 64 KiB window its address field encodes.
+    const size = Math.min(chunkSize, 0x10000 - (address & 0xFFFF), data.length - offset);
+    lines.push(buildIntelHexDataRecord(address & 0xFFFF, data.slice(offset, offset + size)));
+    return offset + size;
+}
+
+function appendIntelUpperRecord(lines: string[], state: IntelEmitState, address: number): void {
+    const upper = Math.floor(address / 0x10000);
+    if (upper === state.upper) { return; }
+    state.upper = upper;
+    lines.push(buildIntelHexRecord(4, 0, [(upper >> 8) & 0xFF, upper & 0xFF]));
+}
+
+function rebuildSRec(layout: LineLayout, segments: ReadonlyArray<RebuildSegment>): string {
+    const scan = scanSRec(layout.lines);
+    const dataType = srecDataType(segments, scan.dataTypes, scan.terminationAddress);
+    const dataLines = buildSRecDataLines(segments, dataType, dominantLength(scan.dataLengths));
+    const countLines = scan.hadCount ? [srecCountRecord(dataLines.length)] : [];
+    const termination = buildSRecDataRecord(terminationType(dataType), scan.terminationAddress ?? 0, []);
+    return joinLayout(layout, [...scan.preservedBefore, ...dataLines, ...scan.preservedAfter, ...countLines, termination]);
+}
+
+interface SrecScan {
+    dataTypes: number[];
+    dataLengths: number[];
+    preservedBefore: string[];
+    preservedAfter: string[];
+    hadCount: boolean;
+    terminationAddress: number | undefined;
+}
+
+function scanSRec(lines: string[]): SrecScan {
+    const scan: SrecScan = {
+        dataTypes: [],
+        dataLengths: [],
+        preservedBefore: [],
+        preservedAfter: [],
+        hadCount: false,
+        terminationAddress: undefined,
+    };
+    let firstData = -1;
+    for (let i = 0; i < lines.length; i++) {
+        firstData = scanSRecLine(lines, i, firstData, scan);
+    }
+    return scan;
+}
+
+function scanSRecLine(lines: string[], index: number, firstData: number, scan: SrecScan): number {
+    const header = srecRebuildHeader(lines[index]);
+    if (header === null) {
+        pushPreserved(lines[index], index, firstData, scan.preservedBefore, scan.preservedAfter);
+        return firstData;
+    }
+    return handleSRecHeader(lines[index], index, header, firstData, scan);
+}
+
+function handleSRecHeader(
+    line: string,
+    index: number,
+    header: SrecRebuildHeader,
+    firstData: number,
+    scan: SrecScan,
+): number {
+    if (isSRecData(header.recordType)) {
+        scan.dataTypes.push(header.recordType);
+        scan.dataLengths.push(header.dataLength);
+        return firstDataOr(index, firstData);
+    }
+    if (isSRecCount(header.recordType)) { scan.hadCount = true; return firstData; }
+    if (isSRecTermination(header.recordType)) { scan.terminationAddress = header.address; return firstData; }
+    pushPreserved(line, index, firstData, scan.preservedBefore, scan.preservedAfter);
+    return firstData;
+}
+
+function isSRecData(recordType: number): boolean {
+    return recordType >= 1 && recordType <= 3;
+}
+
+function isSRecCount(recordType: number): boolean {
+    return recordType === 5 || recordType === 6;
+}
+
+function isSRecTermination(recordType: number): boolean {
+    return recordType >= 7 && recordType <= 9;
+}
+
+/** S1→S9 (16-bit), S2→S8 (24-bit), S3→S7 (32-bit). */
+function terminationType(dataType: number): number {
+    return dataType === 1 ? 9 : dataType === 2 ? 8 : 7;
+}
+
+interface SrecRebuildHeader {
+    recordType: number;
+    address: number;
+    dataLength: number;
+}
+
+function srecRebuildHeader(line: string): SrecRebuildHeader | null {
+    const match = /^S([0-9])([0-9a-fA-F]{2})/.exec(line);
+    if (!match) { return null; }
+    return srecHeaderFromMatch(line, match);
+}
+
+function srecHeaderFromMatch(line: string, match: RegExpExecArray): SrecRebuildHeader | null {
+    const recordType = parseInt(match[1], 10);
+    const asz = SREC_ADDR_SIZES[recordType] ?? 2;
+    const dataLength = parseInt(match[2], 16) - asz - 1;
+    if (dataLength < 0) { return null; }
+    return { recordType, address: srecAddressFromLine(line, asz), dataLength };
+}
+
+function srecAddressFromLine(line: string, asz: number): number {
+    const text = line.slice(4, 4 + asz * 2);
+    return /^[0-9a-fA-F]+$/.test(text) ? parseInt(text, 16) : 0;
+}
+
+function srecDataType(
+    segments: ReadonlyArray<RebuildSegment>,
+    originalTypes: readonly number[],
+    terminationAddress: number | undefined,
+): number {
+    const maxAddress = sortedSegments(segments)
+        .reduce((max, segment) => Math.max(max, segment.startAddress + segment.data.length - 1), terminationAddress ?? -1);
+    const required = maxAddress <= 0xFFFF ? 1 : maxAddress <= 0xFFFFFF ? 2 : 3;
+    const original = originalTypes.reduce((max, type) => Math.max(max, type), 1);
+    return Math.max(original, required);
+}
+
+function buildSRecDataLines(
+    segments: ReadonlyArray<RebuildSegment>,
+    dataType: number,
+    chunkSize: number,
+): string[] {
+    const lines: string[] = [];
+    for (const segment of sortedSegments(segments)) {
+        appendSRecSegment(lines, segment, dataType, chunkSize);
+    }
+    return lines;
+}
+
+function appendSRecSegment(
+    lines: string[],
+    segment: RebuildSegment,
+    dataType: number,
+    chunkSize: number,
+): void {
+    const data = Array.from(segment.data);
+    for (let offset = 0; offset < data.length; offset += chunkSize) {
+        appendSRecChunk(lines, segment, data, offset, dataType, chunkSize);
+    }
+}
+
+function appendSRecChunk(
+    lines: string[],
+    segment: RebuildSegment,
+    data: number[],
+    offset: number,
+    dataType: number,
+    chunkSize: number,
+): void {
+    const address = segment.startAddress + offset;
+    if (address < 0 || address > 0xFFFFFFFF) { return; }
+    lines.push(buildSRecDataRecord(dataType, address, data.slice(offset, offset + chunkSize)));
+}
+
+function srecCountRecord(count: number): string {
+    return count <= 0xFFFF
+        ? buildSRecDataRecord(5, count, [])
+        : buildSRecDataRecord(6, count, []);
+}
+
+function sortedSegments(segments: ReadonlyArray<RebuildSegment>): RebuildSegment[] {
+    return segments
+        .filter(segment => segment.data.length > 0)
+        .slice()
+        .sort((a, b) => a.startAddress - b.startAddress);
+}
+
 
 function shouldRepairRecordChecksum(rec: ParsedRecord): boolean {
     return !rec.error && !rec.checksumValid;

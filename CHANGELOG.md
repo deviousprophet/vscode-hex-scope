@@ -5,6 +5,14 @@ All notable changes to the Hex Scope extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Copy, cut, and paste work across HexScope editors, with paste modes for replacing the selection, inserting before or after it, and pasting at a typed address
+- Copy Region and Cut Region accept inclusive From/To addresses without requiring a prior selection
+- Length-changing paste and cut operations save Intel HEX, SREC, and raw binary files with undo, discard, and external-change handling
+- Pasting at an unmapped Intel HEX or SREC address creates that memory automatically
+
 ## [3.1.1] - 2026-10-28
 
 ### Security

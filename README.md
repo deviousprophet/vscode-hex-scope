@@ -17,7 +17,7 @@ Firmware memory explorer and editor for VS Code. Open Intel HEX, Motorola SREC, 
 | Inspect | Selected bytes as integers or as C types with arrays, nested types, pointers, and bit fields. |
 | Search | Byte sequences, numeric values in either endianness, ASCII text, or addresses. |
 | Check | CRC-16/32, MD5, or SHA-1/256/512 over a range, compared with the value stored in the image; mismatches can be staged as fixes. |
-| Edit | Undoable byte edits, checksum-aware Save for HEX/SREC, byte-for-byte Save for raw binaries, Quick Repair, copy/export, and a read-only two-file diff. |
+| Edit | Undoable byte edits, checksum-aware Save for HEX/SREC, byte-for-byte Save for raw binaries, Quick Repair, copy/cut/paste with insert and region modes, and a read-only two-file diff. |
 | Automate | TypeScript or JavaScript in `.hexscope/scripts/` for reads, writes, hashes, external tools, and HTTP, with confirmation for writes and external actions. See the [scripting guide](docs/SCRIPTING.md). |
 
 ## Quick start

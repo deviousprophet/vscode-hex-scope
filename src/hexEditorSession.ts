@@ -8,7 +8,8 @@ import { parseSRecRecordLine } from './core/parser/srecParser';
 import type { ParseResult, MemorySegment, ParseProgress } from './core/parser/types';
 import { hydrateCompactParseResult, type CompactParseResult } from './core/parser/compact';
 import type { SegmentLabel, SerializedRecord, TypeDef, TypeInstance } from './core/types';
-import { buildSplicePlan, isRawBinaryExtension, isTextFormat, RAW_BINARY_WORKER_ERROR, repairChecksums, type HexScopeFormat, type HexScopeTextFormat, type SplicePatch, type SplicePlan } from './core/document';
+import { buildSplicePlan, isRawBinaryExtension, isTextFormat, RAW_BINARY_WORKER_ERROR, rebuildTextDocument, repairChecksums, type HexScopeFormat, type HexScopeTextFormat, type SplicePatch, type SplicePlan } from './core/document';
+import { parseHexAddress } from './core/byteTools/hex';
 import { applyBinEdits, binAddressRangeFits, createBinParseResult, isValidBinBaseAddress, revertBinEdits } from './core/parser/binImage';
 import { serializeParseResult } from './core/wire';
 import { fileExtension } from './core/pathName';
@@ -28,6 +29,7 @@ import {
     showHiddenFieldsOrDefault,
     type ProfileSummary,
     type ProviderToWebviewMessage,
+    type AddressPromptPurpose,
     type ScriptCapability,
     type ScriptPermissionScope,
     type WebviewToProviderMessage,
@@ -247,6 +249,44 @@ function parseHexInWorker(
 
 function parseErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Failed to read file.';
+}
+
+/** Host-native address prompt (webviews cannot use `window.prompt`). */
+async function promptHexAddress(prompt: string): Promise<number | null> {
+    const value = await vscode.window.showInputBox({
+        prompt,
+        placeHolder: '0x00000000',
+        validateInput: input => parseHexAddress(input) === null
+            ? 'Enter a 32-bit hexadecimal address (1-8 hex digits, optional 0x).'
+            : undefined,
+    });
+    return value === undefined ? null : parseHexAddress(value);
+}
+
+type StructuralSegmentPayload = Extract<WebviewToProviderMessage, { type: 'saveDocument' }>['segments'][number];
+
+/** Boundary-normalize a structural save payload; null rejects the whole message. */
+export function structuralSegmentPayloads(value: unknown): StructuralSegmentPayload[] | null {
+    if (!Array.isArray(value)) { return null; }
+    const out: StructuralSegmentPayload[] = [];
+    for (const item of value) {
+        const payload = structuralSegmentPayload(item);
+        if (!payload) { return null; }
+        out.push(payload);
+    }
+    return out;
+}
+
+function structuralSegmentPayload(item: unknown): StructuralSegmentPayload | null {
+    if (!isObjectValue(item)) { return null; }
+    const segment = item as Partial<StructuralSegmentPayload>;
+    if (!isValidBinBaseAddress(segment.startAddress)) { return null; }
+    if (!(segment.data instanceof ArrayBuffer)) { return null; }
+    return { startAddress: segment.startAddress, data: segment.data };
+}
+
+function isObjectValue(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object';
 }
 
 /** Save-failure detail for the panel's write summary (raw message, never swallowed). */
@@ -723,6 +763,76 @@ export class HexEditorSession {
             raw = plan.newRaw;
             foldEditsIntoSegments(parseResult.segments, editMap);
             commitSavedEdits(editMap.size);
+        };
+
+        /** Structural save: rebuild the document, validate-parse it, write, and reload. */
+        const saveStructuralDocument = async (
+            segments: Array<{ startAddress: number; data: Uint8Array }>,
+        ): Promise<void> => {
+            if (format === 'bin') {
+                await saveStructuralBin(segments);
+                return;
+            }
+            await saveStructuralText(segments);
+        };
+
+        /** Raw `.bin`: exactly one buffer (possibly empty), at the current base address. */
+        const saveStructuralBin = async (
+            segments: Array<{ startAddress: number; data: Uint8Array }>,
+        ): Promise<void> => {
+            const payload = binPayload(segments);
+            if (!payload) {
+                throw new Error('Raw binary structural edits must stay inside the current image.');
+            }
+            await vscode.workspace.fs.writeFile(document.uri, payload.bytes);
+            binBytes = payload.bytes;
+            parseResult = createBinParseResult(payload.bytes, baseAddress);
+            commitStructuralSave();
+        };
+
+        const binPayload = (
+            segments: Array<{ startAddress: number; data: Uint8Array }>,
+        ): { bytes: Uint8Array } | null => {
+            if (segments.length > 1) { return null; }
+            const segment = segments[0];
+            if (!segment) { return { bytes: new Uint8Array(0) }; }
+            return segment.startAddress === baseAddress ? { bytes: segment.data } : null;
+        };
+
+        /** IHEX/SREC: rebuild the text, parse it for validation, then write and reload. */
+        const saveStructuralText = async (
+            segments: Array<{ startAddress: number; data: Uint8Array }>,
+        ): Promise<void> => {
+            if (!isTextFormat(format)) { return; }
+            const nextRaw = rebuildTextDocument(raw, segments, format);
+            const controller = new AbortController();
+            const loaded = await parseHexInWorker(nextRaw, fileExtension(document.uri), controller.signal, () => {});
+            if (parseResult && hasNewParseErrors(parseResult, loaded.result)) {
+                throw new Error('Rebuilt document did not validate; nothing was saved.');
+            }
+            await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(nextRaw));
+            raw = nextRaw;
+            parseResult = loaded.result;
+            format = loaded.format;
+            commitStructuralSave();
+        };
+
+        /** True when the rebuilt parse introduces errors beyond the pre-edit document. */
+        const hasNewParseErrors = (previous: CompactParseResult, next: CompactParseResult): boolean => {
+            return next.checksumErrors > previous.checksumErrors || next.malformedLines > previous.malformedLines;
+        };
+
+        /** Shared structural-save tail: self-write stamp, generation bump, reload payload. */
+        const commitStructuralSave = (): void => {
+            if (!parseResult) { return; }
+            markSelfWrite();
+            currentGeneration = ++generation;
+            void postToWebview(webviewPanel.webview, {
+                type: 'savedEdits',
+                generation: currentGeneration,
+                parseResult: serializeParseResult(parseResult, format),
+            });
+            vscode.window.showInformationMessage(`HexScope: saved ${currentFileName()}`);
         };
 
         /** Live parsed document for a script task, or null when disposed/unparsed. */
@@ -1418,6 +1528,28 @@ export class HexEditorSession {
             return loaded;
         };
 
+        const isAddressPromptPurpose = (value: string): value is AddressPromptPurpose =>
+            value === 'paste-at' || value === 'region-copy' || value === 'region-cut';
+
+        const postAddressPrompt = (
+            purpose: AddressPromptPurpose,
+            result: { address?: number; from?: number; to?: number; cancelled?: boolean },
+        ): void => {
+            void postToWebview(webviewPanel.webview, { type: 'addressPromptResult', purpose, ...result });
+        };
+
+        const promptPasteAtAddress = async (purpose: AddressPromptPurpose): Promise<void> => {
+            const address = await promptHexAddress('Paste at address');
+            postAddressPrompt(purpose, address === null ? { cancelled: true } : { address });
+        };
+
+        const promptRegionAddresses = async (purpose: AddressPromptPurpose): Promise<void> => {
+            const from = await promptHexAddress('Region start address');
+            if (from === null) { postAddressPrompt(purpose, { cancelled: true }); return; }
+            const to = await promptHexAddress('Region end address');
+            postAddressPrompt(purpose, to === null ? { cancelled: true } : { from, to });
+        };
+
         const messageHandlers: Partial<Record<WebviewToProviderMessage['type'], WebviewMessageHandler>> = {
             ready: async () => {
                 flushProgress?.();
@@ -1622,6 +1754,25 @@ export class HexEditorSession {
                     return;
                 }
                 await saveTextEdits(editMap, msg.scriptPath);
+            },
+            saveDocument: async msg => {
+                if (!parseResult) { return; }
+                const payloads = structuralSegmentPayloads(msg.segments);
+                if (!payloads) { return; }
+                const segments = payloads.map(segment => ({
+                    startAddress: segment.startAddress,
+                    data: new Uint8Array(segment.data),
+                }));
+                try {
+                    await saveStructuralDocument(segments);
+                } catch (error) {
+                    void vscode.window.showErrorMessage(`HexScope: ${saveErrorMessage(error)}`);
+                }
+            },
+            promptAddress: async msg => {
+                if (!isAddressPromptPurpose(msg.purpose)) { return; }
+                if (msg.purpose === 'paste-at') { await promptPasteAtAddress(msg.purpose); return; }
+                await promptRegionAddresses(msg.purpose);
             },
             reloadAccepted: async () => {
                 if (!pendingExternalReload) { return; }

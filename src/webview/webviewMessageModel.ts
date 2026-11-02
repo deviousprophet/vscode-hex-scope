@@ -89,6 +89,7 @@ const MODEL_APPLIERS: ModelAppliers = {
     activateScriptsTab: applyPassiveMessage,
     activateProfilePicker: applyPassiveMessage,
     focusBinBaseAddress: applyPassiveMessage,
+    addressPromptResult: applyPassiveMessage,
 };
 
 function applyPassiveMessage(): WebviewModelUpdate { return { invalidations: {} }; }
@@ -222,6 +223,8 @@ function applySavedEditsMessage(msg: WebviewMessageByType<'savedEdits'>): Webvie
     // Undo/redo stacks + edit mode survive so Ctrl+Z still reverts the save.
     foldLocalEdits();
     S.edits.clear();
+    S.structuralDirty = false;
+    if (S.parseResult) { S.savedSegments = S.parseResult.segments; }
     return {
         invalidations: {
             dirtyBar: true,
@@ -281,7 +284,8 @@ function applyExternalChangeErrorMessage(msg: WebviewMessageByType<'externalChan
 }
 
 function clearUnsavedEditsForExternalError(): void {
-    if (hasUnsavedEdits()) { clearEditModel(); }
+    // The incoming document replaced the old one; any history/patch is stale.
+    if (S.editMode || S.undoStack.length > 0 || S.redoStack.length > 0) { clearEditModel(); }
 }
 
 function applyRepairCompleteMessage(msg: WebviewMessageByType<'repairComplete'>): WebviewModelUpdate {

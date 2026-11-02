@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "required checks, test placement, echo-test rules"}
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "verify transaction/save/discard contracts"}
+{"file": ".trellis/spec/frontend/document-formats.md", "reason": "verify format rebuild and checksum contracts"}
+{"file": ".trellis/spec/frontend/selection-inspect-copy.md", "reason": "verify copy/paste/selection contracts"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "verify protocol and address validation"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "verify ownership and dependency direction"}

@@ -37,6 +37,7 @@ function serializeSRec(raw: string, result: ParseResult, edits: Map<number, numb
 function serializeIntelHexAsync(raw: string, result: ParseResult, edits: Map<number, number>, options?: WorkBudgetOptions): Promise<string>;
 function serializeSRecAsync(raw: string, result: ParseResult, edits: Map<number, number>, options?: WorkBudgetOptions): Promise<string>;
 function spliceEditedLines(raw: string, edits: Map<number, number>, format: HexScopeFormat): string;
+function rebuildTextDocument(originalRaw: string, segments: ReadonlyArray<{ startAddress: number; data: ArrayLike<number> }>, format: HexScopeTextFormat): string;
 function repairChecksums(raw: string, result: ParseResult): string;
 function serializeCompactParseResult(result: CompactParseResult): SerializedCompactParseResult;
 function hydrateCompactParseResult(payload: SerializedCompactParseResult): CompactParseResult;
@@ -72,6 +73,8 @@ function revertBinEdits(segment: MemorySegment, previous: ReadonlyArray<[number,
 - Serializers rewrite only affected valid data records. Preserve non-data records, blank lines, surrounding line whitespace, untouched lines, and original LF/CRLF style.
 - Async serializers use the shared 24 ms work budget and yield between record batches on large edited documents; save flows must await them.
 - Fast save: `buildSplicePlan(raw, edits, format)` scans lines with a minimal regex decode (no `HexRecord` materialize) and rebuilds only data records whose absolute address range overlaps the edit set (checksum recomputed). Returns `newRaw` + per-line byte `patches` (byte offsets); `spliceEditedLines` = `plan.newRaw`. The save path writes positionally (only patch ranges via `node:fs` fd) when the plan is ASCII/same-length safe, else falls back to a whole-file write. A few edits on a 70 MB file cost O(edits + split/join + one small write), not a full serialize/reparse.
+- Structural save: `rebuildTextDocument(raw, segments, format)` regenerates data records from edited segments when an insert/delete changes the file length. IHEX keeps type 03/05 start records and unknown/malformed lines, drops old type 01/02/04 records, emits one ELA record per 64 KiB window change (data records never cross a window), and appends one EOF. SREC keeps S0 and unknown/malformed lines, drops S5/S6 counts and S7/S8/S9 termination records, re-emits a count when the original had one, picks the smallest data type that fits both data and termination addresses (never narrower than the original), and appends one termination. Both preserve the original EOL style and trailing-newline presence; the original data-record chunking is intentionally not preserved. The host parses the rebuilt text before writing it and rejects any new checksum/malformed errors beyond the pre-edit document.
+- Raw `.bin` structural save requires exactly one segment at the current base (empty allowed); disjoint segments or a base drift are rejected. Insert/delete change the file length, gaps are not representable. No records, checksums, splice plan, or reparse source path are involved.
 - Assert reparsing serialized output produces expected bytes and zero new checksum errors.
 - Empty edit maps return original text exactly.
 - Checksum repair changes the final checksum byte of invalid, otherwise parseable records; malformed records remain unchanged.
@@ -108,7 +111,7 @@ function revertBinEdits(segment: MemorySegment, previous: ReadonlyArray<[number,
 - Good: mixed S1/S2/S3 data retains 16/24/32-bit addresses and forms separate segments across gaps.
 - Good: edit one byte in a whitespace-padded CRLF record; preserve whitespace/EOL and recompute record checksum.
 - Bad: include checksum-invalid data in memory using its declared bytes.
-- Bad: serialize the whole document from segments and lose headers, start records, comments/malformed lines, or record layout.
+- Bad: serialize the whole document from segments on a byte-only save and lose headers, start records, comments/malformed lines, or record layout. The documented structural rebuild is the only path allowed to regenerate data records, and it must preserve non-data records, EOL style, and parse cleanly.
 
 ### 6. Tests Required
 
@@ -117,6 +120,7 @@ function revertBinEdits(segment: MemorySegment, previous: ReadonlyArray<[number,
 - Compact parser tests assert cancellation and cooperative yielding during source scan, segment assembly, and record-metadata compaction.
 - `ihex-samples.test.ts`, `srec-samples.test.ts`: real multi-record fixtures, gaps, address widths, start addresses, cross-format equivalence.
 - `src/test/core/providerUtils.test.ts`: format detection, `.bin`/`.BIN` overriding content sniffing, IHEX/SREC serialization, whitespace/EOL preservation, record preservation, checksum repair.
+- `src/test/core/document.test.ts`: `rebuildTextDocument` round-trip for both formats, zero checksum/malformed errors, gaps, >64 KiB IHEX boundaries, SREC width selection, S0/start/termination preservation, unknown/malformed line preservation, CRLF/LF/trailing-newline behavior, and the empty-document case.
 - Assert reparsing serialized output produces expected bytes and zero new checksum errors.
 
 ### 7. Wrong vs Correct

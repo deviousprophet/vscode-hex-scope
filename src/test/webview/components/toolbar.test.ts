@@ -112,6 +112,7 @@ suite('webview Toolbar component', () => {
             ascii: true,
             editMode: true,
             dirtyCount: 3,
+            structural: false,
             showRecordView: true,
         });
         assert.ok(html.includes('id="btn-rec" class="active"'));
@@ -276,9 +277,42 @@ suite('webview Toolbar component', () => {
 
     test('renderToolbarHtml marks the Records tab hidden for raw binaries', () => {
         const html = renderToolbarHtml('<div id="search-box"></div>', {
-            view: 'memory', ascii: false, editMode: false, dirtyCount: 0, showRecordView: false,
+            view: 'memory', ascii: false, editMode: false, dirtyCount: 0, structural: false, showRecordView: false,
         });
         assert.ok(html.includes('id="btn-rec" class="" style="display:none"'));
         assert.ok(html.includes('id="btn-mem" class="active"'));
+    });
+});
+
+suite('webview Toolbar component (structural dirty)', () => {
+    teardown(() => {
+        if (currentDom) { cleanupDom(currentDom); currentDom = null; }
+    });
+
+    test('a structural change enables Save and is labelled distinctly', () => {
+        const { dom, bar } = createHarness();
+        bar.setEditMode(true);
+        bar.setDirty(0, true);
+        const save = dom.window.document.getElementById('btn-save') as HTMLButtonElement;
+        assert.strictEqual(save.disabled, false);
+        const label = dom.window.document.getElementById('edit-dirty-count')!;
+        assert.strictEqual(label.textContent, 'structural change');
+    });
+
+    test('bytes plus structure shows both in the label', () => {
+        const { dom, bar } = createHarness();
+        bar.setEditMode(true);
+        bar.setDirty(2, true);
+        const label = dom.window.document.getElementById('edit-dirty-count')!;
+        assert.strictEqual(label.textContent, '2 unsaved bytes + structure');
+    });
+
+    test('clearing structure disables Save again', () => {
+        const { dom, bar } = createHarness();
+        bar.setEditMode(true);
+        bar.setDirty(0, true);
+        bar.setDirty(0, false);
+        const save = dom.window.document.getElementById('btn-save') as HTMLButtonElement;
+        assert.strictEqual(save.disabled, true);
     });
 });

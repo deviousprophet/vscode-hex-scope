@@ -34,10 +34,7 @@ export function parsePasteText(text: string): number[] | null {
     return parseRawHex(normalized);
 }
 
-/** Status message when a paste was truncated at an unmapped byte (null = no notice needed). */
-export function pasteOverflowNotice(editsLength: number, bytesLength: number): string | null {
-    if (bytesLength === 0 || editsLength >= bytesLength) { return null; }
-    return editsLength > 0
-        ? `Pasted ${editsLength} of ${bytesLength} bytes \u2014 hit an unmapped region`
-        : 'Nothing pasted \u2014 selection starts at an unmapped region';
+/** Hex-first clipboard parse with the raw-ASCII fallback used by paste. */
+export function parseClipboardBytes(text: string): number[] {
+    return parsePasteText(text) ?? [...text].map(char => char.charCodeAt(0));
 }

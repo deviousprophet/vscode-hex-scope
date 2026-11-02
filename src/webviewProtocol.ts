@@ -13,6 +13,9 @@ export const SCRIPT_PERMISSION_TIMEOUT_MS = 120_000;
 
 export type HexScopeEndian = 'le' | 'be';
 
+/** Address-prompt round-trip purpose (host `showInputBox` -> webview). */
+export type AddressPromptPurpose = 'paste-at' | 'region-copy' | 'region-cut';
+
 /** Single shared endian normalizer (session slot normalizer + webview model). */
 export function endianOrDefault(value: unknown): HexScopeEndian {
     return value === 'be' ? 'be' : 'le';
@@ -165,7 +168,16 @@ export type ProviderToWebviewMessage =
     | { type: 'activateScriptsTab' }
     | { type: 'activateProfilePicker' }
     /** Focus (and select) the raw-binary base field in the profile bar. */
-    | { type: 'focusBinBaseAddress' };
+    | { type: 'focusBinBaseAddress' }
+    /** Result of a host address prompt; cancelled is true when the user dismissed it. */
+    | {
+        type: 'addressPromptResult';
+        purpose: AddressPromptPurpose;
+        cancelled?: boolean;
+        address?: number;
+        from?: number;
+        to?: number;
+    };
 
 export type WebviewToProviderMessage =
     | { type: 'ready' }
@@ -247,7 +259,11 @@ export type WebviewToProviderMessage =
     /** Reveal `.hexscope/scripts` (empty provider pickers). */
     | { type: 'openScriptsFolder' }
     /** Commit a raw binary's per-file base address (validated by the webview field + host). */
-    | { type: 'setBinBaseAddress'; value: number };
+    | { type: 'setBinBaseAddress'; value: number }
+    /** Save a structurally edited document (length-changing); host rebuilds and re-parses. */
+    | { type: 'saveDocument'; segments: Array<{ startAddress: number; data: ArrayBuffer }> }
+    /** Ask the host to prompt for one address or a From/To region. */
+    | { type: 'promptAddress'; purpose: AddressPromptPurpose };
 
 export function messageType(message: unknown): string | undefined {
     return typeof (message as { type?: unknown })?.type === 'string'

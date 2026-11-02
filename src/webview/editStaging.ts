@@ -9,7 +9,7 @@ export function stageIntegrityEditTransaction(edits: Array<[number, number]>): n
         if (prior) { previous.push(prior); }
     }
     if (previous.length === 0) { return 0; }
-    S.undoStack.push(previous);
+    S.undoStack.push({ kind: 'bytes', patches: previous });
     S.redoStack.length = 0;
     S.editMode = true;
     return previous.length;
@@ -36,7 +36,7 @@ function commitScratchValue(address: number, value: number, original: number): v
 export function fillSelectionTransaction(range: SelectionRange | null, fillVal: number): void {
     const prev = buildFillTransaction(range, fillVal);
     if (prev.length > 0) {
-        S.undoStack.push(prev);
+        S.undoStack.push({ kind: 'bytes', patches: prev });
         S.redoStack.length = 0;
     }
 }

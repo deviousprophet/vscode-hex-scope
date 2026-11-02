@@ -3,10 +3,22 @@
 
 import type { SerializedParseResult, SegmentLabel, LabelDraftPreview, SearchMode, SearchEndianness, BitFieldAllocation, MemRow, TypeDef, TypeInstance } from '../core/types';
 import type { SegmentIndexEntry } from '../core/memory';
+import type { RangePatch } from '../core/structural';
 import type { ProfileSummary } from '../webviewProtocol';
 import type { SidebarTab } from './components/sidebar/sidebar';
 
 export const BPR = 16; // bytes per memory row
+
+/** One undoable edit: an address overlay or a length-changing structural patch. */
+export type EditTransaction =
+    | { kind: 'bytes'; patches: Array<[number, number]> }
+    | {
+        kind: 'structure';
+        patch: RangePatch;
+        /** Pending byte overlay before/after the structural shift (addresses remapped). */
+        editsBefore: Array<[number, number]>;
+        editsAfter: Array<[number, number]>;
+    };
 
 export const S = {
     documentGeneration: 0,
@@ -32,8 +44,12 @@ export const S = {
     memRows:      []     as MemRow[],
     editMode:     false  as boolean,
     edits:        new Map<number, number>(),   // addr → new value (pending saves)
-    undoStack:    [] as Array<Array<[number, number]>>,  // stack of [addr, prevVal] transactions
-    redoStack:    [] as Array<Array<[number, number]>>,  // stack of [addr, newVal] inverse transactions
+    /** True when segments differ from the last loaded/saved document (length-changing edits). */
+    structuralDirty: false as boolean,
+    /** Last loaded/saved segments; Cancel restores this baseline. */
+    savedSegments: [] as SerializedParseResult['segments'],
+    undoStack:    [] as EditTransaction[],  // stack of undoable transactions
+    redoStack:    [] as EditTransaction[],  // stack of inverse transactions
     types:            [] as TypeDef[],             // user-defined type definitions
     typeInstances:    [] as TypeInstance[],        // saved (typeId, addr) overlay instances
     integrityHighlight: null as null | {

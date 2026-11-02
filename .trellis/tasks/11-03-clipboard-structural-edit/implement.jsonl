@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "runtime/module placement and ownership for new core and webview modules"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "protocol unions, boundary validation, address rules"}
+{"file": ".trellis/spec/frontend/document-formats.md", "reason": "IHEX/SREC/bin serialization contracts for length-changing saves"}
+{"file": ".trellis/spec/frontend/editing-save-external-change.md", "reason": "transaction, undo, save, discard, external-change contracts"}
+{"file": ".trellis/spec/frontend/selection-inspect-copy.md", "reason": "selection and copy/byte-tool contracts"}
+{"file": ".trellis/spec/frontend/components/component-menu-controller.md", "reason": "menu markup and command emission contract"}
+{"file": ".trellis/spec/frontend/components/component-toolbar.md", "reason": "toolbar dirty/edit state contract"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "required tests and gate commands"}
