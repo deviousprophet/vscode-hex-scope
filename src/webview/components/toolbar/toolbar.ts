@@ -24,6 +24,8 @@ export interface ToolbarRenderState {
     ascii: boolean;
     editMode: boolean;
     dirtyCount: number;
+    /** True when a length-changing structural edit is staged (Save stays enabled). */
+    structural: boolean;
     /** False for raw binary files (no record list); hides the Records tab. */
     showRecordView: boolean;
 }
@@ -48,8 +50,53 @@ function disabledAttr(disabled: boolean): string {
     return disabled ? ' disabled' : '';
 }
 
-function dirtyEditText(count: number): string {
+function dirtyEditText(count: number, structural: boolean): string {
+    return structural ? structuralDirtyText(count) : byteDirtyText(count);
+}
+
+function byteDirtyText(count: number): string {
     return count > 0 ? `${count} unsaved byte${count === 1 ? '' : 's'}` : '';
+}
+
+function structuralDirtyText(count: number): string {
+    return count > 0 ? `${byteDirtyText(count)} + structure` : 'structural change';
+}
+
+function isSaveDisabled(state: ToolbarRenderState): boolean {
+    return state.dirtyCount === 0 && !state.structural;
+}
+
+interface ViewFlags {
+    memory: boolean;
+    asciiActive: boolean;
+    editButtonHidden: boolean;
+    editing: boolean;
+}
+
+function viewFlags(state: ToolbarRenderState): ViewFlags {
+    const memory = isMemory(state);
+    return {
+        memory,
+        asciiActive: isAsciiActive(state, memory),
+        editButtonHidden: isEditButtonHidden(state, memory),
+        editing: isEditing(state, memory),
+    };
+}
+
+function isMemory(state: ToolbarRenderState): boolean {
+    return state.view === 'memory';
+}
+
+function isAsciiActive(state: ToolbarRenderState, memory: boolean): boolean {
+    return memory && state.ascii;
+}
+
+function isEditButtonHidden(state: ToolbarRenderState, memory: boolean): boolean {
+    return memory && !state.editMode;
+}
+
+function isEditing(state: ToolbarRenderState, memory: boolean): boolean {
+    return memory && state.editMode;
 }
 
 function setDisplay(id: string, visible: boolean): void {
@@ -63,7 +110,7 @@ function setActive(id: string, active: boolean): void {
 
 /** Pure markup builder. SearchBar's `toHtml()` is injected as a slot. */
 export function renderToolbarHtml(searchBarHtml: string, s: ToolbarRenderState): string {
-    const mem = s.view === 'memory';
+    const flags = viewFlags(s);
     return `
         <div id="toolbar">
             <div class="view-tabs">
@@ -71,14 +118,14 @@ export function renderToolbarHtml(searchBarHtml: string, s: ToolbarRenderState):
                 <button id="btn-rec" class="${tabClass(s.view, 'record')}"${hiddenAttr(s.showRecordView)}>Records</button>
             </div>
             <div class="tb-sep"></div>
-            <button id="btn-ascii-toggle" class="${activeClass(mem && s.ascii)} tb-ascii-btn" type="button" title="Show or hide the decoded ASCII column"${hiddenAttr(mem)}>ASCII</button>
-            <button id="btn-edit-mode" class="tb-edit-btn" title="Enter edit mode"${hiddenAttr(mem && !s.editMode)}>&#11041; Edit</button>
-<div id="edit-mode-group" style="display:${groupDisplay(mem && s.editMode)}">
+            <button id="btn-ascii-toggle" class="${activeClass(flags.asciiActive)} tb-ascii-btn" type="button" title="Show or hide the decoded ASCII column"${hiddenAttr(flags.memory)}>ASCII</button>
+            <button id="btn-edit-mode" class="tb-edit-btn" title="Enter edit mode"${hiddenAttr(flags.editButtonHidden)}>&#11041; Edit</button>
+<div id="edit-mode-group" style="display:${groupDisplay(flags.editing)}">
                 <span class="tb-editing-pill" title="Underlined bytes are edited">&#9679; EDITING</span>
                 <span id="tb-seledit-chip" class="tb-seledit-chip" title="Editing confined to the selected range" hidden>SELECTION</span>
-                <span id="edit-dirty-count">${dirtyEditText(s.dirtyCount)}</span>
+                <span id="edit-dirty-count">${dirtyEditText(s.dirtyCount, s.structural)}</span>
                 <span id="edit-status" role="status"></span>
-                <button id="btn-save" class="tb-save-btn" title="Save edits to file"${disabledAttr(s.dirtyCount === 0)}>&#128190; Save</button>
+                <button id="btn-save" class="tb-save-btn" title="Save edits to file"${disabledAttr(isSaveDisabled(s))}>&#128190; Save</button>
                 <button id="btn-cancel" class="tb-cancel-btn" title="Discard all edits">&#10005; Cancel</button>
             </div>
             <span id="load-progress" class="tb-load-progress" role="status" hidden></span>
@@ -92,6 +139,7 @@ export class Toolbar {
     private editMode = false;
     private ascii = false;
     private dirtyCount = 0;
+    private structural = false;
     private recordViewAvailable = true;
     private mounted = false;
 
@@ -119,6 +167,7 @@ export class Toolbar {
             ascii: this.ascii,
             editMode: this.editMode,
             dirtyCount: this.dirtyCount,
+            structural: this.structural,
             showRecordView: this.recordViewAvailable,
         });
     }
@@ -157,13 +206,14 @@ export class Toolbar {
         setActive('btn-ascii-toggle', this.view === 'memory' && on);
     }
 
-    /** Dirty count text + Save disabled (count === 0). */
-    setDirty(count: number): void {
+    /** Dirty count text + Save disabled (count === 0 and no structural change). */
+    setDirty(count: number, structural = false): void {
         this.dirtyCount = count;
+        this.structural = structural;
         const span = document.getElementById('edit-dirty-count');
-        if (span) { span.textContent = dirtyEditText(count); }
+        if (span) { span.textContent = dirtyEditText(count, structural); }
         const save = document.getElementById('btn-save') as HTMLButtonElement | null;
-        if (save) { save.disabled = count === 0; }
+        if (save) { save.disabled = count === 0 && !structural; }
     }
 
     /** Selection-edit session chip: separate badge; static count (selected mapped bytes). */

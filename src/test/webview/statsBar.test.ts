@@ -109,3 +109,15 @@ suite('webview stats bar', () => {
         assert.strictEqual(el.textContent, 'stale');
     });
 });
+
+suite('webview stats bar (structural staleness)', () => {
+    teardown(() => {
+        if (currentDom) { cleanupDom(currentDom); currentDom = null; }
+    });
+
+    test('a stale record list renders an em dash instead of the old count', () => {
+        currentDom = installDom();
+        renderStats(parseResult('ihex', 8), true);
+        assert.deepStrictEqual(stats(currentDom), ['IHEX', 'Bytes=8 B', 'Records=\u2014', 'Segments=1']);
+    });
+});

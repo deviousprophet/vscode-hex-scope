@@ -31,15 +31,19 @@ export function renderMenuHtml(state: MenuState): string {
         body;
 }
 
-function menuItem(cmd: string, label: string, hint = ''): string {
-    return `<div class="menu-item" data-cmd="${cmd}" role="menuitem" tabindex="-1">` +
+function menuItem(cmd: string, label: string, hint = '', disabled = false): string {
+    const cls = disabled ? ' menu-disabled' : '';
+    const aria = disabled ? ' aria-disabled="true"' : '';
+    return `<div class="menu-item${cls}" data-cmd="${cmd}" role="menuitem" tabindex="-1"${aria}>` +
         `<span class="menu-label">${esc(label)}</span>` +
         (hint ? `<span class="menu-hint">${esc(hint)}</span>` : '') +
         `</div>`;
 }
 
-function menuSubmenu(label: string, id: string, body: string): string {
-    return `<div class="menu-item menu-has-sub" data-sub="${id}" role="menuitem" tabindex="-1">` +
+function menuSubmenu(label: string, id: string, body: string, disabled = false): string {
+    const cls = disabled ? ' menu-disabled' : '';
+    const aria = disabled ? ' aria-disabled="true"' : '';
+    return `<div class="menu-item menu-has-sub${cls}" data-sub="${id}" role="menuitem" tabindex="-1"${aria}>` +
         `<span class="menu-label">${esc(label)}</span>` +
         `<div class="menu-submenu">${body}</div>` +
         `</div>`;
@@ -60,10 +64,29 @@ function goAddressRow(state: MenuState): string {
 }
 
 function interactionRows(state: MenuState): string {
+    const cutRegion = state.editMode
+        ? menuItem('cut-region', 'Cut Region\u2026', '', state.locked)
+        : '';
     return menuItem('copy-address', 'Copy Address') +
         goAddressRow(state) +
         menuItem('select-all', 'Select all') +
-        menuItem('select-segment', 'Select segment');
+        menuItem('select-segment', 'Select segment') +
+        MENU_SEP +
+        menuItem('copy-region', 'Copy Region\u2026') +
+        cutRegion;
+}
+
+/** Edit-mode clipboard actions: Cut plus the Paste modes. */
+function clipboardRows(state: MenuState): string {
+    return menuItem('cut-selection', 'Cut', 'Ctrl+X', state.locked) +
+        menuSubmenu('Paste', 'paste', pasteModeRows(state), state.locked);
+}
+
+function pasteModeRows(state: MenuState): string {
+    return menuItem('paste-replace', 'Replace', '', state.locked) +
+        menuItem('paste-before', 'Insert Before', '', state.locked) +
+        menuItem('paste-after', 'Insert After', '', state.locked) +
+        menuItem('paste-at', 'At address\u2026', '', state.locked);
 }
 
 /** "Edit selected bytes" session launcher, inside the edit-only Patch/Fill group. */
@@ -140,7 +163,7 @@ function buildMultiByteBody(state: MenuState): string {
         // Edit actions group — visible only in edit mode; shares the group
         // with Patch / Fill.
         (editMode
-            ? MENU_SEP + editSelectedRow(state) + menuSubmenu('Patch / Fill', 'fill', buildFillMenu(len))
+            ? MENU_SEP + clipboardRows(state) + editSelectedRow(state) + menuSubmenu('Patch / Fill', 'fill', buildFillMenu(len))
             : '');
 }
 
@@ -155,5 +178,5 @@ function buildSingleByteBody(state: MenuState): string {
         menuSubmenu('Copy as\u2026', 'copy', buildSingleCopyAsMenu(value)) +
         MENU_SEP +
         interactionRows(state) +
-        (state.editMode ? MENU_SEP + menuSubmenu('Patch / Fill', 'fill', buildFillMenu(1)) : '');
+        (state.editMode ? MENU_SEP + clipboardRows(state) + menuSubmenu('Patch / Fill', 'fill', buildFillMenu(1)) : '');
 }

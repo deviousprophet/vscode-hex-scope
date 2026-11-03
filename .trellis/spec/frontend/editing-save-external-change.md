@@ -43,8 +43,19 @@ function discardSessionUndo(undo: Map<number, number>): void; // revert staged b
 function restoreEditedBytes(prev: Array<[number, number]>): void;
 function advanceWithinRange(addr: number, end: number, isMapped: (a: number) => boolean): number | null;
 
+// Structural edits (length-changing)
+type EditTransaction =
+    | { kind: 'bytes'; patches: Array<[number, number]> }
+    | { kind: 'structure'; patch: RangePatch; editsBefore: Array<[number, number]>; editsAfter: Array<[number, number]> };
+function applyStructuralInsert(addr: number, bytes: readonly number[]): boolean;
+function applyStructuralReplace(start: number, end: number, bytes: readonly number[]): boolean;
+function applyStructuralDelete(start: number, end: number): boolean;
+function effectiveSegments(): StructuralSegment[];   // current segments + folded byte overlay
+
 type WebviewToProviderMessage =
     | { type: 'saveEdits'; edits: Array<[number, number]> }
+    | { type: 'saveDocument'; segments: Array<{ startAddress: number; data: ArrayBuffer }> }
+    | { type: 'promptAddress'; purpose: 'paste-at' | 'region-copy' | 'region-cut' }
     | { type: 'reloadAccepted' }
     | { type: 'repairAndReload' }
     | ...;
@@ -77,8 +88,15 @@ type WebviewToProviderMessage =
 - Session staging is LIVE: each full typed byte enters `S.edits` immediately via `stageSessionByte` (first-seen prior value recorded in the session undo snapshot; an unchanged value stages nothing), then `refreshAfterLocalEdit()` rerenders the grid — typed values + dirty underline appear while typing, exactly like single-byte editing. The active range is tinted `.sel-edit` (paint-based, repainted after every rerender), distinct from plain selection.
 - Session exit: Escape or any selection-modifying input (`updateByteSelection`, grid arrows, click-outside, struct selection, search-result navigation) — also record-view switch and edit discard. `commitSelectedBytesSession` calls `flushSessionUndo`, pushing the accumulated snapshot as **one** `S.undoStack` transaction (Ctrl+Z restores the whole session), keeps the selection, and restores the toolbar pill; a partially-typed nibble is discarded silently. `discardSelectedBytesSession` (`handleInitMessage` / toolbar Discard `cancelEdits`) reverts staged bytes via `discardSessionUndo` without any undo entry.
 - Session feedback: `setSectionEdit(active, count)` shows a **sibling** toolbar chip `#tb-seledit-chip` ("SELECTION · N B", static mapped-bytes count at activation) next to the unchanged EDITING pill while a session runs; hidden on commit.
-- Paste (`onCopyPasteKeydown`, Ctrl+V / Cmd+V) reads clipboard via `navigator.clipboard.readText()`, applies hex-first parsing via `parsePasteText()` (fallback to raw ASCII), then enters through `stageIntegrityEditTransaction()` for undo support. Aborts if `isEditBlocked()` or no selection. Clears nibble buffer before paste.
+- Paste (`onCopyPasteKeydown`, Ctrl+V / Cmd+V) reads clipboard via `navigator.clipboard.readText()`, applies hex-first parsing via `parsePasteText()` (fallback to raw ASCII), then replaces the selection. An equal-length replace enters through `stageIntegrityEditTransaction()` for undo support; a different length routes through the structural layer. Aborts if `isEditBlocked()` or no selection. Clears nibble buffer before paste.
 - Copy (`onCopyPasteKeydown`, Ctrl+C / Cmd+C) formats selected bytes via `formatCopyCommand()` using `'hex'` or `'ascii'` format depending on `S.lastClickColumn`.
+- Cut (`Ctrl+X`) and context-menu cut copy first, then remove the mapped selection through the structural layer. Clipboard writes are system-wide plain text, so copy/cut/paste works across HexScope editor instances.
+- Structural edits (`src/core/structural.ts` + `src/webview/structuralEdit.ts`) replace the mapped bytes in an inclusive range and insert clipboard bytes at the range start. Insert shifts every mapped byte at or after the address right; delete shifts later data left by the removed count. Patches are reversible and store only removed runs + inserted bytes.
+- Structural edits mutate the working document's `segments` immediately, remap the pending byte overlay, rebuild the segment index/memory rows/total byte count, refresh the Inspector/stats consumers, push one `{ kind: 'structure' }` undo transaction, clear redo, and set `S.structuralDirty`. `S.savedSegments` is the last loaded/saved baseline; Cancel restores it. Structural undo/redo recompute `structuralDirty` with `segmentsEqual`, so undoing the only structural edit returns to a clean document.
+- Structural save (`saveDocument`) sends effective segments (pending byte overlay folded in). The host rebuilds IHEX/SREC text, parses it with the worker, rejects any new checksum/malformed errors before writing, then writes the whole file and posts `savedEdits { generation, parseResult }` (full reload). Raw `.bin` requires exactly one segment at the current base (empty allowed); disjoint segments or a base drift are rejected, and the parse result is rebuilt at the same base. Byte-only saves keep the fast splice path and `saveEdits`.
+- Structural dirtiness is unsaved work: `hasUnsavedEdits`, Save enablement, the dirty label, and the external-change conflict flow all include it. Script runs, script-backed integrity checks, and the Records view are refused until the structural change is saved because the host still holds the pre-edit bytes.
+- An external-change error replaces the document; any edit history or structural transaction from the old document is discarded (`clearEditModel`) even when only a structural change was staged.
+- Structural edits do not move labels, integrity checks, or overlay instances; the UI warns once per operation and marks script-resolved instance values stale. The Records view is unavailable until the structural change is saved.
 - `S.lastClickColumn` is set on `mousedown` on hex/char cells, cleared on new file load (`applyInitialState`).
 
 ### 4. Validation & Error Matrix
@@ -89,6 +107,12 @@ type WebviewToProviderMessage =
 | Fill byte equals byte's current value | No edit entry, no undo entry, byte stays clean — dirty bar unchanged. |
 | Fill byte equals byte's original value after prior edit | Revert: remove the `S.edits` entry, byte clean. |
 | Fill byte differs from byte's current value | Stage edit with prior current value recorded for undo. |
+| Structural insert/delete target | Mapped bytes move with the address shift; patches invert exactly; undo restores the segment layout and pending overlay. |
+| Structural save text rebuild | Non-data records (IHEX start/EOF, SREC S0/termination) and unknown lines preserved; data records regenerated with valid checksums; parse validation runs before the write. |
+| Structural save on raw `.bin` | Single buffer written (length may change); no splice plan, checksums, or records. |
+| Structural edit while a script check/run is requested | Refused until saved; the host document is stale. |
+| Structural edit while externally locked | Refused. |
+| Cancel/discard with structural edits | Restores `S.savedSegments`, clears the overlay and history. |
 | Edit transaction includes unmapped address | Skip that entry; apply mapped changes; return `false` only when no byte changed. Never create phantom memory. |
 | Multiple updates target same address in one integrity fix | Compatible duplicates merge; conflicting values reject atomically. |
 | Save write/reparse fails | Keep pending edits and surface error; do not pretend saved. |
@@ -113,6 +137,7 @@ type WebviewToProviderMessage =
 ### 6. Tests Required
 
 - Transactions: one-byte, fill range, multi-edit integrity transaction, duplicate/conflict, undo, empty/no-op, unmapped target. Fill: assert no edit/undo entry when byte already equals fill value; assert revert (entry removed) when fill restores original value; assert undo records prior current value of the byte actually changed.
+- Structural: insert inside/at-start/into-gap, delete single/multi/gap-spanning, replace grow/shrink/equal, patch apply/invert round-trip, address zero, 32-bit overflow refusal, raw-binary disjoint refusal, remapped pending byte edits, undo/redo, discard baseline.
 - Serialization: edits across records, unchanged no-edit input, checksum update, whitespace/EOL/non-data preservation for both formats.
 - Raw binary: `applyBinEdits` filters unmapped/non-byte values, records prior bytes, and preserves length; `revertBinEdits` restores exactly; the session save writes the buffer with no checksum work; `createExternalChangeGate` with `sameBytes`/`sameDocumentSource` detects byte changes and unchanged copies.
 - Model: `savedEdits` clear/rebuild invalidations; external change lock/conflict/error/repair transitions.

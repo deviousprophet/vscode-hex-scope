@@ -1,7 +1,13 @@
 import { S } from '../state';
 import { getByte } from './memoryData';
+import type { SerializedSegment } from '../../core/types';
 
 export type SelectionRange = { start: number; end: number };
+
+/** Current working segments (empty when no document is loaded). */
+export function mappedSegments(): ReadonlyArray<SerializedSegment> {
+    return S.parseResult?.segments ?? [];
+}
 
 export function currentSelectionRange(): SelectionRange | null {
     if (S.selStart === null) { return null; }

@@ -16,6 +16,8 @@ function resetState(): void {
     S.currentView = 'memory';
     S.editMode = false;
     S.edits.clear();
+    S.structuralDirty = false;
+    S.savedSegments = [];
     S.undoStack.length = 0;
     S.types = [];
     S.typeInstances = [];
@@ -434,6 +436,7 @@ function noOpHandlers(): ProviderMessageHandlers {
         scriptSaveFailed: () => {},
         activateScriptsTab: () => {},
         focusBinBaseAddress: () => {},
+        addressPromptResult: () => {},
     };
 }
 

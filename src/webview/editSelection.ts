@@ -33,7 +33,7 @@ export function stageSessionByte(undo: Map<number, number>, addr: number, value:
 /** Commit exit: push the session's accumulated priors as ONE undo entry. */
 export function flushSessionUndo(undo: Map<number, number>): void {
     if (undo.size === 0) { return; }
-    S.undoStack.push(Array.from(undo.entries()));
+    S.undoStack.push({ kind: 'bytes', patches: Array.from(undo.entries()) });
     S.redoStack.length = 0;
     S.editMode = true;
 }

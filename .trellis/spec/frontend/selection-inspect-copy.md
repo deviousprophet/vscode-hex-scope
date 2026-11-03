@@ -14,15 +14,34 @@ function selectedBytes(): number[];
 function formatCopyCommand(cmd: CopyCommand, bytes: number[]): string;
 function formatAnalyzeCommand(cmd: AnalyzeCommand, bytes: number[]): AnalyzeResult;
 function contextCommandResult(cmd: string, bytes: number[], editMode: boolean, selectionStart?: number): ContextCommandResult;
+
+// Clipboard orchestration (src/webview/clipboardEdit.ts)
+type PasteMode = 'replace' | 'insert-before' | 'insert-after';
+interface ClipboardActionResult { ok: boolean; message: string; selection?: { start: number; end: number }; structural?: boolean }
+function copySelection(format?: 'hex' | 'ascii'): Promise<ClipboardActionResult>;
+function cutSelection(): Promise<ClipboardActionResult>;
+function pasteSelection(mode: PasteMode): Promise<ClipboardActionResult>;
+function pasteAtAddress(addr: number): Promise<ClipboardActionResult>;
+function copyRegion(from: number, to: number): Promise<ClipboardActionResult>;
+function cutRegion(from: number, to: number): Promise<ClipboardActionResult>;
+
+// Clipboard parsing (src/webview/pasteUtils.ts)
+function parseClipboardBytes(text: string): number[];
 ```
 
 ### 3. Contracts
 
 - Selection ranges are inclusive and normalized. Shift-click/drag expands selection; context commands read bytes through the edit-aware byte accessor. `selectedBytes()` skips unmapped addresses inside a spanning selection (parity with the keyboard copy path; no zero-fill).
-- Copy/analyze byte payloads are gap-filtered: `selectedBytes()` and `collectSelectedBytes()` (keyboard path) both skip unmapped addresses; selection fully inside an unmapped gap yields `[]` and emits no copy.
+- Copy/cut/analyze byte payloads are gap-filtered and edit-aware: `bytesInRange` reads `S.edits` first, then segment bytes; `selectedBytes()` skips unmapped addresses. A selection fully inside an unmapped gap yields `[]` and emits no copy.
 - Inspector decodes selected bytes using shared per-file endian and updates when selection, endian, or pending edits change.
 - Copy commands are closed unions (`hex`, raw hex, binary, ASCII, decimal/hex arrays, Base64, decimal, C array). Analyze commands are validated before dispatch.
 - Copy output is deterministic and context menu actions operate on the explicit current selection/target.
+- Clipboard payloads are plain hex text (`formatCopyCommand('hex', bytes)`) so a copy in one HexScope editor pastes into another editor instance or an external tool. Paste accepts the existing spaced/raw/`0x`-prefixed forms and falls back to raw ASCII bytes; `parseClipboardBytes` lives in `pasteUtils.ts`.
+- `cutSelection` writes the clipboard first, then deletes the selected mapped bytes through the structural edit layer. Cut and paste require edit mode and an unlocked document; copy and region copy stay read-only.
+- Paste modes: **Replace** overwrites the selected mapped bytes (equal lengths use the byte transaction path; different lengths replace the range structurally), **Insert Before** inserts at the selection start, **Insert After** inserts at selection end + 1, and **At address** inserts at a host-prompted address (creating memory for HEX/SREC).
+- Region copy/cut prompt for inclusive From/To addresses; copy leaves the selection unchanged, cut deletes the mapped bytes in the range after copying.
+- `mappedSelectionBounds()` returns the first/last mapped address in the selection without iterating unmapped address space; clipboard range reads iterate segments, not every address.
+- A structural edit clears search matches and marks script-resolved instance addresses stale; labels, integrity checks, and overlay instances are not moved (the UI warns once per structural operation).
 - `copy-address` copies `selectionStart` as eight uppercase hexadecimal digits without `0x`; it requires at least one mapped selected byte and a non-negative integer start address. Multi-byte selections copy their first address.
 - CRC algorithms: `crc8` = CRC-8 (poly 0x07, init 0x00), `crc16` = real CRC-16/Modbus (poly 0xA001, init 0xFFFF, check vector "123456789" → 0x4B37), `crc32` = CRC-32/ISO-HDLC (check vector "123456789" → 0xCBF43926). Same functions back the scripting API.
 
@@ -33,6 +52,12 @@ function contextCommandResult(cmd: string, bytes: number[], editMode: boolean, s
 | Selection spans an unmapped byte | `selectedBytes()` skips the address; all-unmapped selection yields `[]` and copies nothing. Keep this parity with the keyboard copy path explicit in copy/analyze tests. |
 | Unknown copy/analyze command | Type guard rejects it. |
 | `copy-address` with no mapped bytes, missing start, non-integer start, or negative start | No-op. |
+| Cut/paste while not in edit mode or while externally locked | Refused with a status message; the document is unchanged. |
+| Clipboard write fails during cut | The cut is refused; no bytes are removed. |
+| Clipboard is empty or parses to zero bytes | Paste is refused with a status message. |
+| Paste target exceeds the 32-bit address space | Refused; no segment is created. |
+| Raw `.bin` paste target outside the single image range | Refused; the raw file never grows a disjoint segment. |
+| Region From > To or outside the 32-bit address space | Refused with a status message. |
 | 64-bit Inspector value | Preserve precision with `bigint` formatting. |
 
 ### 5. Good/Base/Bad Cases
@@ -46,6 +71,8 @@ function contextCommandResult(cmd: string, bytes: number[], editMode: boolean, s
 
 - Selection: click, shift, drag, context target, inclusive range, edited/unmapped reads.
 - Gap-filtered copy/analyze: selection spanning a gap copies mapped bytes only (assert exact array, no `0x00`); all-unmapped selection yields `[]` (Copy/Analyze no-op); edited byte in range copied as edited value. Assert parity with keyboard copy path.
+- Clipboard: spaced/raw/`0x`/ASCII parsing, equal-length replace stays a byte transaction, longer/shorter replace grows/shrinks the document, insert before/after/at-address, cut removes after a successful write and refuses on write failure, region copy leaves the selection unchanged, region cut removes the range, edit-mode/lock guards, raw-binary range refusal.
+- Structural transaction: remapped pending byte edits, undo restores segments and overlay, redo reapplies.
 - Byte tools: every command format, ASCII substitutions, Base64, arrays, CRC/analyze outputs, invalid command guards.
 - Context commands: `copy-address` renders for single and multi-byte menus, copies the selection start as uppercase padded hex, and no-ops without mapped bytes or a valid start.
 - Inspector/UI assertions live in `src/test/webview/webview.test.ts`; formatting in `utils.test.ts`.

@@ -18,7 +18,7 @@ import {
 } from '../../webview/render/virtualScroll';
 import { undoLastEditTransaction, redoLastEditTransaction } from '../../webview/editTransactions';
 import { fillSelectionTransaction, stageIntegrityEdit, stageIntegrityEditTransaction } from '../../webview/editStaging';
-import { parsePasteText, pasteOverflowNotice } from '../../webview/pasteUtils';
+import { parsePasteText } from '../../webview/pasteUtils';
 import { advanceWithinRange, discardSessionUndo, flushSessionUndo, stageSessionByte } from '../../webview/editSelection';
 import { mappedSelectionRange, selectedBytes } from '../../webview/memory/selection';
 import { copyCommandResult, contextCommandResult } from '../../webview/contextCommands';
@@ -37,6 +37,8 @@ function resetState(): void {
     S.currentView  = 'memory';
     S.editMode     = false;
     S.edits.clear();
+    S.structuralDirty = false;
+    S.savedSegments = [];
     S.undoStack.length = 0;
     S.redoStack.length = 0;
     S.types          = [];
@@ -1103,7 +1105,7 @@ suite('Integrity Checks sidebar', () => {
         assert.strictEqual(S.edits.has(0x1000), false);
         assert.strictEqual(S.edits.get(0x1001), 0xDE);
         assert.strictEqual(S.undoStack.length, 1);
-        assert.deepStrictEqual(S.undoStack[0], [[0x1000, 0x42], [0x1001, 0xAD]]);
+        assert.deepStrictEqual(S.undoStack[0], { kind: 'bytes', patches: [[0x1000, 0x42], [0x1001, 0xAD]] });
     });
 
     test('undoLastEditTransaction restores fill', () => {
@@ -1116,7 +1118,7 @@ suite('Integrity Checks sidebar', () => {
         initFlatBytes();
         S.editMode = true;
         S.edits.set(0x1000, 0x42);
-        S.undoStack.push([[0x1000, 0x00]]);
+        S.undoStack.push({ kind: 'bytes', patches: [[0x1000, 0x00]] });
         const ok = undoLastEditTransaction();
         assert.ok(ok);
         assert.strictEqual(S.edits.has(0x1000), false);
@@ -1132,7 +1134,7 @@ suite('Integrity Checks sidebar', () => {
         initFlatBytes();
         S.editMode = true;
         S.edits.set(0x1000, 0x42);
-        S.undoStack.push([[0x1000, 0x00]]);
+        S.undoStack.push({ kind: 'bytes', patches: [[0x1000, 0x00]] });
         assert.ok(undoLastEditTransaction());
         assert.strictEqual(S.edits.has(0x1000), false);
         assert.ok(redoLastEditTransaction());
@@ -1149,13 +1151,13 @@ suite('Integrity Checks sidebar', () => {
         initFlatBytes();
         S.editMode = true;
         S.edits.set(0x1000, 0x42);
-        S.undoStack.push([[0x1000, 0x00]]);
+        S.undoStack.push({ kind: 'bytes', patches: [[0x1000, 0x00]] });
         assert.ok(undoLastEditTransaction());
         assert.strictEqual(S.edits.has(0x1000), false);
         assert.ok(redoLastEditTransaction());
         assert.strictEqual(S.edits.get(0x1000), 0x42);
         assert.strictEqual(S.undoStack.length, 1);
-        assert.deepStrictEqual(S.undoStack[0], [[0x1000, 0x00]]);
+        assert.deepStrictEqual(S.undoStack[0], { kind: 'bytes', patches: [[0x1000, 0x00]] });
         assert.ok(undoLastEditTransaction());
         assert.strictEqual(S.edits.has(0x1000), false);
     });
@@ -1170,7 +1172,7 @@ suite('Integrity Checks sidebar', () => {
         initFlatBytes();
         S.editMode = true;
         S.edits.set(0x1000, 0x42);
-        S.undoStack.push([[0x1000, 0x00]]);
+        S.undoStack.push({ kind: 'bytes', patches: [[0x1000, 0x00]] });
         assert.ok(undoLastEditTransaction());
         assert.strictEqual(S.redoStack.length, 1);
         stageIntegrityEditTransaction([[0x1000, 0x77]]);
@@ -1221,20 +1223,6 @@ suite('Integrity Checks sidebar', () => {
 
     test('parsePasteText parses single hex pair', () => {
         assert.deepStrictEqual(parsePasteText('FF'), [255]);
-    });
-
-    test('pasteOverflowNotice is null when nothing was pasted or nothing truncated', () => {
-        assert.strictEqual(pasteOverflowNotice(0, 0), null);
-        assert.strictEqual(pasteOverflowNotice(5, 5), null);
-        assert.strictEqual(pasteOverflowNotice(5, 3), null);
-    });
-
-    test('pasteOverflowNotice reports a partial paste', () => {
-        assert.match(pasteOverflowNotice(2, 5)!, /Pasted 2 of 5 bytes/);
-    });
-
-    test('pasteOverflowNotice reports a fully-blocked paste', () => {
-        assert.match(pasteOverflowNotice(0, 5)!, /Nothing pasted/);
     });
 });
 
@@ -1633,7 +1621,7 @@ suite('selection-edit session staging', () => {
         assert.strictEqual(S.undoStack.length, 0, 'no per-byte undo entries while typing');
         flushSessionUndo(undo);
         assert.strictEqual(S.undoStack.length, 1, 'one transaction for the session');
-        assert.deepStrictEqual(S.undoStack[0], [[0x1001, 0xAD], [0x1002, 0xBE]]);
+        assert.deepStrictEqual(S.undoStack[0], { kind: 'bytes', patches: [[0x1001, 0xAD], [0x1002, 0xBE]] });
         undoLastEditTransaction();
         assert.strictEqual(S.undoStack.length, 0);
         assert.strictEqual(getByte(0x1001), 0xAD, 'undo reverts the whole session');

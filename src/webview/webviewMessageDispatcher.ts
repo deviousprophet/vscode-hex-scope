@@ -35,6 +35,7 @@ const PROVIDER_MESSAGE_TYPES: readonly ProviderMessageType[] = [
     'activateScriptsTab',
     'activateProfilePicker',
     'focusBinBaseAddress',
+    'addressPromptResult',
 ];
 
 const PROVIDER_MESSAGE_TYPE_SET = new Set<string>(PROVIDER_MESSAGE_TYPES);

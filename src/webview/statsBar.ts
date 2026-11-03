@@ -2,20 +2,21 @@ import { fmtB } from './utils';
 import type { HexScopeFormat } from '../core/document';
 import type { SerializedParseResult } from '../core/types';
 
-export function renderStats(parseResult: SerializedParseResult | null): void {
+export function renderStats(parseResult: SerializedParseResult | null, recordsStale = false): void {
     const el = document.getElementById('stats-bar');
     if (!el || !parseResult) { return; }
 
     el.textContent = '';
     addStatsItem(el, null, formatLabel(parseResult.format), 'si-fmt', 'fmt-pill');
     addStatsItem(el, 'Bytes', fmtB(parseResult.totalDataBytes));
-    addRecordStats(el, parseResult);
+    addRecordStats(el, parseResult, recordsStale);
     addStatsItem(el, 'Segments', String(parseResult.segments.length));
 }
 
-function addRecordStats(el: HTMLElement, parseResult: SerializedParseResult): void {
+function addRecordStats(el: HTMLElement, parseResult: SerializedParseResult, recordsStale: boolean): void {
     if (parseResult.format === 'bin') { return; }
-    addStatsItem(el, 'Records', String(parseResult.recordCount ?? parseResult.records.length));
+    const count = recordsStale ? '\u2014' : String(parseResult.recordCount ?? parseResult.records.length);
+    addStatsItem(el, 'Records', count);
 }
 
 function addStatsItem(
