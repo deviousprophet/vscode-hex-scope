@@ -5,6 +5,13 @@ All notable changes to the Hex Scope extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] - 2026-11-08
+
+### Security
+
+- Updated the development toolchain to `minimatch` 11.0.5, closing a globparts denial-of-service
+- Updated the development toolchain to `glob` 14.0.4, closing an `AbortSignal` cancellation bypass
+
 ## [3.2.0] - 2026-11-08
 
 ### Added
