@@ -786,3 +786,39 @@ dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key:
         assert.strictEqual(document.activeElement, first, 'ArrowDown wraps inside the popover');
     });
 });
+suite('webview MenuController component (clipboard rows)', () => {
+    teardown(() => {
+        menuController.hide();
+        if (currentDom) { cleanupDom(currentDom); currentDom = null; }
+    });
+
+    test('copy region is always available; cut and paste are edit-only', () => {
+        const readOnly = renderMenuHtml(baseState());
+        assert.ok(readOnly.includes('data-cmd="copy-region"'));
+        assert.ok(!readOnly.includes('data-cmd="cut-region"'));
+        assert.ok(!readOnly.includes('data-cmd="cut-selection"'));
+        assert.ok(!readOnly.includes('data-sub="paste"'));
+
+        const editing = renderMenuHtml(baseState({ editMode: true }));
+        assert.ok(editing.includes('data-cmd="cut-region"'));
+        assert.ok(editing.includes('data-cmd="cut-selection"'));
+        assert.ok(editing.includes('data-sub="paste"'));
+        assert.ok(editing.includes('data-cmd="paste-replace"'));
+        assert.ok(editing.includes('data-cmd="paste-before"'));
+        assert.ok(editing.includes('data-cmd="paste-after"'));
+        assert.ok(editing.includes('data-cmd="paste-at"'));
+    });
+
+    test('cut/paste rows are disabled while the file is locked', () => {
+        const locked = renderMenuHtml(baseState({ editMode: true, locked: true }));
+        assert.ok(locked.includes('menu-disabled" data-cmd="cut-selection"'));
+        assert.ok(locked.includes('menu-disabled" data-cmd="paste-replace"'));
+        assert.ok(locked.includes('menu-disabled" data-cmd="paste-at"'));
+    });
+
+    test('single-byte menu exposes the same clipboard group', () => {
+        const html = renderMenuHtml(baseState({ len: 1, bytes: [0x42], goAddress: null, editMode: true }));
+        assert.ok(html.includes('data-cmd="cut-selection"'));
+        assert.ok(html.includes('data-sub="paste"'));
+    });
+});

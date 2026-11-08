@@ -36,6 +36,7 @@ interface ToolbarRenderState {
     ascii: boolean;        // ASCII button active (memory view)
     editMode: boolean;     // Edit hidden / EDITING group shown
     dirtyCount: number;    // #edit-dirty-count text + Save disabled
+    structural: boolean;   // true when a length-changing structural edit is staged
     showRecordView: boolean; // false for raw binaries → #btn-rec hidden
 }
 
@@ -47,7 +48,7 @@ export class Toolbar {
     setView(v: ToolbarView): void;                   // active tab + memory-only gating (ascii/edit-group)
     setEditMode(on: boolean): void;                  // Edit hidden / EDITING group shown
     setAscii(on: boolean): void;                     // ASCII button active class
-    setDirty(count: number): void;                   // #edit-dirty-count text + Save disabled (count===0)
+    setDirty(count: number, structural?: boolean): void; // #edit-dirty-count text + Save disabled (count===0 && !structural)
 setSectionEdit(active: boolean, count?: number): void;  // sibling SELECTION chip (static mapped count); never alters the EDITING pill
 setStatus(message: string): void;                // transient #edit-status message; auto-clears after 3s
 setRecordViewAvailable(show: boolean): void;     // hide #btn-rec and force Memory when unavailable
@@ -60,7 +61,7 @@ setRecordViewAvailable(show: boolean): void;     // hide #btn-rec and force Memo
 - **Host state via setters:** host calls `setView`/`setEditMode`/`setAscii`/`setDirty` on invalidation; component owns transient active/edit-group classes derived from them.
 - **Memory gating is internal to `setView`:** `applyMemoryGating` shows ascii button + Edit (mem && !editMode) / EDITING group (mem && editMode), and re-applies the ASCII `active` class on every view change (re-entry from record must not lose it).
 - **Records availability:** `setRecordViewAvailable(false)` (raw `.bin`) hides `#btn-rec` and reports `onViewChange('memory')` when record view is active; `renderToolbarHtml` applies `style="display:none"` to the tab when `showRecordView` is false. The host derives availability from `S.parseResult?.format !== 'bin'` and also guards `switchView('record')`.
-- **Dirty:** `setDirty(count)` sets `#edit-dirty-count` (empty at 0, else "N unsaved byte(s)") and Save `disabled = count===0`.
+- **Dirty:** `setDirty(count, structural)` sets `#edit-dirty-count` (empty at 0 with no structure; "N unsaved byte(s)" for bytes; "structural change" for a structure-only change; "N unsaved bytes + structure" when both) and Save `disabled = count===0 && !structural`.
 - **Responsive:** `#toolbar` scrolls horizontally (`overflow-x: auto`) when content exceeds the width; the search input shrinks (flex `0 1 180px`, `min-width: 70px`) before the fixed nav buttons/select so narrow webviews never clip the rightmost controls.
 - **SearchBar slot:** `toHtml()` embeds `${searchBar.toHtml()}` — SearchBar is its own component, mounts independently, doc-delegated. Toolbar never writes SearchBar DOM.
 - **SearchBar visibility:** host calls `searchBar.setVisible(view==='memory')` on switch (component-encapsulated `#search-box`); Toolbar unaware.
@@ -91,6 +92,8 @@ setRecordViewAvailable(show: boolean): void;     // hide #btn-rec and force Memo
 | Memory re-entry with ascii on | ASCII button shown AND `active` (re-applied by `applyMemoryGating`). |
 | Edit mode on | Edit hidden, EDITING group shown, Save/Cancel visible. |
 | dirtyCount 0 | `#edit-dirty-count` empty, Save disabled. |
+| structural true, count 0 | "structural change", Save enabled. |
+| structural true, count N | "N unsaved bytes + structure", Save enabled. |
 | dirtyCount N | "N unsaved byte(s)" text, Save enabled. |
 | Unbound file | Profile actions ⋮ items disabled (`menu-disabled`). |
 | Switch to a shared profile | Select `title` tooltip shows "· shared by N files"; one toast on the switch, never on open, never repeated. |
@@ -98,7 +101,7 @@ setRecordViewAvailable(show: boolean): void;     // hide #btn-rec and force Memo
 
 ## Tests Required
 
-`src/test/webview/components/toolbar.test.ts` (mocha + jsdom + cssImportHook): pure render (tabs active, ASCII memory-gated, edit hidden while editMode, EDITING group, dirty + save disabled, SearchBar slot), callback reports (view/ascii/edit/save/cancel), setters (setView/setEditMode/setAscii/setDirty), ASCII active survives record→memory re-entry, idempotent mount, Records tab hidden via `setRecordViewAvailable(false)` (and a reported Memory switch while record view is active). Existing `webview.test.ts` toolbar/edit assertions pass unchanged (parity gate). The profile bar + actions menu live in `src/webview/profilePicker.ts` (no shell unit harness — repo precedent: search/sidebar toggles likewise untested).
+`src/test/webview/components/toolbar.test.ts` (mocha + jsdom + cssImportHook): pure render (tabs active, ASCII memory-gated, edit hidden while editMode, EDITING group, dirty + save disabled, SearchBar slot), callback reports (view/ascii/edit/save/cancel), setters (setView/setEditMode/setAscii/setDirty), structural dirty label + Save enablement, ASCII active survives record→memory re-entry, idempotent mount, Records tab hidden via `setRecordViewAvailable(false)` (and a reported Memory switch while record view is active). Existing `webview.test.ts` toolbar/edit assertions pass unchanged (parity gate). The profile bar + actions menu live in `src/webview/profilePicker.ts` (no shell unit harness — repo precedent: search/sidebar toggles likewise untested).
 
 ## Anti-patterns
 

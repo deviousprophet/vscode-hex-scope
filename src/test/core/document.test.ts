@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { buildSplicePlan, spliceEditedLines, type SplicePatch } from '../../core/document';
+import { buildSplicePlan, rebuildTextDocument, spliceEditedLines, type SplicePatch } from '../../core/document';
 import { parseIntelHex } from '../../core/parser/intelHexParser';
 import { parseSRec } from '../../core/parser/srecParser';
 
@@ -154,5 +154,114 @@ suite('buildSplicePlan', () => {
         const plan = buildSplicePlan(':00000001FF', new Map(), 'ihex');
         assert.deepStrictEqual(plan.patches, []);
         assert.strictEqual(plan.newRaw, ':00000001FF');
+    });
+});
+suite('rebuildTextDocument', () => {
+    test('ihex rebuild preserves the start record, EOL, and trailing newline', () => {
+        const start = intelLine(4, 0x0000, 5, '00001000');
+        const raw = `${intelLine(2, 0, 4, '0001')}\r\n${intelLine(16, 0x1000, 0, DATA16)}\r\n${start}\r\n${intelLine(0, 0, 1, '')}\r\n`;
+        const segments = [{ startAddress: 0x10000, data: Uint8Array.from([1, 2, 3]) }];
+
+        const out = rebuildTextDocument(raw, segments, 'ihex');
+
+        assert.ok(out.endsWith('\r\n'), 'trailing CRLF preserved');
+        assert.ok(out.includes(start), 'start record preserved');
+        assert.strictEqual((out.match(/:00000001FF/g) ?? []).length, 1, 'one EOF record');
+        const parsed = parseIntelHex(out);
+        assert.strictEqual(parsed.checksumErrors, 0);
+        assert.strictEqual(parsed.malformedLines, 0);
+        assert.deepStrictEqual(Array.from(parsed.segments[0].data), [1, 2, 3]);
+        assert.strictEqual(parsed.segments[0].startAddress, 0x10000);
+    });
+
+    test('ihex rebuild emits an ELA record only when the upper address changes', () => {
+        const raw = `${intelLine(16, 0x1000, 0, DATA16)}\r\n${intelLine(0, 0, 1, '')}`;
+        const out = rebuildTextDocument(raw, [{ startAddress: 0x1000, data: Uint8Array.from([1, 2]) }], 'ihex');
+        assert.ok(!out.includes(':020000040000FA'), 'no redundant ELA at upper 0');
+        assert.strictEqual(parseIntelHex(out).segments[0].startAddress, 0x1000);
+
+        const high = rebuildTextDocument(raw, [{ startAddress: 0x20000, data: Uint8Array.from([3]) }], 'ihex');
+        assert.ok(high.includes(':020000040002F8'), 'ELA emitted for upper 2');
+        assert.strictEqual(parseIntelHex(high).segments[0].startAddress, 0x20000);
+    });
+
+    test('ihex rebuild keeps gaps as separate segments', () => {
+        const raw = `${intelLine(16, 0x1000, 0, DATA16)}\r\n${intelLine(0, 0, 1, '')}`;
+        const out = rebuildTextDocument(raw, [
+            { startAddress: 0x1000, data: Uint8Array.from([1]) },
+            { startAddress: 0x1010, data: Uint8Array.from([2]) },
+        ], 'ihex');
+        const parsed = parseIntelHex(out);
+        assert.strictEqual(parsed.segments.length, 2);
+        assert.strictEqual(parsed.segments[0].startAddress, 0x1000);
+        assert.strictEqual(parsed.segments[1].startAddress, 0x1010);
+    });
+
+    test('srec rebuild keeps S0 and termination, updates the count, and picks the width', () => {
+        const raw = `S00600004844521B\r\n${srecLine(1, 0x1000, DATA16)}\r\nS5030001FB\r\nS9031000EC`;
+        const segments = [
+            { startAddress: 0x1000, data: Uint8Array.from([1, 2]) },
+            { startAddress: 0x10000, data: Uint8Array.from([3]) },
+        ];
+        const out = rebuildTextDocument(raw, segments, 'srec');
+        assert.ok(out.startsWith('S00600004844521B'), 'S0 preserved');
+        assert.ok(out.includes('S5'), 'count record kept');
+        assert.match(out.trimEnd(), /S8[0-9A-F]+$/, 'S8 termination for 24-bit addresses');
+        const parsed = parseSRec(out);
+        assert.strictEqual(parsed.checksumErrors, 0);
+        assert.strictEqual(parsed.malformedLines, 0);
+        assert.strictEqual(parsed.startAddress, 0x1000, 'termination address preserved');
+        assert.strictEqual(parsed.segments.length, 2);
+        assert.strictEqual(parsed.segments[0].startAddress, 0x1000);
+        assert.strictEqual(parsed.segments[1].startAddress, 0x10000);
+    });
+
+    test('srec rebuild preserves LF and no trailing newline', () => {
+        const raw = `S00600004844521B\n${srecLine(1, 0x1000, DATA16)}\nS9031000EC`;
+        const out = rebuildTextDocument(raw, [{ startAddress: 0x1000, data: Uint8Array.from([1]) }], 'srec');
+        assert.ok(!out.includes('\r\n'));
+        assert.ok(!out.endsWith('\n'));
+    });
+});
+
+suite('rebuildTextDocument boundary cases', () => {
+    test('ihex splits a data record at the 64 KiB boundary and re-joins the segment', () => {
+        const raw = `${intelLine(16, 0x0000, 0, DATA16)}\r\n${intelLine(0, 0, 1, '')}`;
+        const data = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]);
+        const out = rebuildTextDocument(raw, [{ startAddress: 0xFFFC, data }], 'ihex');
+        const parsed = parseIntelHex(out);
+        assert.strictEqual(parsed.checksumErrors, 0);
+        assert.strictEqual(parsed.segments.length, 1);
+        assert.strictEqual(parsed.segments[0].startAddress, 0xFFFC);
+        assert.deepStrictEqual(Array.from(parsed.segments[0].data), Array.from(data));
+        assert.ok(out.includes(':020000040001F9'), 'ELA 0001 emitted for the upper half');
+    });
+
+    test('ihex rebuild preserves an unknown/malformed line', () => {
+        const raw = `; comment line\r\n${intelLine(16, 0x1000, 0, DATA16)}\r\n${intelLine(0, 0, 1, '')}`;
+        const out = rebuildTextDocument(raw, [{ startAddress: 0x1000, data: Uint8Array.from([1]) }], 'ihex');
+        assert.ok(out.includes('; comment line'));
+        assert.strictEqual(parseIntelHex(out).checksumErrors, 0);
+    });
+
+    test('srec rebuild preserves a malformed line and does not invent data', () => {
+        const raw = `S00600004844521B\nS1XX\n${srecLine(1, 0x1000, DATA16)}\nS9031000EC`;
+        const out = rebuildTextDocument(raw, [{ startAddress: 0x1000, data: Uint8Array.from([1]) }], 'srec');
+        assert.ok(out.includes('S1XX'));
+        const parsed = parseSRec(out);
+        assert.strictEqual(parsed.segments.length, 1);
+        assert.deepStrictEqual(Array.from(parsed.segments[0].data), [1]);
+    });
+});
+
+suite('rebuildTextDocument empty document', () => {
+    test('ihex empty document rebuilds to a single EOF record', () => {
+        assert.strictEqual(rebuildTextDocument('', [], 'ihex'), ':00000001FF');
+    });
+
+    test('srec empty document rebuilds to a termination record', () => {
+        const out = rebuildTextDocument('', [], 'srec');
+        assert.strictEqual(out, 'S9030000FC');
+        assert.strictEqual(parseSRec(out).segments.length, 0);
     });
 });

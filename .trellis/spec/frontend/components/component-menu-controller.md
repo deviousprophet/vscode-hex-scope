@@ -48,7 +48,7 @@ export interface MenuState {
     len: number;
     bytes: number[];
     editMode: boolean;
-    locked: boolean;             // external-change lock (edit-selected menu row disabled when true)
+    locked: boolean;             // external-change lock (edit/cut/paste rows disabled when true)
     endian: 'le' | 'be';
     goAddress: { address: number; valid: boolean } | null;   // null = len !== 4
 }
@@ -144,6 +144,13 @@ would wrongly reuse it.) Attached static popovers are shown with
   carries the `edit-selected` row (rendered when `bytes.length >= 2`; disabled
   unless `editMode && !locked`) — the host starts the selection-edit session on
   emit.
+- Clipboard rows: **Copy Region…** is always rendered; **Cut Region…**, **Cut**
+  (`Ctrl+X`), and the **Paste** submenu (`Replace`, `Insert Before`,
+  `Insert After`, `At address…`) render only in edit mode. Cut/paste rows carry
+  `menu-disabled` + `aria-disabled` while `locked`. Command ids:
+  `copy-region`, `cut-region`, `cut-selection`, `paste-replace`,
+  `paste-before`, `paste-after`, `paste-at`. The host prompts for addresses via
+  the provider `promptAddress` message and executes the clipboard action.
 - Field menu: `showFieldMenu` (overlayPanel.ts) renders per-field html
   (value-type/pointer disambiguators, overlay value kinds) into the shared
   container with its own `emit`; right-click/copy/pointer commands unchanged.
@@ -160,6 +167,8 @@ would wrongly reuse it.) Attached static popovers are shown with
 | Open while another menu is active | Current menu closed (no restore); new menu's snapshot taken fresh. |
 | Go address, len !== 4 | Row omitted (host-side render). |
 | Go address unmapped | Row `menu-disabled`, inert, `title="Not mapped"`; no `emit`. |
+| Cut/paste outside edit mode | Rows omitted entirely; Copy Region remains. |
+| Cut/paste while externally locked | Rows rendered with `menu-disabled` + `aria-disabled`; no `emit`. |
 | Custom fill invalid hex | `.menu-fill-invalid`, input focused, no emit/close. |
 | Click outside / Escape | Menu hides (Escape two-step with an open submenu). |
 | Focus leaves menu / window blur | Menu hides; inside-menu focus moves keep it open; window blur skips focus restore. |
@@ -172,7 +181,9 @@ would wrongly reuse it.) Attached static popovers are shown with
 
 `src/test/webview/components/menuController/menuController.test.ts` (mocha +
 jsdom + cssImportHook): render variants (multi/single-byte/editMode/goAddress
-valid+invalid), positioning/submenu flip, full keyboard matrix (arrows wrap +
+valid+invalid), clipboard row gating (Copy Region always; Cut/Paste edit-only;
+locked disables cut/paste; single-byte menu parity), positioning/submenu flip,
+full keyboard matrix (arrows wrap +
 skip-disabled, Home/End, submenu two-step, ArrowRight/Left,
 Enter-on-submenu, Enter-left-to-native-button, Escape two-step), dismissal
 (click-outside, focusout, window blur + skipRestore, Escape), focus restore,

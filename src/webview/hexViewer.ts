@@ -5,7 +5,16 @@ import { S, BPR }                                       from './state';
 import { postProviderMessage, vscode }                from './vscodeApi';
 import { esc, loadingProgressLabel } from './utils';
 import { rerender }                                   from './render/registry';
-import { parsePasteText, pasteOverflowNotice } from './pasteUtils';
+import {
+    copyRegion,
+    copySelection,
+    cutRegion,
+    cutSelection,
+    pasteAtAddress,
+    pasteSelection,
+    type ClipboardActionResult,
+} from './clipboardEdit';
+import { effectiveSegments } from './structuralEdit';
 import {
     getShowAscii,
     invalidateGridRender,
@@ -53,6 +62,7 @@ import { updateExternalChangeLockState } from './lock';
 
 import {
     clearEditModel,
+    hasUnsavedEdits,
     loadIncomingFile,
     rebuildMemoryRows,
     type ClearEditReason,
@@ -74,7 +84,6 @@ import {
 import { contextCommandResult, copyCommandResult } from './contextCommands';
 import { showToast } from './components/toast';
 import { binBaseField, configureBinBaseField } from './binBaseField';
-import { formatCopyCommand } from '../core/byteTools/copy';
 import type { InstanceAddressRequestEntry, InstanceParamRequestEntry } from '../webviewProtocol';
 import {
     effectiveInstanceParams, instanceUsesScriptAddress, instanceUsesScriptParams, type ParamResolution,
@@ -243,6 +252,12 @@ function scheduleInstanceAddressResolution(delayMs: number = ADDRESS_RESOLUTION_
 function startInstanceResolution(): void {
     pendingParamRequestId = null;
     pendingAddressRequestId = null;
+    // The host still holds the pre-structural bytes; resolve after the save.
+    if (S.structuralDirty) {
+        overlayPanel.markAddressesStale(S.documentGeneration);
+        overlayPanel.markParamsStale(S.documentGeneration);
+        return;
+    }
     requestNextInstanceParams();
 }
 
@@ -549,7 +564,10 @@ const integrityPanel = new IntegrityPanel({
         // Check add/edit/delete changes which scripts are used by the profile.
         refreshScriptUsages();
     },
-    onScriptCheckRequest: request => postProviderMessage({ type: 'runIntegrityScript', ...request }),
+    onScriptCheckRequest: request => {
+        if (S.structuralDirty) { showToast('Save the structural change before running checks'); return; }
+        postProviderMessage({ type: 'runIntegrityScript', ...request });
+    },
     onOpenScript: scriptPath => postProviderMessage({ type: 'openScript', scriptPath }),
     onRequestScriptList: () => postProviderMessage({ type: 'requestScriptList' }),
     onCreateScript: role => postProviderMessage({ type: 'createScript', template: role }),
@@ -583,7 +601,10 @@ function spanOf(segments: ReadonlyArray<{ startAddress: number; data: ArrayLike<
 
 const scriptsPanel = new ScriptsPanel({
     onRequestList: () => postProviderMessage({ type: 'requestScriptList' }),
-    onRunScript: (scriptPath, generation, selectionRange) => postProviderMessage({ type: 'runScript', scriptPath, generation, selectionRange }),
+    onRunScript: (scriptPath, generation, selectionRange) => {
+        if (S.structuralDirty) { showToast('Save the structural change before running scripts'); return; }
+        postProviderMessage({ type: 'runScript', scriptPath, generation, selectionRange });
+    },
     onCancelScript: scriptPath => postProviderMessage({ type: 'cancelScript', scriptPath }),
     onOpenScript: scriptPath => postProviderMessage({ type: 'openScript', scriptPath }),
     onScriptPermissionDecision: (requestId, decision, scope, capability) =>
@@ -926,13 +947,33 @@ const externalChange = new ExternalChange();
 function enterEditMode(): void {
     S.editMode = true;
     toolbar.setEditMode(true);
-    toolbar.setDirty(S.edits.size);
+    syncDirtyBar();
     if (S.currentView === 'memory') { memRerender(); }
 }
 
+/** Dirty units: staged bytes plus one structural-change marker. */
+function dirtyCount(): number {
+    return S.edits.size + (S.structuralDirty ? 1 : 0);
+}
+
+/** Push the byte count and structural flag to the toolbar in one place. */
+function syncDirtyBar(): void {
+    toolbar.setDirty(S.edits.size, S.structuralDirty);
+}
+
 function saveEdits(scriptPath?: string): void {
-    if (S.edits.size === 0) { return; }
+    if (!hasUnsavedEdits()) { return; }
+    if (S.structuralDirty) { saveStructuralDocument(); return; }
     postProviderMessage({ type: 'saveEdits', edits: Array.from(S.edits.entries()), ...(scriptPath ? { scriptPath } : {}) });
+}
+
+/** Structural save payload: current segments with the pending byte overlay folded in. */
+function saveStructuralDocument(): void {
+    const segments = effectiveSegments().map(segment => ({
+        startAddress: segment.startAddress,
+        data: segment.data.buffer.slice(segment.data.byteOffset, segment.data.byteOffset + segment.data.byteLength) as ArrayBuffer,
+    }));
+    postProviderMessage({ type: 'saveDocument', segments });
 }
 
 function cancelEdits(): void {
@@ -940,10 +981,11 @@ function cancelEdits(): void {
     clearNibbleBuffer();
     clearEditState('discard');
     toolbar.setEditMode(false);
-    toolbar.setDirty(S.edits.size);
+    syncDirtyBar();
     binBaseField.render();
     if (S.currentView === 'memory') { memRerender(); }
     inspectorPanel.setSelection(S.selStart, S.selEnd);
+    refreshStructuralConsumers();
 }
 
 function clearNibbleBuffer(): void {
@@ -1049,7 +1091,7 @@ function handleSessionKeypress(e: KeyboardEvent): void {
 
 /** Refresh edit-driven chrome after a local byte edit (typed/paste/fill/undo). */
 export function refreshAfterLocalEdit(): void {
-    toolbar.setDirty(S.edits.size);
+    syncDirtyBar();
     binBaseField.render();
     if (S.currentView === 'memory') { memRerender(); }
     // Full rerender wipes paint-based classes; re-apply the session tint.
@@ -1059,13 +1101,19 @@ export function refreshAfterLocalEdit(): void {
     inspectorPanel.setSelection(S.selStart, S.selEnd);
     overlayPanel.render();
     integrityPanel.notifyBytesChanged();
+    if (S.structuralDirty) { refreshStructuralConsumers(); }
+}
+
+function refreshStructuralConsumers(): void {
+    inspectorPanel.setSegments(S.parseResult?.segments ?? []);
+    renderStatsBar();
 }
 
 function applyTypedEdit(addr: number, value: number): void {
     clearNibbleBuffer();
     const prior = stageIntegrityEdit(addr, value);
     if (!prior) {return;}
-    S.undoStack.push([prior]);
+    S.undoStack.push({ kind: 'bytes', patches: [prior] });
     S.redoStack.length = 0;
     S.editMode = true;
     toolbar.setEditMode(S.editMode);
@@ -1160,77 +1208,61 @@ function processEditKeypress(e: KeyboardEvent, addr: number): void {
 
 // ── Copy/paste keyboard handler ──────────────────────────────────
 
-function collectSelectedBytes(): number[] {
-    if (S.selStart === null || S.selEnd === null) { return []; }
-    const addrs = [];
-    for (let a = S.selStart; a <= S.selEnd; a++) { addrs.push(a); }
-    return addrs.filter(a => getByte(a) !== undefined).map(a => getByte(a)!);
-}
-
 function doCopySelection(): void {
-    const bytes = collectSelectedBytes();
-    if (bytes.length === 0) { return; }
     const fmt = S.lastClickColumn === 'char' ? 'ascii' as const : 'hex' as const;
-    navigator.clipboard.writeText(formatCopyCommand(fmt, bytes)).catch(() => {});
-}
-
-function buildPasteEdits(range: { start: number; end: number }, bytes: number[]): Array<[number, number]> {
-    const edits: Array<[number, number]> = [];
-    let addr = range.start;
-    for (const b of bytes) {
-        if (getByte(addr) === undefined) { break; }
-        edits.push([addr, b]);
-        addr++;
-    }
-    return edits;
-}
-
-function applyPasteBytes(range: { start: number; end: number }, clipText: string): void {
-    const bytes = pasteBytes(clipText);
-    if (bytes.length === 0) { return; }
-    const edits = buildPasteEdits(range, bytes);
-    const staged = stagePasteEdits(edits);
-    if (staged > 0) { refreshAfterLocalEdit(); }
-    const notice = pasteOverflowNotice(staged, bytes.length);
-    if (notice) { toolbar.setStatus(notice); }
-}
-
-function pasteBytes(clipText: string): number[] {
-    return parsePasteText(clipText) ?? [...clipText].map(c => c.charCodeAt(0));
-}
-
-function stagePasteEdits(edits: Array<[number, number]>): number {
-    return edits.length > 0 ? stageIntegrityEditTransaction(edits) : 0;
+    void runClipboardAction(copySelection(fmt));
 }
 
 function doPasteToSelection(): void {
     if (isEditBlocked()) { return; }
     clearNibbleBuffer();
     if (S.selStart === null) { return; }
-    const range = currentSelectionRange();
-    if (!range) { return; }
-    navigator.clipboard.readText()
-        .then(text => applyPasteBytes(range, text))
-        .catch(() => {});
+    void runClipboardAction(pasteSelection('replace'));
 }
 
-function isCopyKey(e: KeyboardEvent): boolean { return e.key === 'c'; }
-function isPasteKey(e: KeyboardEvent): boolean { return e.key === 'v'; }
+/** Run a clipboard action, apply its selection target, and surface its status. */
+async function runClipboardAction(action: Promise<ClipboardActionResult>): Promise<void> {
+    const result = await action;
+    if (result.selection) {
+        updateByteSelection(result.selection.start, result.selection.end);
+        scrollTo(result.selection.start);
+    }
+    if (result.ok) {
+        if (result.structural) {
+            clearSearch();
+            overlayPanel.markAddressesStale(S.documentGeneration);
+            overlayPanel.markParamsStale(S.documentGeneration);
+            showToast('Structural edit applied \u2014 labels and type instances were not moved');
+        }
+        refreshAfterLocalEdit();
+    }
+    toolbar.setStatus(result.message);
+}
 
 function onCopyPasteKeydown(e: KeyboardEvent): void {
     if (!isClipboardShortcut(e)) { return; }
-    if (isCopyKey(e)) { handleCopyShortcut(e); return; }
-    handlePasteShortcut(e);
+    CLIPBOARD_KEY_ACTIONS[e.key]?.(e);
 }
+
+const CLIPBOARD_KEY_ACTIONS: Record<string, (e: KeyboardEvent) => void> = {
+    c: handleCopyShortcut,
+    x: handleCutShortcut,
+    v: handlePasteShortcut,
+};
 
 /** Modifier held and the focused element is not the base field (it owns its own clipboard). */
 function isClipboardShortcut(e: KeyboardEvent): boolean {
-    return isModifierKey(e) && !isBaseFieldTarget();
+    return isModifierKey(e) && !isEditableClipboardTarget();
 }
 
 function handleCopyShortcut(e: KeyboardEvent): void {
     e.preventDefault();
     doCopySelection();
+}
+
+function handleCutShortcut(e: KeyboardEvent): void {
+    e.preventDefault();
+    void runClipboardAction(cutSelection());
 }
 
 function handlePasteShortcut(e: KeyboardEvent): void {
@@ -1239,8 +1271,8 @@ function handlePasteShortcut(e: KeyboardEvent): void {
 }
 
 /** Text inputs own their own copy/paste; never hijack them for grid bytes. */
-function isBaseFieldTarget(): boolean {
-    return !!document.activeElement?.closest('#bin-base-field');
+function isEditableClipboardTarget(): boolean {
+    return !!document.activeElement?.closest('#bin-base-field, #search-box, input, textarea, [contenteditable="true"]');
 }
 
 postProviderMessage({ type: 'ready' });
@@ -1281,6 +1313,7 @@ const MESSAGE_HANDLERS: ProviderMessageHandlers = {
     activateScriptsTab: handleActivateScriptsTabMessage,
     activateProfilePicker: profilePicker.handleActivatePicker,
     focusBinBaseAddress: handleFocusBinBaseAddressMessage,
+    addressPromptResult: handleAddressPromptResultMessage,
 };
 
 const MODEL_UPDATE_EFFECTS: readonly ModelUpdateEffect[] = [
@@ -1329,15 +1362,12 @@ function onUndoKeydown(e: KeyboardEvent): void {
 }
 
 function onSaveShortcut(e: KeyboardEvent): void {
-    if (!isSaveShortcut(e) || !hasEditsToSave()) { return; }
+    if (!isSaveShortcut(e) || !hasUnsavedEdits()) { return; }
     e.preventDefault();
     saveEdits();
 }
 
-/** True when there is at least one staged byte to persist. */
-function hasEditsToSave(): boolean {
-    return S.editMode && S.edits.size > 0;
-}
+
 
 function isSaveShortcut(e: KeyboardEvent): boolean {
     return (e.ctrlKey || e.metaKey) && e.key === 's';
@@ -1509,6 +1539,29 @@ function handleFocusBinBaseAddressMessage(_msg: WebviewMessageByType<'focusBinBa
     focusBaseField();
 }
 
+type AddressPromptResult = WebviewMessageByType<'addressPromptResult'>;
+
+const ADDRESS_PROMPT_ACTIONS: Record<AddressPromptResult['purpose'], (msg: AddressPromptResult) => void> = {
+    'paste-at': msg => {
+        if (msg.address !== undefined) { void runClipboardAction(pasteAtAddress(msg.address)); }
+    },
+    'region-copy': msg => runRegionPromptAction(msg, copyRegion),
+    'region-cut': msg => runRegionPromptAction(msg, cutRegion),
+};
+
+function handleAddressPromptResultMessage(msg: AddressPromptResult): void {
+    if (msg.cancelled) { return; }
+    ADDRESS_PROMPT_ACTIONS[msg.purpose](msg);
+}
+
+function runRegionPromptAction(
+    msg: AddressPromptResult,
+    action: (from: number, to: number) => Promise<ClipboardActionResult>,
+): void {
+    if (msg.from === undefined || msg.to === undefined) { return; }
+    void runClipboardAction(action(msg.from, msg.to));
+}
+
 function clearLoadProgress(): void {
     const progress = document.getElementById('search-progress');
     if (progress) {
@@ -1576,7 +1629,7 @@ function applyExternalBannerUpdate(update: WebviewModelUpdate): void {
 function applyExternalChangeUpdate(update: WebviewModelUpdate): void {
     if (!update.externalChange) { return; }
     if (update.externalChange.hasUnsavedEdits) {
-        externalChange.showConflict(update.externalChange.incoming, S.edits.size, reloadDiscardingEdits);
+        externalChange.showConflict(update.externalChange.incoming, dirtyCount(), reloadDiscardingEdits);
     } else {
         externalChange.showReload(update.externalChange.incoming, applyExternalChangeAndUnlock);
     }
@@ -1635,7 +1688,7 @@ function applyScopedInvalidations(invalidations: WebviewInvalidations): void {
         ['labelsAndMemory', rebuildLabelsAndMemory],
         ['lockState', updateLockState],
         ['editControls', () => toolbar.setEditMode(S.editMode)],
-        ['dirtyBar', () => { toolbar.setDirty(S.edits.size); binBaseField.render(); }],
+        ['dirtyBar', () => { syncDirtyBar(); binBaseField.render(); }],
         ['stats', renderStatsBar],
         ['segments', () => inspectorPanel.setSegments(S.parseResult?.segments ?? [])],
         ['typeInstances', () => overlayPanel.setData(S.types, S.typeInstances)],
@@ -1718,7 +1771,7 @@ function setupRenderedUi(): void {
     toolbar.setView(S.currentView);
     toolbar.setEditMode(S.editMode);
     toolbar.setAscii(getShowAscii());
-    toolbar.setDirty(S.edits.size);
+    syncDirtyBar();
     profilePicker.render();
     profilePicker.seed();
     binBaseField.mount();
@@ -1781,6 +1834,7 @@ function reloadDiscardingEdits(incoming: IncomingFile): void {
     S.undoStack.length = 0;
     S.redoStack.length = 0;
     S.editMode = false;
+    S.structuralDirty = false;
     applyExternalChangeAndUnlock(incoming);
 }
 
@@ -1838,7 +1892,7 @@ function renderLoadError(message: string): void {
 }
 
 function renderStatsBar(): void {
-    renderStats(S.parseResult);
+    renderStats(S.parseResult, S.structuralDirty);
 }
 
 /**
@@ -2180,13 +2234,25 @@ function renderCurrentView(v: ViewName): void {
 }
 
 function switchView(v: ViewName): void {
-    if (v === 'record' && !recordViewAvailable()) { v = 'memory'; }
-    if (v !== 'memory') { commitSelectedBytesSession(); }
-    S.currentView = v;
-    toolbar.setView(v);
-    updateViewVisibility(v);
-    updateMemoryOnlyControls(v === 'memory');
-    renderCurrentView(v);
+    const target = guardedView(v);
+    if (!target) { return; }
+    if (target !== 'memory') { commitSelectedBytesSession(); }
+    S.currentView = target;
+    toolbar.setView(target);
+    updateViewVisibility(target);
+    updateMemoryOnlyControls(target === 'memory');
+    renderCurrentView(target);
+}
+
+/** Resolve the requested view, or null when a structural change blocks Records. */
+function guardedView(v: ViewName): ViewName | null {
+    if (v !== 'record') { return v; }
+    if (!recordViewAvailable()) { return 'memory'; }
+    if (S.structuralDirty) {
+        toolbar.setStatus('Save the structural change to refresh records');
+        return null;
+    }
+    return v;
 }
 
 /** Update UI lock state when external change occurs or is resolved. */
@@ -2216,12 +2282,14 @@ function undoLastEdit(): void {
     clearNibbleBuffer();
     if (!undoLastEditTransaction()) { return; }
     refreshAfterLocalEdit();
+    refreshStructuralConsumers();
 }
 
 function redoLastEdit(): void {
     clearNibbleBuffer();
     if (!redoLastEditTransaction()) { return; }
     refreshAfterLocalEdit();
+    refreshStructuralConsumers();
 }
 
 // ── Copy helpers ──────────────────────────────────────────────────
@@ -2232,6 +2300,13 @@ const CONTEXT_ACTIONS: Record<string, () => void> = {
     'select-all': selectAllMappedBytes,
     'select-segment': selectSegmentAtSelection,
     'edit-selected': beginSelectedBytesSession,
+    'cut-selection': () => { void runClipboardAction(cutSelection()); },
+    'paste-replace': () => { void runClipboardAction(pasteSelection('replace')); },
+    'paste-before': () => { void runClipboardAction(pasteSelection('insert-before')); },
+    'paste-after': () => { void runClipboardAction(pasteSelection('insert-after')); },
+    'paste-at': () => { postProviderMessage({ type: 'promptAddress', purpose: 'paste-at' }); },
+    'copy-region': () => { postProviderMessage({ type: 'promptAddress', purpose: 'region-copy' }); },
+    'cut-region': () => { postProviderMessage({ type: 'promptAddress', purpose: 'region-cut' }); },
 };
 
 function handleCtxCommand(cmd: string): void {
@@ -2303,4 +2378,3 @@ function selectSegmentAtSelection(): void {
     if (!seg) { return; }
     updateByteSelection(seg.startAddr, seg.endAddr);
 }
-

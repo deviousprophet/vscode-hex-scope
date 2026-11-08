@@ -13,3 +13,15 @@ export function formatAsciiByte(b: number): string {
 export function hexValue(value: number, width = 2): string {
     return value.toString(16).toUpperCase().padStart(width, '0');
 }
+
+/**
+ * Parse a user-entered full hexadecimal address (`0x`/`0X` optional, 1-8
+ * digits, case-insensitive). Returns null for signs, separators, decimal-only
+ * text, empty input, or values outside the 32-bit address space.
+ */
+export function parseHexAddress(input: string): number | null {
+    const match = /^(?:0[xX])?([0-9a-fA-F]{1,8})$/.exec(input.trim());
+    if (!match) { return null; }
+    const value = parseInt(match[1], 16);
+    return value <= 0xFFFFFFFF ? value : null;
+}

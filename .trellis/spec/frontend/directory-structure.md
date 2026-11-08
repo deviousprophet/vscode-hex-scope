@@ -32,7 +32,8 @@ src/
 │   └── parseWorkerClient.ts  runParseJob(): spawn/settle-once/abort-terminate/relay
 ├── core/
 │   ├── parser/               IHEX/SREC line parsing + raw `.bin` segment construction
-│   ├── document.ts           format detection, serialization, checksum repair
+│   ├── document.ts           format detection, serialization, checksum repair, structural text rebuild
+│   ├── structural.ts         reversible segment insert/delete/replace math (length-changing edits)
 │   ├── memory.ts             indexed byte lookup and memory-row model
 │   ├── search.ts             cancellable/chunked search engine
 │   ├── integrity.ts          validation, algorithms, stored-value conversion
@@ -52,6 +53,8 @@ src/
 │   └── byteTools/            pure copy/analyze/format helpers
 └── webview/
     ├── hexViewer.ts          single-file composition root and DOM effect wiring
+    ├── clipboardEdit.ts      copy/cut/paste orchestration (plain-text clipboard)
+    ├── structuralEdit.ts     working-document structural edit + transaction push
     ├── diffViewer.ts         diff composition root (isolated bundle; no single-file shell)
     ├── binBaseField.ts       profile-bar raw-binary base field (+ binBaseField.css)
     ├── appModel.ts           authoritative UI model transitions

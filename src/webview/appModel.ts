@@ -49,6 +49,8 @@ function messageRecord(value: Record<string, string> | undefined): Record<string
 
 export function loadParsedMemory(parseResult: SerializedParseResult): void {
     S.parseResult = parseResult;
+    S.savedSegments = parseResult.segments;
+    S.structuralDirty = false;
     initFlatBytes();
     buildMemRows();
 }
@@ -90,12 +92,25 @@ export function unlockExternalChange(): void {
 }
 
 export function clearEditModel(): void {
+    if (S.structuralDirty) { restoreSavedSegments(); }
     S.edits.clear();
     S.undoStack.length = 0;
     S.redoStack.length = 0;
     S.editMode = false;
+    S.structuralDirty = false;
+}
+
+/** Restore the last saved segments after a structural edit was discarded. */
+function restoreSavedSegments(): void {
+    if (!S.parseResult) { return; }
+    S.parseResult.segments = S.savedSegments;
+    S.parseResult.totalDataBytes = S.savedSegments.reduce((sum, segment) => sum + segment.data.length, 0);
+    S.selStart = null;
+    S.selEnd = null;
+    initFlatBytes();
+    buildMemRows();
 }
 
 export function hasUnsavedEdits(): boolean {
-    return S.editMode && S.edits.size > 0;
+    return S.editMode && (S.edits.size > 0 || S.structuralDirty);
 }
