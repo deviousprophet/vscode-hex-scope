@@ -31,39 +31,30 @@ function fieldTypeOptionsHtml(f: TypeField, draftId: string, types: readonly Typ
 }
 
 function typeOptionHtml(f: TypeField, d: TypeDef): string {
-    f = normalizeTypeField(f);
-    const val = `struct:${d.id}`;
-    const selected = isTypeSelected(f, d);
-    const full = `struct ${d.name}`;
+    return refTypeOptionHtml(f, d, 'struct');
+}
+
+function bitFieldOptionHtml(f: TypeField, d: TypeDef): string {
+    return refTypeOptionHtml(f, d, 'bitfield');
+}
+
+function enumOptionHtml(f: TypeField, d: TypeDef): string {
+    return refTypeOptionHtml(f, d, 'enum');
+}
+
+type RefTypeKind = 'struct' | 'bitfield' | 'enum';
+
+/** Shared option row for a struct, bit-field, or enum reference. */
+function refTypeOptionHtml(f: TypeField, d: TypeDef, kind: RefTypeKind): string {
+    const field = normalizeTypeField(f);
+    const selected = field.type === kind && field.refTypeId === d.id;
+    const val = `${kind}:${d.id}`;
+    const full = `${kind} ${d.name}`;
     // Truncate very long nested type names in the type select; the full
     // name stays available via the option's title tooltip.
     const label = truncatedTypeOptionLabel(full);
     const titleAttr = typeOptionTitleAttr(label, full);
     return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
-}
-
-function bitFieldOptionHtml(f: TypeField, d: TypeDef): string {
-    f = normalizeTypeField(f);
-    const val = `bitfield:${d.id}`;
-    const selected = f.type === 'bitfield' && f.refTypeId === d.id;
-    const full = `bitfield ${d.name}`;
-    const label = truncatedTypeOptionLabel(full);
-    const titleAttr = typeOptionTitleAttr(label, full);
-    return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
-}
-
-function enumOptionHtml(f: TypeField, d: TypeDef): string {
-    f = normalizeTypeField(f);
-    const val = `enum:${d.id}`;
-    const selected = f.type === 'enum' && f.refTypeId === d.id;
-    const full = `enum ${d.name}`;
-    const label = truncatedTypeOptionLabel(full);
-    const titleAttr = typeOptionTitleAttr(label, full);
-    return `<option value="${esc(val)}"${selected ? ' selected' : ''}${titleAttr}>${esc(label)}</option>`;
-}
-
-function isTypeSelected(f: TypeField, d: TypeDef): boolean {
-    return f.type === 'struct' && f.refTypeId === d.id;
 }
 
 function truncatedTypeOptionLabel(full: string): string {
