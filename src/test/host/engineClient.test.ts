@@ -19,7 +19,7 @@ import {
     shutdownEngine
 } from '../../host/engine/engineLoader';
 
-/** `out/test/core` → repository root. */
+/** `out/test/host` → repository root. */
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 
 /** A fake engine: frames in, frames out, driven by a tiny Node script. */

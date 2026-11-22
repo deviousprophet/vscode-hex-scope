@@ -4,7 +4,6 @@ use crate::jsnum::{is_integer, number_to_string, to_uint32};
 use crate::model::{CompactResult, Segment};
 use crate::text::js_trim;
 
-pub const DEFAULT_BIN_BASE_ADDRESS: u32 = 0;
 const MAX_ADDRESS: f64 = 4_294_967_295.0;
 const ADDRESS_SPACE: f64 = 4_294_967_296.0;
 

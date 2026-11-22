@@ -23,18 +23,6 @@ pub fn srec_is_data(record_type: u8) -> bool {
     matches!(record_type, 1..=3)
 }
 
-fn hex_nibble(byte: u8) -> u8 {
-    match byte {
-        b'0'..=b'9' => byte - b'0',
-        b'a'..=b'f' => byte - b'a' + 10,
-        _ => byte - b'A' + 10,
-    }
-}
-
-fn hex_byte(hex: &[u8], at: usize) -> u8 {
-    (hex_nibble(hex[at]) << 4) | hex_nibble(hex[at + 1])
-}
-
 /// `computeSRecChecksum` with JavaScript number semantics.
 pub fn compute_srec_checksum(byte_count: f64, address: f64, address_size: f64, data: &[f64]) -> u8 {
     let mut sum = byte_count;
@@ -80,7 +68,7 @@ struct Layout {
 }
 
 fn parse_layout(hex: &str, record_type: u8, base: &HexRecord) -> Result<Layout, HexRecord> {
-    let byte_count = hex_byte(hex.as_bytes(), 0);
+    let byte_count = crate::hex::byte(hex.as_bytes(), 0);
     let size = address_size(record_type);
     let layout = Layout {
         byte_count,
@@ -131,7 +119,7 @@ fn parse_address(hex: &str, size: u8) -> u32 {
     for index in 0..usize::from(size) {
         address = address
             .wrapping_mul(256)
-            .wrapping_add(u32::from(hex_byte(bytes, 2 + index * 2)));
+            .wrapping_add(u32::from(crate::hex::byte(bytes, 2 + index * 2)));
     }
     address
 }
@@ -143,9 +131,25 @@ fn parse_data(hex: &str, layout: &Layout) -> Vec<u8> {
     let bytes = hex.as_bytes();
     let mut data = Vec::with_capacity(count);
     for index in 0..count {
-        data.push(hex_byte(bytes, offset + index * 2));
+        data.push(crate::hex::byte(bytes, offset + index * 2));
     }
     data
+}
+
+pub(crate) fn checksum_for_bytes(
+    byte_count: u8,
+    address: u32,
+    address_size: u8,
+    data: &[u8],
+) -> u8 {
+    let mut sum = u32::from(byte_count);
+    for index in 0..address_size {
+        sum += (address >> ((address_size - 1 - index) * 8)) & 0xFF;
+    }
+    for value in data {
+        sum += u32::from(*value);
+    }
+    (!sum & 0xFF) as u8
 }
 
 fn build_record(
@@ -157,13 +161,8 @@ fn build_record(
 ) -> HexRecord {
     let address = parse_address(hex, layout.address_size);
     let data = parse_data(hex, layout);
-    let checksum = hex_byte(hex.as_bytes(), hex.len() - 2);
-    let expected = compute_srec_checksum(
-        f64::from(layout.byte_count),
-        f64::from(address),
-        f64::from(layout.address_size),
-        &data.iter().map(|byte| f64::from(*byte)).collect::<Vec<_>>(),
-    );
+    let checksum = crate::hex::byte(hex.as_bytes(), hex.len() - 2);
+    let expected = checksum_for_bytes(layout.byte_count, address, layout.address_size, &data);
 
     HexRecord {
         line_number,

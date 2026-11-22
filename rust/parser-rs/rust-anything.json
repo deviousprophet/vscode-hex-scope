@@ -1,6 +1,6 @@
 {
   "schema": "rust-anything/bridge@1",
-  "root": "D:\\workspace\\vscode-hex-scope",
+  "root": ".",
   "unit": "src/core/parser/",
   "language": "ts",
   "kind": "napi",

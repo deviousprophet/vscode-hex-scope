@@ -7,8 +7,8 @@ type ParsedRecord = ParseResult['records'][number];
 export type HexScopeTextFormat = 'ihex' | 'srec';
 export type HexScopeFormat = HexScopeTextFormat | 'bin';
 
-/** Defense-in-depth message when a raw image reaches the record-parsing worker. */
-export const RAW_BINARY_WORKER_ERROR = 'Raw binary files do not use the editor parse worker.';
+/** Defense-in-depth message when a raw image reaches the text parser. */
+export const RAW_BINARY_TEXT_ERROR = 'Raw binary files do not use the text parser.';
 
 /** True for the record-based text formats (Intel HEX / Motorola SREC). */
 export function isTextFormat(format: HexScopeFormat): format is HexScopeTextFormat {

@@ -5,6 +5,7 @@
 
 pub mod bin;
 pub mod compact;
+pub mod hex;
 pub mod ihex;
 pub mod jsnum;
 pub mod model;

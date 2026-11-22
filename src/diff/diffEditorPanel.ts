@@ -9,7 +9,7 @@ import { combinedLoadProgress } from './loadProgress';
 import { buildDiffState, reloadIsStale, reloadState, sideDefects, type DiffReloadState, type DiffSideKey, type ParsedDiffSide } from './diffReload';
 import { fileExtension, fileName } from '../core/pathName';
 import { resolveCompareBinBaseAddress } from '../binBaseAddress';
-import { binAddressRangeFits, binBaseAddressError, isValidBinBaseAddress } from '../core/parser/binImage';
+import { assertBinBaseAddress, binAddressRangeFits, isValidBinBaseAddress } from '../core/parser/binImage';
 import { engineWire, parseBinaryWithEngine, parseTextWithEngine, repairWithEngine } from '../host/engine/engineLoader';
 
 /** Each file contributes one unit to `diffProgress`; its read fills a small leading slice, its parse the rest. */
@@ -432,20 +432,37 @@ async function parseSide(
     signal: AbortSignal,
     baseAddress?: number,
 ): Promise<ParsedDiffFile> {
-    const extension = fileExtension(uri);
-    if (isRawBinaryExtension(extension)) {
-        const error = binBaseAddressError(baseAddress, bytes.length);
-        if (error) { throw new Error(error); }
-        const payload = await parseBinaryWithEngine(bytes, baseAddress as number);
-        if (signal.aborted) { throw new Error('Compare cancelled'); }
-        return { format: 'bin', wire: engineWire(payload, 'bin') };
-    }
+    return isRawBinaryExtension(fileExtension(uri))
+        ? parseRawSide(bytes, signal, baseAddress)
+        : parseTextSide(uri, bytes, signal);
+}
+
+async function parseRawSide(
+    bytes: Uint8Array,
+    signal: AbortSignal,
+    baseAddress?: number,
+): Promise<ParsedDiffFile> {
+    assertBinBaseAddress(baseAddress, bytes.length);
+    const payload = await parseBinaryWithEngine(bytes, baseAddress);
+    assertNotAborted(signal);
+    return { format: 'bin', wire: engineWire(payload, 'bin') };
+}
+
+async function parseTextSide(
+    uri: vscode.Uri,
+    bytes: Uint8Array,
+    signal: AbortSignal,
+): Promise<ParsedDiffFile> {
     const raw = new TextDecoder('utf-8').decode(bytes);
-    const format = detectFormatFromParts(extension, raw);
+    const format = detectFormatFromParts(fileExtension(uri), raw);
     if (!isTextFormat(format)) { throw new Error('Raw binary files do not use the text parser.'); }
     const payload = await parseTextWithEngine(raw, format);
-    if (signal.aborted) { throw new Error('Compare cancelled'); }
+    assertNotAborted(signal);
     return { format, wire: engineWire(payload, format) };
+}
+
+function assertNotAborted(signal: AbortSignal): void {
+    if (signal.aborted) { throw new Error('Compare cancelled'); }
 }
 
 function assertNoParseDefects(uri: vscode.Uri, wire: WireParseResult): void {

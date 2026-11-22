@@ -24,7 +24,7 @@ and the webview UI; it does not parse firmware files and has no fallback parser.
   - `parse` (`format: ihex | srec | bin`, `baseAddress` required for `bin`)
   - `records` (parse record-page lines; text formats)
   - `repair` (rewrite wrong checksum fields; text formats)
-- Progress frames use `id: 0` and `event: "progress"` before the final parse response.
+- Progress frames carry the request id and `event: "progress"` before the final parse response.
 - The final `parse` body is, per page, `sourceStart`, `sourceEnd`, `lineNumber`, `address`,
   `resolvedAddress` (u32 LE each), then `byteCount`, `recordType`, `checksum`, `flags` (u8 each),
   followed by every segment's bytes. Header metadata carries lengths/offsets only.
@@ -35,7 +35,7 @@ and the webview UI; it does not parse firmware files and has no fallback parser.
 
 ## Runtime call sites
 
-- Editor open / external reload: `parseTextWithEngine`.
+- Editor open / external reload: `parseTextWithEngine` / `parseBinaryWithEngine`.
 - Compare sides: `parseTextWithEngine` / `parseBinaryWithEngine`.
 - Record table pages: `parseLinesWithEngine`.
 - Quick repair and compare-side repair: `repairWithEngine`.
@@ -56,6 +56,8 @@ same change.
 ## Build and packaging
 
 - `npm run engine:build` → `dist/engine/<platform>-<arch>/hex-engine[.exe]`.
+- The parity wrapper is generated and gitignored; run
+  `rust-anything refresh rust/parser-rs && rust-anything build rust/parser-rs && rust-anything diff rust/parser-rs && rust-anything gate rust/parser-rs`.
 - `HEXSCOPE_SKIP_RUST_BUILD=1` skips the cargo build when CI already downloaded the artifact.
 - One universal VSIX carries `linux-x64`, `win32-x64`, `darwin-x64`, `darwin-arm64`.
 - Rust sources are excluded from the VSIX (`.vscodeignore`).

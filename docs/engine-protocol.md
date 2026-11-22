@@ -47,10 +47,10 @@ Request header:
 - Raw binary: body is the image bytes; `baseAddress` is required and must be a 32-bit unsigned
   integer.
 
-Progress frame (sent before the response, `id` is 0):
+Progress frame (sent before the matching response, same `id`):
 
 ```json
-{"id":0,"event":"progress","stage":"build","completed":17,"total":17}
+{"id":2,"event":"progress","stage":"build","completed":17,"total":17}
 ```
 
 Response header:

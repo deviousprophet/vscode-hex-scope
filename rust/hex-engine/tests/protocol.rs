@@ -52,6 +52,7 @@ fn engine_answers_ping_and_parses_both_formats() {
     );
     let (progress, _) = read_frame(&mut stdout);
     assert_eq!(progress["event"], "progress");
+    assert_eq!(progress["id"], 2);
     let (result, body) = read_frame(&mut stdout);
     assert_eq!(result["recordCount"], 2);
     assert_eq!(result["totalDataBytes"], 4);

@@ -93,8 +93,6 @@ pub fn ping(id: u64) -> Frame {
             "id": id,
             "ok": true,
             "protocol": PROTOCOL,
-            "engine": "hex-engine",
-            "version": env!("CARGO_PKG_VERSION"),
         }),
         Vec::new(),
     )
@@ -121,7 +119,7 @@ pub fn parse(id: u64, request: &Request, body: &[u8]) -> Result<(Frame, Option<F
                 .iter()
                 .map(|page| page.line_number.len() as u64)
                 .sum();
-            Ok((compact_frame(id, compact), Some(progress_frame(total))))
+            Ok((compact_frame(id, compact), Some(progress_frame(id, total))))
         }
         None => Err("parse requires a text or binary format".to_string()),
     }
@@ -203,10 +201,10 @@ fn record_json(record: &hex_core::HexRecord) -> Value {
     Value::Object(object)
 }
 
-fn progress_frame(total: u64) -> Frame {
+fn progress_frame(id: u64, total: u64) -> Frame {
     Frame::new(
         json!({
-            "id": 0,
+            "id": id,
             "event": "progress",
             "stage": "build",
             "completed": total,

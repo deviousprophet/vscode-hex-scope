@@ -10,12 +10,13 @@ import { hydrateCompactParseResult, type SerializedCompactParseResult } from '..
 import type { HexRecord, ParseProgress } from '../../core/parser/types';
 import type { WireParseResult } from '../../core/types';
 import { serializeParseResult } from '../../core/wire';
-import { EngineClient, EngineError, engineBinaryPath, isSupportedEngineTarget } from './engineClient';
+import { EngineClient, EngineError, engineBinaryPath, isSupportedEngineTarget, type EngineFrame } from './engineClient';
 
 let configuredRoot: string | undefined;
 let client: EngineClient | null = null;
 let starting: Promise<EngineClient> | null = null;
 let unavailableReason: string | null = null;
+let generation = 0;
 
 /** Point the loader at the extension root (the directory holding `dist/engine`). */
 export function configureEngineRoot(root: string): void {
@@ -23,6 +24,7 @@ export function configureEngineRoot(root: string): void {
         return;
     }
     configuredRoot = root;
+    generation += 1;
     shutdownEngine();
     unavailableReason = null;
 }
@@ -32,17 +34,21 @@ function resolveRoot(): string {
     if (configuredRoot) {
         return configuredRoot;
     }
-    let current = __dirname;
+    return walkForRoot(__dirname) ?? path.resolve(__dirname, '..');
+}
+
+function walkForRoot(start: string): string | null {
+    let current = start;
     for (;;) {
-        if (existsSync(path.join(current, 'package.json')) && existsSync(path.join(current, 'dist', 'engine'))) {
-            return current;
-        }
+        if (isExtensionRoot(current)) { return current; }
         const parent = path.dirname(current);
-        if (parent === current) {
-            return path.resolve(__dirname, '..');
-        }
+        if (parent === current) { return null; }
         current = parent;
     }
+}
+
+function isExtensionRoot(dir: string): boolean {
+    return existsSync(path.join(dir, 'package.json')) && existsSync(path.join(dir, 'dist', 'engine'));
 }
 
 /** Why the engine last failed, or null when it has not failed. */
@@ -51,23 +57,43 @@ export function engineUnavailableReason(): string | null {
 }
 
 /** The live engine. Throws `EngineError` when this build cannot run one. */
-export async function getEngine(): Promise<EngineClient> {
+async function getEngine(): Promise<EngineClient> {
     if (client) {
         return client;
     }
-    if (!starting) {
-        starting = startEngine();
-    }
     try {
-        client = await starting;
+        client = await startBody(generation);
         unavailableReason = null;
         return client;
     } catch (error) {
-        unavailableReason = error instanceof Error ? error.message : String(error);
+        unavailableReason = messageOf(error);
         throw error;
-    } finally {
-        starting = null;
     }
+}
+
+async function startBody(started: number): Promise<EngineClient> {
+    const engine = await pendingStart();
+    if (started !== generation) {
+        engine.dispose();
+        throw new EngineError('engine was reconfigured while starting');
+    }
+    return engine;
+}
+
+async function pendingStart(): Promise<EngineClient> {
+    const pending = starting ?? (starting = startEngine());
+    try {
+        return await pending;
+    } catch (error) {
+        if (starting === pending) {
+            starting = null;
+        }
+        throw error;
+    }
+}
+
+function messageOf(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
 
 async function startEngine(): Promise<EngineClient> {
@@ -92,18 +118,21 @@ export async function ensureEngine(): Promise<void> {
  * is reported to the caller instead of silently parsing elsewhere.
  */
 async function withEngine<T>(run: (engine: EngineClient) => Promise<T>): Promise<T> {
-    const engine = await getEngine();
     try {
-        return await run(engine);
-    } catch (first) {
+        return await run(await getEngine());
+    } catch {
+        return retryOnce(run);
+    }
+}
+
+async function retryOnce<T>(run: (engine: EngineClient) => Promise<T>): Promise<T> {
+    shutdownEngine();
+    try {
+        return await run(await getEngine());
+    } catch (error) {
+        unavailableReason = messageOf(error);
         shutdownEngine();
-        try {
-            return await run(await getEngine());
-        } catch (second) {
-            unavailableReason = second instanceof Error ? second.message : String(second);
-            shutdownEngine();
-            throw second;
-        }
+        throw error;
     }
 }
 
@@ -115,16 +144,23 @@ export function parseTextWithEngine(
 ): Promise<SerializedCompactParseResult> {
     return withEngine(engine =>
         engine.parse({ format, source }, frame => {
-            if (frame.event !== 'progress' || !frame.stage) {
-                return;
-            }
-            onProgress?.({
-                stage: frame.stage,
-                completed: typeof frame.completed === 'number' ? frame.completed : 0,
-                total: typeof frame.total === 'number' ? frame.total : 0,
-            });
+            const progress = progressFromFrame(frame);
+            if (progress) { onProgress?.(progress); }
         })
     );
+}
+
+function progressFromFrame(frame: EngineFrame): ParseProgress | null {
+    if (frame.event !== 'progress' || !frame.stage) { return null; }
+    return {
+        stage: frame.stage,
+        completed: numberOr(frame.completed),
+        total: numberOr(frame.total),
+    };
+}
+
+function numberOr(value: unknown): number {
+    return typeof value === 'number' ? value : 0;
 }
 
 /** Parse raw binary bytes in Rust. */
@@ -161,6 +197,7 @@ export function engineWire(
 
 /** Stop the engine process (used on deactivate and when tests reconfigure the root). */
 export function shutdownEngine(): void {
+    starting = null;
     client?.dispose();
     client = null;
 }

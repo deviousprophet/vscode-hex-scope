@@ -6,3 +6,5 @@ node_modules
 rust/target/
 src/**/*.js
 src/**/*.js.map
+rust/parser-rs/index.cjs
+test-output*.log

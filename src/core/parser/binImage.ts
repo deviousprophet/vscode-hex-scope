@@ -37,7 +37,7 @@ export function binAddressRangeFits(baseAddress: number, byteLength: number): bo
  * The user-facing guard for a raw comparison side: a missing/invalid base, or a range that
  * overflows the address space. Null means the pair is valid.
  */
-export function binBaseAddressError(baseAddress: number | undefined, byteLength: number): string | null {
+function binBaseAddressError(baseAddress: number | undefined, byteLength: number): string | null {
     if (baseAddress === undefined || !isValidBinBaseAddress(baseAddress)) {
         return 'A base address is required for raw binary files.';
     }
@@ -45,6 +45,15 @@ export function binBaseAddressError(baseAddress: number | undefined, byteLength:
         return 'The raw binary base address and size exceed the 32-bit address space.';
     }
     return null;
+}
+
+/** Assert a comparison side's base address; narrows `baseAddress` for the caller. */
+export function assertBinBaseAddress(
+    baseAddress: number | undefined,
+    byteLength: number
+): asserts baseAddress is number {
+    const error = binBaseAddressError(baseAddress, byteLength);
+    if (error) { throw new Error(error); }
 }
 
 /**

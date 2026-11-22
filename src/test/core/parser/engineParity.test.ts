@@ -167,6 +167,20 @@ suite('Rust engine parity', () => {
         assert.deepStrictEqual(srecActual.map(recordSnapshot), srecExpected.map(recordSnapshot));
     });
 
+    test('engine client record lines and repair match the TypeScript reference', async () => {
+        const client = await EngineClient.start({ binary: BINARY });
+        try {
+            const records = await client.parseLines('ihex', [{ lineNumber: 1, raw: ':0400100001020304E2' }]);
+            assert.deepStrictEqual(recordSnapshot(records[0]), recordSnapshot(parseIntelHexLine(':0400100001020304E2', 1)));
+
+            const repaired = await client.repair('ihex', ':0400100001020304E3\n:00000001FF\n');
+            assert.strictEqual(repaired.repaired, 1);
+            assert.strictEqual(repaired.text, ':0400100001020304E2\n:00000001FF\n');
+        } finally {
+            client.dispose();
+        }
+    });
+
     test('a missing binary is a typed, actionable error', async () => {
         const missing = path.join(ROOT, 'dist', 'engine', 'no-such-target', 'hex-engine');
         await assert.rejects(() => EngineClient.start({ binary: missing }), (error: unknown) => {

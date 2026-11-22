@@ -6,7 +6,7 @@
  * the body, so a parse response is never JSON-escaped or copied through object literals.
  *
  * Pure Node: no `vscode` import. The extension host owns one client; the loader starts it
- * lazily and every caller falls back to the TypeScript parser when the engine cannot serve.
+ * and surfaces failures to the caller. There is no TypeScript parser fallback.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -16,13 +16,13 @@ import type { HexRecord, ParseProgress } from '../../core/parser/types';
 import type { SerializedCompactPage, SerializedCompactParseResult } from '../../core/parser/compact';
 
 /** The protocol version this client speaks. */
-export const ENGINE_PROTOCOL = 1;
+const ENGINE_PROTOCOL = 1;
 
 const MAX_FRAME = 64 * 1024 * 1024;
 const MAX_HEADER = 0xffff;
 
 /** Platforms a build ships an engine binary for. */
-export const SUPPORTED_ENGINE_TARGETS = ['linux-x64', 'win32-x64', 'darwin-x64', 'darwin-arm64'] as const;
+const SUPPORTED_ENGINE_TARGETS = ['linux-x64', 'win32-x64', 'darwin-x64', 'darwin-arm64'] as const;
 
 export class EngineError extends Error {
     constructor(message: string) {
@@ -81,45 +81,78 @@ export interface EngineFrame {
 }
 
 /** Boundary parser: reject a malformed header instead of casting JSON into `EngineFrame`. */
-export function parseEngineFrame(text: string): EngineFrame | null {
-    let raw: unknown;
+function parseEngineFrame(text: string): EngineFrame | null {
+    const source = parseObject(text);
+    if (!source) { return null; }
+    if (!scalarsValid(source)) { return null; }
+    return buildFrame(source);
+}
+
+function parseObject(text: string): Record<string, unknown> | null {
     try {
-        raw = JSON.parse(text);
+        return objectValue(JSON.parse(text));
     } catch {
         return null;
     }
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-        return null;
-    }
-    const source = raw as Record<string, unknown>;
-    if (source.id !== undefined && typeof source.id !== 'number') {
-        return null;
-    }
-    if (source.ok !== undefined && typeof source.ok !== 'boolean') {
-        return null;
-    }
-    if (source.stage !== undefined && source.stage !== 'parse' && source.stage !== 'build') {
-        return null;
-    }
-    const frame: EngineFrame = {};
-    if (typeof source.id === 'number') { frame.id = source.id; }
-    if (typeof source.ok === 'boolean') { frame.ok = source.ok; }
-    if (typeof source.error === 'string') { frame.error = source.error; }
-    if (typeof source.event === 'string') { frame.event = source.event; }
-    if (source.stage === 'parse' || source.stage === 'build') { frame.stage = source.stage; }
-    if (typeof source.completed === 'number') { frame.completed = source.completed; }
-    if (typeof source.total === 'number') { frame.total = source.total; }
-    if (typeof source.protocol === 'number') { frame.protocol = source.protocol; }
-    frame.recordCount = source.recordCount;
-    frame.totalDataBytes = source.totalDataBytes;
-    frame.checksumErrors = source.checksumErrors;
-    frame.malformedLines = source.malformedLines;
-    frame.startAddress = source.startAddress;
-    frame.baseAddress = source.baseAddress;
-    frame.pageLengths = source.pageLengths;
-    frame.segments = source.segments;
-    frame.repaired = source.repaired;
-    return frame;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return null; }
+    return value as Record<string, unknown>;
+}
+
+function scalarsValid(source: Record<string, unknown>): boolean {
+    return idValid(source) && okValid(source) && stageValid(source);
+}
+
+function idValid(source: Record<string, unknown>): boolean {
+    return source.id === undefined || typeof source.id === 'number';
+}
+
+function okValid(source: Record<string, unknown>): boolean {
+    return source.ok === undefined || typeof source.ok === 'boolean';
+}
+
+function stageValid(source: Record<string, unknown>): boolean {
+    return source.stage === undefined || source.stage === 'parse' || source.stage === 'build';
+}
+
+function buildFrame(source: Record<string, unknown>): EngineFrame {
+    return {
+        id: numberField(source.id),
+        ok: booleanField(source.ok),
+        error: stringField(source.error),
+        event: stringField(source.event),
+        stage: stageField(source.stage),
+        completed: numberField(source.completed),
+        total: numberField(source.total),
+        protocol: numberField(source.protocol),
+        recordCount: source.recordCount,
+        totalDataBytes: source.totalDataBytes,
+        checksumErrors: source.checksumErrors,
+        malformedLines: source.malformedLines,
+        startAddress: source.startAddress,
+        baseAddress: source.baseAddress,
+        pageLengths: source.pageLengths,
+        segments: source.segments,
+        repaired: source.repaired,
+    };
+}
+
+function numberField(value: unknown): number | undefined {
+    return typeof value === 'number' ? value : undefined;
+}
+
+function booleanField(value: unknown): boolean | undefined {
+    return typeof value === 'boolean' ? value : undefined;
+}
+
+function stringField(value: unknown): string | undefined {
+    return typeof value === 'string' ? value : undefined;
+}
+
+function stageField(value: unknown): ParseProgress['stage'] | undefined {
+    return value === 'parse' || value === 'build' ? value : undefined;
 }
 
 interface Pending {
@@ -128,7 +161,7 @@ interface Pending {
     onProgress?: (frame: EngineFrame) => void;
 }
 
-export interface EngineResponse {
+interface EngineResponse {
     header: EngineFrame;
     body: Buffer;
 }
@@ -146,6 +179,18 @@ function prefixFor(headerLength: number, payloadLength: number): Buffer {
     return prefix;
 }
 
+function assertEngineBuilt(options: EngineClientOptions): void {
+    if (options.spawnProcess) { return; }
+    if (existsSync(options.binary)) { return; }
+    throw new EngineError(`Rust engine is not built at ${options.binary}; run "npm run engine:build"`);
+}
+
+function spawnFor(options: EngineClientOptions): ChildProcessWithoutNullStreams {
+    return options.spawnProcess
+        ? options.spawnProcess(options.binary)
+        : spawn(options.binary, [], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+}
+
 function joinFrames(header: Record<string, unknown>, body: Buffer | Uint8Array): Buffer {
     const json = Buffer.from(JSON.stringify(header), 'utf8');
     if (json.length > MAX_HEADER) {
@@ -158,9 +203,27 @@ function joinFrames(header: Record<string, unknown>, body: Buffer | Uint8Array):
     return Buffer.concat([prefixFor(json.length, payloadLength), json, Buffer.from(body)]);
 }
 
+function parseHeader(request: EngineParseRequest): Record<string, unknown> {
+    return request.baseAddress === undefined
+        ? { op: 'parse', format: request.format }
+        : { op: 'parse', format: request.format, baseAddress: request.baseAddress };
+}
+
+function parseBody(request: EngineParseRequest): Buffer {
+    return request.format === 'bin' ? binaryBody(request.bytes) : textBody(request.source);
+}
+
+function binaryBody(bytes: Uint8Array | undefined): Buffer {
+    return Buffer.from(bytes ?? new Uint8Array(0));
+}
+
+function textBody(source: string | undefined): Buffer {
+    return Buffer.from(source ?? '', 'utf8');
+}
+
 /**
- * A started engine process. Requests are correlated by id; progress frames (`id: 0`,
- * `event: "progress"`) are delivered to the pending request before its final frame.
+ * A started engine process. Requests are correlated by id; progress frames carry the request id
+ * and `event: "progress"`, and are delivered to that pending request before its final frame.
  */
 export class EngineClient {
     private readonly child: ChildProcessWithoutNullStreams;
@@ -185,23 +248,26 @@ export class EngineClient {
 
     /** Spawn the engine and validate the protocol handshake. */
     public static async start(options: EngineClientOptions): Promise<EngineClient> {
-        if (!options.spawnProcess && !existsSync(options.binary)) {
-            throw new EngineError(`Rust engine is not built at ${options.binary}; run "npm run engine:build"`);
-        }
-        const child = options.spawnProcess
-            ? options.spawnProcess(options.binary)
-            : spawn(options.binary, [], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-        const client = new EngineClient(child);
+        assertEngineBuilt(options);
+        const client = new EngineClient(spawnFor(options));
+        return client.handshake();
+    }
+
+    private async handshake(): Promise<EngineClient> {
         try {
-            const response = await client.request({ op: 'ping' });
-            if (response.header.protocol !== ENGINE_PROTOCOL) {
-                throw new EngineError(`engine protocol ${String(response.header.protocol)} does not match ${ENGINE_PROTOCOL}`);
-            }
+            await this.assertProtocol();
+            return this;
         } catch (error) {
-            client.dispose();
+            this.dispose();
             throw error;
         }
-        return client;
+    }
+
+    private async assertProtocol(): Promise<void> {
+        const response = await this.request({ op: 'ping' });
+        if (response.header.protocol !== ENGINE_PROTOCOL) {
+            throw new EngineError(`engine protocol ${String(response.header.protocol)} does not match ${ENGINE_PROTOCOL}`);
+        }
     }
 
     public get isClosed(): boolean {
@@ -213,12 +279,7 @@ export class EngineClient {
         request: EngineParseRequest,
         onProgress?: (progress: EngineFrame) => void
     ): Promise<SerializedCompactParseResult> {
-        const body = request.format === 'bin' ? Buffer.from(request.bytes ?? new Uint8Array(0)) : Buffer.from(request.source ?? '', 'utf8');
-        const header: Record<string, unknown> = { op: 'parse', format: request.format };
-        if (request.baseAddress !== undefined) {
-            header.baseAddress = request.baseAddress;
-        }
-        const response = await this.request(header, body, onProgress);
+        const response = await this.request(parseHeader(request), parseBody(request), onProgress);
         return mapCompactResult(response.header, response.body);
     }
 
@@ -289,27 +350,40 @@ export class EngineClient {
     private receive(chunk: Buffer): void {
         this.chunks.push(chunk);
         this.buffered += chunk.length;
-        while (this.buffered >= 6) {
-            const prefix = this.chunks[0].length >= 6 ? this.chunks[0] : Buffer.concat(this.chunks);
-            if (prefix.length < 6) {
-                return;
-            }
-            const payloadLength = prefix.readUInt32LE(0);
-            const headerLength = prefix.readUInt16LE(4);
-            if (payloadLength > MAX_FRAME || headerLength > payloadLength) {
-                this.handleExit(null, 'engine sent an invalid frame');
-                return;
-            }
-            const total = 6 + payloadLength;
-            if (this.buffered < total) {
-                return;
-            }
-            const all = Buffer.concat(this.chunks, this.buffered);
-            this.chunks = [all.subarray(total)];
-            this.buffered = all.length - total;
-            const payload = all.subarray(6, total);
-            this.dispatch(payload.subarray(0, headerLength), payload.subarray(headerLength));
+        this.drainFrames();
+    }
+
+    private drainFrames(): void {
+        for (;;) {
+            const frame = this.takeFrame();
+            if (!frame) { return; }
+            this.dispatch(frame.header, frame.body);
         }
+    }
+
+    private takeFrame(): { header: Buffer; body: Buffer } | null {
+        if (this.buffered < 6) { return null; }
+        const prefix = this.framePrefix();
+        const payloadLength = prefix.readUInt32LE(0);
+        const headerLength = prefix.readUInt16LE(4);
+        if (isInvalidFrame(payloadLength, headerLength)) {
+            this.handleExit(null, 'engine sent an invalid frame');
+            return null;
+        }
+        const total = 6 + payloadLength;
+        if (this.buffered < total) { return null; }
+        const all = Buffer.concat(this.chunks, this.buffered);
+        this.chunks = [all.subarray(total)];
+        this.buffered = all.length - total;
+        const payload = all.subarray(6, total);
+        return {
+            header: payload.subarray(0, headerLength),
+            body: payload.subarray(headerLength),
+        };
+    }
+
+    private framePrefix(): Buffer {
+        return this.chunks[0].length >= 6 ? this.chunks[0] : Buffer.concat(this.chunks);
     }
 
     private dispatch(headerBytes: Buffer, body: Buffer): void {
@@ -318,39 +392,70 @@ export class EngineClient {
             this.handleExit(null, 'engine sent an invalid header');
             return;
         }
-        if (header.id === 0 && header.event === 'progress') {
-            for (const pending of this.pending.values()) {
-                pending.onProgress?.(header);
-            }
+        this.route(header, body);
+    }
+
+    private route(header: EngineFrame, body: Buffer): void {
+        if (isProgressFrame(header)) {
+            this.progress(header);
             return;
         }
-        if (typeof header.id !== 'number') {
-            return;
-        }
-        const pending = this.pending.get(header.id);
-        if (!pending) {
-            return;
-        }
-        this.pending.delete(header.id);
-        if (header.ok === false) {
-            pending.reject(new EngineError(header.error ?? 'engine request failed'));
-            return;
-        }
-        pending.resolve({ header, body });
+        this.settle(header, body);
+    }
+
+    private progress(header: EngineFrame): void {
+        const id = header.id;
+        if (typeof id !== 'number') { return; }
+        this.pending.get(id)?.onProgress?.(header);
+    }
+
+    private settle(header: EngineFrame, body: Buffer): void {
+        const id = header.id;
+        if (typeof id !== 'number') { return; }
+        const pending = this.pending.get(id);
+        if (!pending) { return; }
+        this.pending.delete(id);
+        resolvePending(pending, header, body);
     }
 
     private handleExit(code: number | null, signal: string | null): void {
-        if (this.closed && this.pending.size === 0) {
-            return;
-        }
+        if (this.exitIsIgnorable()) { return; }
         this.closed = true;
+        this.rejectAll(this.exitError(code, signal));
+    }
+
+    private exitIsIgnorable(): boolean {
+        return this.closed && this.pending.size === 0;
+    }
+
+    private exitError(code: number | null, signal: string | null): EngineError {
+        const reason = code ?? signal;
         const detail = this.lastStderr ? `: ${this.lastStderr}` : '';
-        const error = new EngineError(`engine exited (${code ?? signal})${detail}`);
+        return new EngineError(`engine exited (${reason})${detail}`);
+    }
+
+    private rejectAll(error: Error): void {
         for (const pending of this.pending.values()) {
             pending.reject(error);
         }
         this.pending.clear();
     }
+}
+
+function isInvalidFrame(payloadLength: number, headerLength: number): boolean {
+    return payloadLength > MAX_FRAME || headerLength > payloadLength;
+}
+
+function isProgressFrame(header: EngineFrame): boolean {
+    return header.event === 'progress';
+}
+
+function resolvePending(pending: Pending, header: EngineFrame, body: Buffer): void {
+    if (header.ok === false) {
+        pending.reject(new EngineError(header.error ?? 'engine request failed'));
+        return;
+    }
+    pending.resolve({ header, body });
 }
 
 function readUint32Array(body: Buffer, cursor: { at: number }, length: number): Uint32Array {
@@ -380,40 +485,61 @@ function count(value: unknown): number {
 }
 
 function recordFromJson(value: unknown): HexRecord {
-    if (!value || typeof value !== 'object') {
-        throw new EngineError('engine record is not an object');
-    }
-    const source = value as Record<string, unknown>;
-    const data = Array.isArray(source.data) ? source.data.map(byte => count(byte) & 0xff) : [];
+    const source = recordObject(value);
     return {
         lineNumber: numeric(source.lineNumber),
-        raw: typeof source.raw === 'string' ? source.raw : '',
+        raw: textOrEmpty(source.raw),
         byteCount: count(source.byteCount),
         address: count(source.address),
         recordType: count(source.recordType),
-        data: Uint8Array.from(data),
+        data: Uint8Array.from(recordBytes(source.data)),
         checksum: count(source.checksum),
         checksumValid: source.checksumValid === true,
         resolvedAddress: count(source.resolvedAddress),
-        ...(typeof source.error === 'string' ? { error: source.error } : {}),
+        ...errorField(source.error),
     };
+}
+
+function recordObject(value: unknown): Record<string, unknown> {
+    if (value && typeof value === 'object') { return value as Record<string, unknown>; }
+    throw new EngineError('engine record is not an object');
+}
+
+function textOrEmpty(value: unknown): string {
+    return typeof value === 'string' ? value : '';
+}
+
+function recordBytes(value: unknown): number[] {
+    return Array.isArray(value) ? value.map(byte => count(byte) & 0xff) : [];
+}
+
+function errorField(value: unknown): { error?: string } {
+    return typeof value === 'string' ? { error: value } : {};
 }
 
 /** Map the engine's page/segment body into the worker's compact payload shape. */
 export function mapCompactResult(frame: EngineFrame, body: Buffer): SerializedCompactParseResult {
-    const rawLengths = frame.pageLengths;
-    const segmentHeaders = frame.segments;
-    if (!Array.isArray(rawLengths) || !Array.isArray(segmentHeaders)) {
+    const lengths = pageLengths(frame, body.length);
+    const cursor = { at: 0 };
+    const pages = lengths.map(length => readPage(body, cursor, length));
+    const segments = readSegments(frame.segments, body, cursor.at);
+    return compactResult(frame, pages, segments);
+}
+
+function pageLengths(frame: EngineFrame, bodyLength: number): number[] {
+    if (!Array.isArray(frame.pageLengths) || !Array.isArray(frame.segments)) {
         throw new EngineError('engine response is missing page or segment metadata');
     }
-    const lengths = rawLengths.map(count);
+    const lengths = frame.pageLengths.map(count);
     const pageBytes = lengths.reduce((total, length) => total + length * 24, 0);
-    if (pageBytes > body.length) {
+    if (pageBytes > bodyLength) {
         throw new EngineError('engine response is truncated');
     }
+    return lengths;
+}
 
-    const cursor = { at: 0 };
-    const pages: SerializedCompactPage[] = lengths.map(length => ({
+function readPage(body: Buffer, cursor: { at: number }, length: number): SerializedCompactPage {
+    return {
         length,
         sourceStart: readUint32Array(body, cursor, length),
         sourceEnd: readUint32Array(body, cursor, length),
@@ -424,21 +550,38 @@ export function mapCompactResult(frame: EngineFrame, body: Buffer): SerializedCo
         recordType: readUint8Array(body, cursor, length),
         checksum: readUint8Array(body, cursor, length),
         flags: readUint8Array(body, cursor, length),
-    }));
+    };
+}
 
-    const segmentBase = cursor.at;
-    const segments = segmentHeaders.map(raw => {
-        const entry = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-        const offset = count(entry.offset);
-        const length = count(entry.length);
-        if (segmentBase + offset + length > body.length) {
-            throw new EngineError('engine response is truncated');
-        }
-        const data = new ArrayBuffer(length);
-        body.copy(new Uint8Array(data), 0, segmentBase + offset, segmentBase + offset + length);
-        return { startAddress: count(entry.startAddress), data };
-    });
+function readSegments(headers: unknown, body: Buffer, base: number): SerializedCompactParseResult['segments'] {
+    if (!Array.isArray(headers)) {
+        throw new EngineError('engine response is missing segment metadata');
+    }
+    return headers.map(raw => readSegment(raw, body, base));
+}
 
+function readSegment(raw: unknown, body: Buffer, base: number): { startAddress: number; data: ArrayBuffer } {
+    const entry = segmentEntry(raw);
+    const offset = count(entry.offset);
+    const length = count(entry.length);
+    const start = base + offset;
+    if (start + length > body.length) {
+        throw new EngineError('engine response is truncated');
+    }
+    const data = new ArrayBuffer(length);
+    body.copy(new Uint8Array(data), 0, start, start + length);
+    return { startAddress: count(entry.startAddress), data };
+}
+
+function segmentEntry(raw: unknown): Record<string, unknown> {
+    return raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+}
+
+function compactResult(
+    frame: EngineFrame,
+    pages: SerializedCompactParseResult['pages'],
+    segments: SerializedCompactParseResult['segments']
+): SerializedCompactParseResult {
     const result: SerializedCompactParseResult = {
         recordCount: count(frame.recordCount),
         pages,
@@ -447,13 +590,20 @@ export function mapCompactResult(frame: EngineFrame, body: Buffer): SerializedCo
         checksumErrors: count(frame.checksumErrors),
         malformedLines: count(frame.malformedLines),
     };
-    const startAddress = numeric(frame.startAddress, Number.NaN);
+    assignStartAddress(result, frame.startAddress);
+    assignBaseAddress(result, frame.baseAddress);
+    return result;
+}
+
+function assignStartAddress(result: SerializedCompactParseResult, value: unknown): void {
+    const startAddress = numeric(value, Number.NaN);
     if (!Number.isNaN(startAddress)) {
         result.startAddress = startAddress;
     }
-    const baseAddress = count(frame.baseAddress);
-    if (typeof frame.baseAddress === 'number') {
-        result.baseAddress = baseAddress;
+}
+
+function assignBaseAddress(result: SerializedCompactParseResult, value: unknown): void {
+    if (typeof value === 'number') {
+        result.baseAddress = count(value);
     }
-    return result;
 }

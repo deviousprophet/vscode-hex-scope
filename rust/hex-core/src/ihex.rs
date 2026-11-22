@@ -103,18 +103,6 @@ struct IntelHexFields {
     checksum_valid: bool,
 }
 
-fn hex_nibble(byte: u8) -> u8 {
-    match byte {
-        b'0'..=b'9' => byte - b'0',
-        b'a'..=b'f' => byte - b'a' + 10,
-        _ => byte - b'A' + 10,
-    }
-}
-
-fn hex_byte(hex: &[u8], at: usize) -> u8 {
-    (hex_nibble(hex[at]) << 4) | hex_nibble(hex[at + 1])
-}
-
 fn parse_payload(raw: &str, base: &HexRecord) -> Result<String, HexRecord> {
     if !raw.starts_with(':') {
         let mut record = base.clone();
@@ -135,7 +123,7 @@ fn parse_payload(raw: &str, base: &HexRecord) -> Result<String, HexRecord> {
         return Err(record);
     }
 
-    let byte_count = hex_byte(hex.as_bytes(), 0);
+    let byte_count = crate::hex::byte(hex.as_bytes(), 0);
     let expected_length = 10 + usize::from(byte_count) * 2;
     if hex.len() != expected_length {
         let mut record = base.clone();
@@ -148,7 +136,7 @@ fn parse_payload(raw: &str, base: &HexRecord) -> Result<String, HexRecord> {
     Ok(hex.to_string())
 }
 
-fn compute_checksum(byte_count: u8, address: u32, record_type: u8, data: &[u8]) -> u8 {
+pub(crate) fn compute_checksum(byte_count: u8, address: u32, record_type: u8, data: &[u8]) -> u8 {
     let mut sum =
         u32::from(byte_count) + ((address >> 8) & 0xFF) + (address & 0xFF) + u32::from(record_type);
     for byte in data {
@@ -159,14 +147,15 @@ fn compute_checksum(byte_count: u8, address: u32, record_type: u8, data: &[u8]) 
 
 fn parse_fields(hex: &str) -> IntelHexFields {
     let bytes = hex.as_bytes();
-    let byte_count = hex_byte(bytes, 0);
-    let address = u32::from(hex_byte(bytes, 2)) << 8 | u32::from(hex_byte(bytes, 4));
-    let record_type = hex_byte(bytes, 6);
+    let byte_count = crate::hex::byte(bytes, 0);
+    let address =
+        u32::from(crate::hex::byte(bytes, 2)) << 8 | u32::from(crate::hex::byte(bytes, 4));
+    let record_type = crate::hex::byte(bytes, 6);
     let mut data = Vec::with_capacity(usize::from(byte_count));
     for index in 0..usize::from(byte_count) {
-        data.push(hex_byte(bytes, 8 + index * 2));
+        data.push(crate::hex::byte(bytes, 8 + index * 2));
     }
-    let checksum = hex_byte(bytes, 8 + usize::from(byte_count) * 2);
+    let checksum = crate::hex::byte(bytes, 8 + usize::from(byte_count) * 2);
     let checksum_valid = checksum == compute_checksum(byte_count, address, record_type, &data);
     IntelHexFields {
         byte_count,

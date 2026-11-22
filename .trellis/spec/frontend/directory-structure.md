@@ -24,7 +24,7 @@ src/
 ├── diffProtocol.ts           typed diff-panel <-> diff-webview seam (second cross-runtime union)
 ├── diff/                     second editor surface (read-only compare); does not reuse HexEditorSession
 │   ├── compareSelection.ts   session-only compare-selection store (no Memento)
-│   ├── diffEditorPanel.ts    diff WebviewPanel, loading/progress posts, worker spawn
+│   ├── diffEditorPanel.ts    diff WebviewPanel, loading/progress posts, engine parse
 │   ├── diffReload.ts         host reload decisions (sideDefects/buildDiffState/reloadState)
 │   └── loadProgress.ts       combined per-file load fraction summing
 ├── host/engine/              required Rust parsing engine (extension-host process)

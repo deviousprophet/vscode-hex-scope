@@ -298,8 +298,9 @@ function isSupportedHexFile(uri: vscode.Uri): boolean {
 async function readParseResult(uri: vscode.Uri): Promise<HexDocumentDefects | undefined> {
     try {
         return (await loadHexDocument(uri)).parse;
-    } catch {
-        return undefined;
+    } catch (error) {
+        if (error instanceof vscode.FileSystemError) { return undefined; }
+        throw error;
     }
 }
 

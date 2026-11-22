@@ -49,7 +49,7 @@ child.stdin.end();
 const status = await exited;
 const received = frames(chunks);
 const pong = received.find(entry => entry.header.id === 1);
-const result = received.find(entry => entry.header.id === 2);
+const result = received.find(entry => entry.header.id === 2 && entry.header.event === undefined);
 const ok =
 	status === 0 &&
 	pong?.header.protocol === 1 &&

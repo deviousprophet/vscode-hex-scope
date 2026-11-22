@@ -36,8 +36,18 @@ pub fn repair_checksums(source: &str, format: Format) -> (String, u32) {
             continue;
         };
         let checksum = match format {
-            Format::IntelHex => intel_hex_checksum(record),
-            Format::SRec => srec_checksum(record),
+            Format::IntelHex => crate::ihex::compute_checksum(
+                record.byte_count,
+                record.address,
+                record.record_type,
+                &record.data,
+            ),
+            Format::SRec => crate::srec::checksum_for_bytes(
+                record.byte_count,
+                record.address,
+                crate::srec::address_size(record.record_type),
+                &record.data,
+            ),
         };
         *line = replace_checksum(line, checksum);
         repaired += 1;
@@ -63,27 +73,6 @@ fn replace_checksum(line: &str, checksum: u8) -> String {
     let mut out = String::from_utf16_lossy(&units);
     out.push_str(&format!("{checksum:02X}"));
     out
-}
-
-fn intel_hex_checksum(record: &HexRecord) -> u8 {
-    let address_sum = ((record.address >> 8) & 0xFF) + (record.address & 0xFF);
-    let mut sum = u32::from(record.byte_count) + address_sum + u32::from(record.record_type);
-    for byte in &record.data {
-        sum += u32::from(*byte);
-    }
-    ((!sum).wrapping_add(1) & 0xFF) as u8
-}
-
-fn srec_checksum(record: &HexRecord) -> u8 {
-    let address_size = crate::srec::address_size(record.record_type);
-    let mut sum = u32::from(record.byte_count);
-    for index in 0..address_size {
-        sum += (record.address >> ((address_size - 1 - index) * 8)) & 0xFF;
-    }
-    for byte in &record.data {
-        sum += u32::from(*byte);
-    }
-    (!sum & 0xFF) as u8
 }
 
 #[cfg(test)]
