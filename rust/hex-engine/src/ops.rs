@@ -127,6 +127,82 @@ pub fn parse(id: u64, request: &Request, body: &[u8]) -> Result<(Frame, Option<F
     }
 }
 
+/// The text format an op requires (records/repair never address a raw image).
+fn text_format(request: &Request, op: &str) -> Result<Format, String> {
+    match request.input {
+        Some(Input::Text(format)) => Ok(format),
+        Some(Input::Bin) => Err(format!("{op} requires a text format")),
+        None => Err(format!("{op} requires a text format")),
+    }
+}
+
+/// `records`: parse the physical lines the host materializes for a record page.
+pub fn records(id: u64, request: &Request, body: &[u8]) -> Result<Frame, String> {
+    let format = text_format(request, "records")?;
+    let value: Value = serde_json::from_slice(body)
+        .map_err(|error| format!("records body is not valid JSON: {error}"))?;
+    let items = value
+        .as_array()
+        .ok_or_else(|| "records body must be a JSON array".to_string())?;
+
+    let mut lines = Vec::with_capacity(items.len());
+    for item in items {
+        let object = item
+            .as_object()
+            .ok_or_else(|| "records entry must be an object".to_string())?;
+        let line_number = object
+            .get("lineNumber")
+            .and_then(Value::as_f64)
+            .ok_or_else(|| "records entry has no numeric lineNumber".to_string())?;
+        let raw = object
+            .get("raw")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "records entry has no raw string".to_string())?;
+        lines.push((line_number, raw.to_string()));
+    }
+
+    let parsed = hex_core::parse_lines(format, &lines);
+    let records: Vec<Value> = parsed.iter().map(record_json).collect();
+    let payload = serde_json::to_vec(&records)
+        .map_err(|error| format!("records response is not serializable: {error}"))?;
+    Ok(Frame::new(
+        json!({"id": id, "ok": true, "count": parsed.len()}),
+        payload,
+    ))
+}
+
+/// `repair`: rewrite wrong checksum fields and return the repaired source.
+pub fn repair(id: u64, request: &Request, body: &[u8]) -> Result<Frame, String> {
+    let format = text_format(request, "repair")?;
+    let source =
+        std::str::from_utf8(body).map_err(|error| format!("source is not valid UTF-8: {error}"))?;
+    let (text, repaired) = hex_core::repair_checksums(source, format);
+    Ok(Frame::new(
+        json!({"id": id, "ok": true, "repaired": repaired}),
+        text.into_bytes(),
+    ))
+}
+
+fn record_json(record: &hex_core::HexRecord) -> Value {
+    let mut object = Map::new();
+    object.insert("lineNumber".to_string(), json!(record.line_number));
+    object.insert("raw".to_string(), json!(record.raw));
+    object.insert("byteCount".to_string(), json!(record.byte_count));
+    object.insert("address".to_string(), json!(record.address));
+    object.insert("recordType".to_string(), json!(record.record_type));
+    object.insert("data".to_string(), json!(record.data));
+    object.insert("checksum".to_string(), json!(record.checksum));
+    object.insert("checksumValid".to_string(), json!(record.checksum_valid));
+    object.insert(
+        "resolvedAddress".to_string(),
+        json!(record.resolved_address),
+    );
+    if let Some(error) = &record.error {
+        object.insert("error".to_string(), json!(error));
+    }
+    Value::Object(object)
+}
+
 fn progress_frame(total: u64) -> Frame {
     Frame::new(
         json!({

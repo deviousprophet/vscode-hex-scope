@@ -13,7 +13,7 @@ pub struct ParsedRecords {
 type LineParser<'a> = &'a dyn Fn(&str, f64) -> HexRecord;
 
 /// Split like JavaScript's `source.split(/\r?\n/)`.
-fn split_crlf_lines(source: &str) -> Vec<&str> {
+pub(crate) fn split_crlf_lines(source: &str) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut rest = source;
     while let Some(newline) = rest.find('\n') {

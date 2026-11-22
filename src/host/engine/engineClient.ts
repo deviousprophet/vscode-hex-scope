@@ -12,8 +12,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
+import type { HexRecord, ParseProgress } from '../../core/parser/types';
 import type { SerializedCompactPage, SerializedCompactParseResult } from '../../core/parser/compact';
-import type { ParseProgress } from '../../core/parser/types';
 
 /** The protocol version this client speaks. */
 export const ENGINE_PROTOCOL = 1;
@@ -77,6 +77,7 @@ export interface EngineFrame {
     baseAddress?: unknown;
     pageLengths?: unknown;
     segments?: unknown;
+    repaired?: unknown;
 }
 
 /** Boundary parser: reject a malformed header instead of casting JSON into `EngineFrame`. */
@@ -117,6 +118,7 @@ export function parseEngineFrame(text: string): EngineFrame | null {
     frame.baseAddress = source.baseAddress;
     frame.pageLengths = source.pageLengths;
     frame.segments = source.segments;
+    frame.repaired = source.repaired;
     return frame;
 }
 
@@ -218,6 +220,34 @@ export class EngineClient {
         }
         const response = await this.request(header, body, onProgress);
         return mapCompactResult(response.header, response.body);
+    }
+
+    /** Parse selected physical lines for a record page (no full-file reparse). */
+    public async parseLines(
+        format: 'ihex' | 'srec',
+        lines: ReadonlyArray<{ lineNumber: number; raw: string }>
+    ): Promise<HexRecord[]> {
+        const body = Buffer.from(JSON.stringify(lines), 'utf8');
+        const response = await this.request({ op: 'records', format }, body);
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(response.body.toString('utf8'));
+        } catch {
+            throw new EngineError('engine records response is not valid JSON');
+        }
+        if (!Array.isArray(parsed)) {
+            throw new EngineError('engine records response is not an array');
+        }
+        return parsed.map(recordFromJson);
+    }
+
+    /** Rewrite wrong checksum fields and return the repaired source. */
+    public async repair(
+        format: 'ihex' | 'srec',
+        source: string
+    ): Promise<{ text: string; repaired: number }> {
+        const response = await this.request({ op: 'repair', format }, Buffer.from(source, 'utf8'));
+        return { text: response.body.toString('utf8'), repaired: count(response.header.repaired) };
     }
 
     public dispose(): void {
@@ -347,6 +377,26 @@ function numeric(value: unknown, fallback = 0): number {
 
 function count(value: unknown): number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+function recordFromJson(value: unknown): HexRecord {
+    if (!value || typeof value !== 'object') {
+        throw new EngineError('engine record is not an object');
+    }
+    const source = value as Record<string, unknown>;
+    const data = Array.isArray(source.data) ? source.data.map(byte => count(byte) & 0xff) : [];
+    return {
+        lineNumber: numeric(source.lineNumber),
+        raw: typeof source.raw === 'string' ? source.raw : '',
+        byteCount: count(source.byteCount),
+        address: count(source.address),
+        recordType: count(source.recordType),
+        data: Uint8Array.from(data),
+        checksum: count(source.checksum),
+        checksumValid: source.checksumValid === true,
+        resolvedAddress: count(source.resolvedAddress),
+        ...(typeof source.error === 'string' ? { error: source.error } : {}),
+    };
 }
 
 /** Map the engine's page/segment body into the worker's compact payload shape. */

@@ -1,20 +1,16 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { DisposableStore } from '../core/disposableStore';
-import { detectFormatFromParts, isRawBinaryExtension, repairChecksums } from '../core/document';
-import { parseIntelHex } from '../core/parser/intelHexParser';
-import { parseSRec } from '../core/parser/srecParser';
+import { detectFormatFromParts, isRawBinaryExtension, isTextFormat } from '../core/document';
 import { disambiguatedLabels } from '../core/diffLabels';
 import type { WireParseResult } from '../core/types';
 import { diffBaseRequest, diffCopyText, diffMessageType, type DiffBaseRequest, type DiffProviderToWebview, type DiffProgressStage } from '../diffProtocol';
-import { advanceFraction, combinedLoadProgress } from './loadProgress';
+import { combinedLoadProgress } from './loadProgress';
 import { buildDiffState, reloadIsStale, reloadState, sideDefects, type DiffReloadState, type DiffSideKey, type ParsedDiffSide } from './diffReload';
 import { fileExtension, fileName } from '../core/pathName';
-import { runParseJob, type WorkerResultOut } from '../parse/parseWorkerClient';
-import type { DiffParseJob } from '../parse/parseWorker';
 import { resolveCompareBinBaseAddress } from '../binBaseAddress';
 import { binAddressRangeFits, binBaseAddressError, isValidBinBaseAddress } from '../core/parser/binImage';
-import { engineWire, parseBinaryWithEngine, parseTextWithEngine } from '../host/engine/engineLoader';
+import { engineWire, parseBinaryWithEngine, parseTextWithEngine, repairWithEngine } from '../host/engine/engineLoader';
 
 /** Each file contributes one unit to `diffProgress`; its read fills a small leading slice, its parse the rest. */
 const FILE_TOTAL = 2;
@@ -266,7 +262,7 @@ export class DiffEditorPanel {
             base: number,
         ): Promise<ParsedDiffFile | null> => {
             const gen = ++reloadGeneration[side];
-            const parsed = await parseSideInWorker(uri, bytes, controller.signal, () => {}, base);
+            const parsed = await parseSide(uri, bytes, controller.signal, base);
             return reloadIsStale(disposed, gen, reloadGeneration[side], current) ? null : parsed;
         };
 
@@ -335,7 +331,7 @@ type ResolveSideBase = (side: DiffSideKey, uri: vscode.Uri, byteLength: number) 
 /** Read + parse one side (no progress reporting; used by the reload path). */
 async function readAndParseSide(uri: vscode.Uri, signal: AbortSignal, baseAddress?: number): Promise<ParsedDiffFile> {
     const bytes = await readDiffSource(uri);
-    return parseSideInWorker(uri, bytes, signal, () => {}, baseAddress);
+    return parseSide(uri, bytes, signal, baseAddress);
 }
 
 /** Repair the file's checksums in place (no-op when it has none) and report the self-write. */
@@ -343,10 +339,10 @@ async function repairChecksumsOnDisk(uri: vscode.Uri, markSelfWrite: () => void)
     if (isRawBinaryExtension(fileExtension(uri))) { return; }
     const raw = new TextDecoder('utf-8').decode(await readDiffSource(uri));
     const format = detectFormatFromParts(fileExtension(uri), raw);
-    const parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
-    const repaired = repairChecksums(raw, parseResult);
-    if (repaired === raw) { return; }
-    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(repaired));
+    if (!isTextFormat(format)) { return; }
+    const repaired = await repairWithEngine(raw, format);
+    if (repaired.repaired === 0) { return; }
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(repaired.text));
     markSelfWrite();
 }
 
@@ -418,15 +414,10 @@ async function parseSideWithProgress(
     fractions: number[],
     report: () => void,
 ): Promise<ParsedDiffFile> {
-    let running = 0;
-    const parsed = await parseSideInWorker(uri, bytes, signal, fraction => {
-        running = advanceFraction(running, fraction);
-        fractions[index] = READ_SHARE + (1 - READ_SHARE) * running;
-        report();
-    }, baseAddress);
-    assertNoParseDefects(uri, parsed.wire);
+    const parsed = await parseSide(uri, bytes, signal, baseAddress);
     fractions[index] = 1;
     report();
+    assertNoParseDefects(uri, parsed.wire);
     return parsed;
 }
 
@@ -434,51 +425,26 @@ async function readDiffSource(uri: vscode.Uri): Promise<Uint8Array> {
     return vscode.workspace.fs.readFile(uri);
 }
 
-/** Parse one file in its own worker thread, relaying the worker's monotonic fraction. */
-async function parseSideInWorker(
+/** Parse one side through the required Rust engine. */
+async function parseSide(
     uri: vscode.Uri,
     bytes: Uint8Array,
     signal: AbortSignal,
-    onFraction: (fraction: number) => void,
     baseAddress?: number,
 ): Promise<ParsedDiffFile> {
-    const engineSide = await parseSideWithEngine(uri, bytes, signal, baseAddress);
-    if (engineSide) { return engineSide; }
-    const buffer = bytes.buffer as ArrayBuffer;
-    const job: DiffParseJob = { kind: 'diffParse', bytes: buffer, extension: fileExtension(uri) };
-    if (baseAddress !== undefined) { job.baseAddress = baseAddress; }
-    return runParseJob({
-        job,
-        signal,
-        transferList: [buffer],
-        abortMessage: 'Compare cancelled',
-        onProgress: message => { if ('fraction' in message) { onFraction(message.fraction); } },
-        onResult: message => acceptParsedSide(uri, message),
-    });
-}
-
-/** The Rust engine path; null means "parse this side in the worker instead". */
-async function parseSideWithEngine(
-    uri: vscode.Uri,
-    bytes: Uint8Array,
-    signal: AbortSignal,
-    baseAddress?: number,
-): Promise<ParsedDiffFile | null> {
     const extension = fileExtension(uri);
     if (isRawBinaryExtension(extension)) {
         const error = binBaseAddressError(baseAddress, bytes.length);
         if (error) { throw new Error(error); }
         const payload = await parseBinaryWithEngine(bytes, baseAddress as number);
         if (signal.aborted) { throw new Error('Compare cancelled'); }
-        if (!payload) { return null; }
         return { format: 'bin', wire: engineWire(payload, 'bin') };
     }
     const raw = new TextDecoder('utf-8').decode(bytes);
     const format = detectFormatFromParts(extension, raw);
-    if (format === 'bin') { return null; }
+    if (!isTextFormat(format)) { throw new Error('Raw binary files do not use the text parser.'); }
     const payload = await parseTextWithEngine(raw, format);
     if (signal.aborted) { throw new Error('Compare cancelled'); }
-    if (!payload) { return null; }
     return { format, wire: engineWire(payload, format) };
 }
 
@@ -486,11 +452,6 @@ function assertNoParseDefects(uri: vscode.Uri, wire: WireParseResult): void {
     if (wire.checksumErrors > 0 || wire.malformedLines > 0) {
         throw new Error(`${fileName(uri)} has ${wire.checksumErrors} checksum error(s) and ${wire.malformedLines} malformed line(s). Use Quick Repair first.`);
     }
-}
-
-function acceptParsedSide(uri: vscode.Uri, message: WorkerResultOut): ParsedDiffFile {
-    if (!('wire' in message)) { throw new Error(`Failed to parse ${fileName(uri)}.`); }
-    return { format: message.format, wire: message.wire };
 }
 
 function refOf(uri: vscode.Uri): DiffSideRef {

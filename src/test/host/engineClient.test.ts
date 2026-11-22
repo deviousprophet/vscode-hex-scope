@@ -13,7 +13,9 @@ import {
 import {
     configureEngineRoot,
     engineUnavailableReason,
+    parseLinesWithEngine,
     parseTextWithEngine,
+    repairWithEngine,
     shutdownEngine
 } from '../../host/engine/engineLoader';
 
@@ -124,21 +126,33 @@ suite('engine client', () => {
         assert.deepStrictEqual(Array.from(new Uint8Array(mapped.segments[0].data)), [0xAA, 0xBB]);
     });
 
-    test('the loader falls back when the engine root has no binary', async () => {
+    test('the loader reports a missing engine instead of falling back', async () => {
         const emptyRoot = mkdtempSync(path.join(tmpdir(), 'hexscope-no-engine-'));
         configureEngineRoot(emptyRoot);
-        const payload = await parseTextWithEngine(':00000001FF\n', 'ihex');
-        assert.strictEqual(payload, null);
+        await assert.rejects(
+            () => parseTextWithEngine(':00000001FF\n', 'ihex'),
+            /not built/
+        );
         assert.match(engineUnavailableReason() ?? '', /not built/);
         configureEngineRoot(ROOT);
     });
 
-    test('the loader serves a parse from the real engine', async () => {
+    test('the loader serves parses, record lines and repairs from the real engine', async () => {
         configureEngineRoot(ROOT);
         const payload = await parseTextWithEngine(':0400100001020304E2\n:00000001FF\n', 'ihex');
-        assert.ok(payload);
         assert.strictEqual(payload.recordCount, 2);
         assert.strictEqual(payload.totalDataBytes, 4);
+
+        const records = await parseLinesWithEngine('ihex', [
+            { lineNumber: 1, raw: ':0400100001020304E2' },
+        ]);
+        assert.strictEqual(records.length, 1);
+        assert.deepStrictEqual(Array.from(records[0].data), [1, 2, 3, 4]);
+        assert.strictEqual(records[0].checksumValid, true);
+
+        const repaired = await repairWithEngine(':0400100001020304E3\n:00000001FF\n', 'ihex');
+        assert.strictEqual(repaired.repaired, 1);
+        assert.strictEqual(repaired.text, ':0400100001020304E2\n:00000001FF\n');
         shutdownEngine();
     });
 });

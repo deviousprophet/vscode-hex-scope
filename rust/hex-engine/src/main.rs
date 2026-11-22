@@ -21,6 +21,17 @@ fn main() -> io::Result<()> {
                 Ok(result) => result,
                 Err(error) => (Frame::error(request.id, error), None),
             },
+            Ok(request) if request.op == "records" => {
+                match ops::records(request.id, &request, &body) {
+                    Ok(frame) => (frame, None),
+                    Err(error) => (Frame::error(request.id, error), None),
+                }
+            }
+            Ok(request) if request.op == "repair" => match ops::repair(request.id, &request, &body)
+            {
+                Ok(frame) => (frame, None),
+                Err(error) => (Frame::error(request.id, error), None),
+            },
             Ok(request) => (
                 Frame::error(request.id, format!("unknown op: {}", request.op)),
                 None,

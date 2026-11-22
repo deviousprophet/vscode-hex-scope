@@ -9,6 +9,7 @@ pub mod ihex;
 pub mod jsnum;
 pub mod model;
 pub mod records;
+pub mod repair;
 pub mod segments;
 pub mod srec;
 pub mod text;
@@ -34,6 +35,22 @@ pub fn parse_compact(source: &str, format: Format) -> CompactResult {
             )
         }
     }
+}
+
+/// Parse selected physical lines (the host materializes record pages without a full parse).
+pub fn parse_lines(format: Format, lines: &[(f64, String)]) -> Vec<HexRecord> {
+    lines
+        .iter()
+        .map(|(line_number, raw)| match format {
+            Format::IntelHex => ihex::parse_intel_hex_line(raw, *line_number),
+            Format::SRec => srec::parse_srec_line(raw, *line_number),
+        })
+        .collect()
+}
+
+/// Repair checksum fields and return the rewritten source plus the changed-line count.
+pub fn repair_checksums(source: &str, format: Format) -> (String, u32) {
+    repair::repair_checksums(source, format)
 }
 
 #[cfg(test)]

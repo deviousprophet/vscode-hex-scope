@@ -2,7 +2,7 @@ import type { HexRecord, MemorySegment, ParseWorkOptions } from './types';
 import type { ParsedRecordsWithRanges, SourceRange } from './records';
 import { canUseSegmentRecord, collectSegmentRanges, type SegmentRange } from './segments';
 
-const RECORD_PAGE_CAPACITY = 65_536;
+export const RECORD_PAGE_CAPACITY = 65_536;
 const COMPACTION_BATCH_SIZE = 2_048;
 
 export interface SerializedCompactPage {

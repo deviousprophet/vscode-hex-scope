@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Opening and comparing large Intel HEX, SREC, and raw binary files now runs in a packaged Rust parsing engine, with the TypeScript parser kept as a fallback when the engine is unavailable
+- Opening, comparing, repairing, and browsing Intel HEX, SREC, and raw binary files now runs through the required packaged Rust engine, which owns file parsing, record pages, and checksum repair
+- HexScope now requires its bundled Rust engine; on a platform without an engine build the extension reports the failure instead of falling back to a slower parser
 
 ## [3.2.1] - 2026-11-08
 

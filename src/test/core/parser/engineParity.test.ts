@@ -1,14 +1,16 @@
 import * as assert from 'assert';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
-import { parseIntelHexCompact } from '../../../core/parser/intelHexParser';
-import { parseSRecCompact } from '../../../core/parser/srecParser';
+import { parseIntelHexCompact, parseIntelHex, parseIntelHexLine } from '../../../core/parser/intelHexParser';
+import { parseSRecCompact, parseSRec, parseSRecRecordLine } from '../../../core/parser/srecParser';
+import { repairChecksums } from '../../../core/document';
 import {
     serializeCompactParseResult,
     type SerializedCompactParseResult
 } from '../../../core/parser/compact';
 import { EngineClient, EngineError, engineBinaryPath } from '../../../host/engine/engineClient';
 import { createBinParseResult } from '../../../core/parser/binImage';
+import type { HexRecord } from '../../../core/parser/types';
 import { loadIntelHexFixture, loadSRecFixture } from '../../shared/parserFixtures';
 
 /** `out/test/core/parser` → repository root. */
@@ -46,6 +48,10 @@ function snapshot(payload: SerializedCompactParseResult) {
         startAddress: payload.startAddress,
         baseAddress: payload.baseAddress
     };
+}
+
+function recordSnapshot(record: HexRecord) {
+    return { ...record, data: Array.from(record.data) };
 }
 
 suite('Rust engine parity', () => {
@@ -125,6 +131,40 @@ suite('Rust engine parity', () => {
         const expected = serializeCompactParseResult(createBinParseResult(bytes, 0x1000));
         const actual = await engine().parse({ format: 'bin', bytes, baseAddress: 0x1000 });
         assert.deepStrictEqual(snapshot(actual), snapshot(expected));
+    });
+
+    test('checksum repair matches the TypeScript repairer', async () => {
+        const ihex = loadIntelHexFixture('errors.hex');
+        const ihexExpected = repairChecksums(ihex, parseIntelHex(ihex));
+        const ihexActual = await engine().repair('ihex', ihex);
+        assert.strictEqual(ihexActual.text, ihexExpected);
+        assert.ok(ihexActual.repaired > 0);
+
+        const srec = loadSRecFixture('errors.srec');
+        const srecExpected = repairChecksums(srec, parseSRec(srec));
+        const srecActual = await engine().repair('srec', srec);
+        assert.strictEqual(srecActual.text, srecExpected);
+        assert.ok(srecActual.repaired > 0);
+    });
+
+    test('record-line parsing matches the TypeScript line parsers', async () => {
+        const ihexSource = loadIntelHexFixture('errors.hex');
+        const ihexLines = ihexSource.split(/\r?\n/).filter(line => line.trim() !== '');
+        const ihexExpected = ihexLines.map((raw, index) => parseIntelHexLine(raw.trim(), index + 1));
+        const ihexActual = await engine().parseLines(
+            'ihex',
+            ihexLines.map((raw, index) => ({ lineNumber: index + 1, raw: raw.trim() }))
+        );
+        assert.deepStrictEqual(ihexActual.map(recordSnapshot), ihexExpected.map(recordSnapshot));
+
+        const srecSource = loadSRecFixture('errors.srec');
+        const srecLines = srecSource.split(/\r?\n/).filter(line => line.trim() !== '');
+        const srecExpected = srecLines.map((raw, index) => parseSRecRecordLine(raw.trim(), index + 1));
+        const srecActual = await engine().parseLines(
+            'srec',
+            srecLines.map((raw, index) => ({ lineNumber: index + 1, raw: raw.trim() }))
+        );
+        assert.deepStrictEqual(srecActual.map(recordSnapshot), srecExpected.map(recordSnapshot));
     });
 
     test('a missing binary is a typed, actionable error', async () => {

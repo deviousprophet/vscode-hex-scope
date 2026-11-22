@@ -69,6 +69,30 @@ fn engine_answers_ping_and_parses_both_formats() {
     assert_eq!(binary["segments"][0]["startAddress"], 4096);
     assert_eq!(bin_body, vec![9, 8, 7]);
 
+    let lines = r#"[{"lineNumber":1,"raw":":0400100001020304E2"}]"#;
+    write_frame(
+        &mut stdin,
+        r#"{"id":4,"op":"records","format":"ihex"}"#,
+        lines.as_bytes(),
+    );
+    let (records_header, records_body) = read_frame(&mut stdout);
+    assert_eq!(records_header["count"], 1);
+    let records: Value = serde_json::from_slice(&records_body).unwrap();
+    assert_eq!(records[0]["data"], serde_json::json!([1, 2, 3, 4]));
+    assert_eq!(records[0]["checksumValid"], true);
+
+    write_frame(
+        &mut stdin,
+        r#"{"id":5,"op":"repair","format":"ihex"}"#,
+        b":0400100001020304E3\n:00000001FF\n",
+    );
+    let (repair_header, repaired) = read_frame(&mut stdout);
+    assert_eq!(repair_header["repaired"], 1);
+    assert_eq!(
+        std::str::from_utf8(&repaired).unwrap(),
+        ":0400100001020304E2\n:00000001FF\n"
+    );
+
     drop(stdin);
     let status = child.wait().unwrap();
     assert!(status.success());

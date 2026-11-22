@@ -1,20 +1,20 @@
 /**
- * Session-scoped Rust engine: one process, lazily started, shared by every parse in the
- * extension host. A missing binary or a start failure is remembered and the caller falls back
- * to the TypeScript parser for the rest of the session.
+ * Session-scoped Rust engine: one required process, lazily started, shared by every parse in
+ * the extension host. There is no TypeScript parsing fallback: a start or request failure is
+ * surfaced to the caller (and fails activation when the engine cannot start at all).
  */
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { hydrateCompactParseResult, type SerializedCompactParseResult } from '../../core/parser/compact';
-import type { ParseProgress } from '../../core/parser/types';
+import type { HexRecord, ParseProgress } from '../../core/parser/types';
 import type { WireParseResult } from '../../core/types';
 import { serializeParseResult } from '../../core/wire';
-import { EngineClient, engineBinaryPath, isSupportedEngineTarget } from './engineClient';
+import { EngineClient, EngineError, engineBinaryPath, isSupportedEngineTarget } from './engineClient';
 
 let configuredRoot: string | undefined;
 let client: EngineClient | null = null;
-let starting: Promise<EngineClient | null> | null = null;
+let starting: Promise<EngineClient> | null = null;
 let unavailableReason: string | null = null;
 
 /** Point the loader at the extension root (the directory holding `dist/engine`). */
@@ -45,69 +45,74 @@ function resolveRoot(): string {
     }
 }
 
-/** Why the engine is unavailable, or null when it started (or has not been tried). */
+/** Why the engine last failed, or null when it has not failed. */
 export function engineUnavailableReason(): string | null {
     return unavailableReason;
 }
 
-/** The live engine, or null when this build cannot run one. */
-export async function getEngine(): Promise<EngineClient | null> {
+/** The live engine. Throws `EngineError` when this build cannot run one. */
+export async function getEngine(): Promise<EngineClient> {
     if (client) {
         return client;
-    }
-    if (unavailableReason) {
-        return null;
     }
     if (!starting) {
         starting = startEngine();
     }
-    const started = await starting;
-    starting = null;
-    return started;
-}
-
-async function startEngine(): Promise<EngineClient | null> {
-    const root = resolveRoot();
-    if (!isSupportedEngineTarget()) {
-        unavailableReason = `no Rust engine for ${process.platform}-${process.arch}`;
-        return null;
-    }
-    const binary = engineBinaryPath(root);
     try {
-        client = await EngineClient.start({ binary });
+        client = await starting;
+        unavailableReason = null;
         return client;
     } catch (error) {
         unavailableReason = error instanceof Error ? error.message : String(error);
-        console.warn(`[hexscope] Rust engine unavailable: ${unavailableReason}`);
-        return null;
+        throw error;
+    } finally {
+        starting = null;
     }
 }
 
-async function withEngine<T>(
-    run: (engine: EngineClient) => Promise<T>
-): Promise<T | null> {
-    const engine = await getEngine();
-    if (!engine) {
-        return null;
+async function startEngine(): Promise<EngineClient> {
+    const root = resolveRoot();
+    if (!isSupportedEngineTarget()) {
+        throw new EngineError(
+            `no Rust engine for ${process.platform}-${process.arch}. ` +
+                `Supported: linux-x64, win32-x64, darwin-x64, darwin-arm64.`
+        );
     }
+    const binary = engineBinaryPath(root);
+    return EngineClient.start({ binary });
+}
+
+/** Start the engine during activation; a failure must abort activation. */
+export async function ensureEngine(): Promise<void> {
+    await getEngine();
+}
+
+/**
+ * Run one request. A crashed engine is replaced once and the request retried; a second failure
+ * is reported to the caller instead of silently parsing elsewhere.
+ */
+async function withEngine<T>(run: (engine: EngineClient) => Promise<T>): Promise<T> {
+    const engine = await getEngine();
     try {
         return await run(engine);
-    } catch (error) {
-        // A crashed or wedged engine must not take the parse path down with it: drop the
-        // process, remember why, and let the caller use the TypeScript parser.
-        unavailableReason = error instanceof Error ? error.message : String(error);
-        console.warn(`[hexscope] Rust engine failed, falling back to TypeScript: ${unavailableReason}`);
+    } catch (first) {
         shutdownEngine();
-        return null;
+        try {
+            return await run(await getEngine());
+        } catch (second) {
+            unavailableReason = second instanceof Error ? second.message : String(second);
+            shutdownEngine();
+            throw second;
+        }
     }
 }
 
-/** Parse a text source in Rust, or null when the engine cannot serve it. */
+/** Parse a text source in Rust. */
 export function parseTextWithEngine(
     source: string,
     format: 'ihex' | 'srec',
     onProgress?: (progress: ParseProgress) => void
-): Promise<SerializedCompactParseResult | null> {
+): Promise<SerializedCompactParseResult> {
     return withEngine(engine =>
         engine.parse({ format, source }, frame => {
             if (frame.event !== 'progress' || !frame.stage) {
@@ -122,12 +127,28 @@ export function parseTextWithEngine(
     );
 }
 
-/** Parse raw binary bytes in Rust, or null when the engine cannot serve it. */
+/** Parse raw binary bytes in Rust. */
 export function parseBinaryWithEngine(
     bytes: Uint8Array,
     baseAddress: number
-): Promise<SerializedCompactParseResult | null> {
+): Promise<SerializedCompactParseResult> {
     return withEngine(engine => engine.parse({ format: 'bin', bytes, baseAddress }));
+}
+
+/** Parse the physical lines of one record page in Rust. */
+export function parseLinesWithEngine(
+    format: 'ihex' | 'srec',
+    lines: ReadonlyArray<{ lineNumber: number; raw: string }>
+): Promise<HexRecord[]> {
+    return withEngine(engine => engine.parseLines(format, lines));
+}
+
+/** Repair checksum fields in Rust. */
+export function repairWithEngine(
+    source: string,
+    format: 'ihex' | 'srec'
+): Promise<{ text: string; repaired: number }> {
+    return withEngine(engine => engine.repair(format, source));
 }
 
 /** Project an engine compact payload onto the webview wire shape. */

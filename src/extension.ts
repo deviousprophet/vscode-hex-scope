@@ -6,12 +6,9 @@ import { DiffEditorPanel } from './diff/diffEditorPanel';
 import { CompareSelectionStore, selectionName, type CompareSelection } from './diff/compareSelection';
 import { registerAddExampleScripts } from './addExampleScripts';
 import { registerCreateScript, registerManageScripts } from './manageScripts';
-import { detectFormatFromParts, isRawBinaryExtension, isTextFormat, repairChecksums, type HexScopeTextFormat } from './core/document';
-import { parseIntelHex } from './core/parser/intelHexParser';
-import { parseSRec } from './core/parser/srecParser';
-import type { ParseResult } from './core/parser/types';
+import { detectFormatFromParts, isRawBinaryExtension, isTextFormat, type HexScopeTextFormat } from './core/document';
 import { fileExtension } from './core/pathName';
-import { configureEngineRoot, shutdownEngine } from './host/engine/engineLoader';
+import { configureEngineRoot, ensureEngine, parseTextWithEngine, repairWithEngine, shutdownEngine } from './host/engine/engineLoader';
 
 const SUPPORTED_EXTENSIONS = ['hex', 'ihx', 'ihex', 'srec', 'mot', 's19', 's28', 's37', 'bin'];
 
@@ -35,7 +32,12 @@ export function requestBinBaseAddressChange(deliver: () => boolean, info: (messa
     return false;
 }
 
-async function loadHexDocument(uri: vscode.Uri): Promise<{ raw: string; format: HexScopeTextFormat; parseResult: ParseResult }> {
+interface HexDocumentDefects {
+    checksumErrors: number;
+    malformedLines: number;
+}
+
+async function loadHexDocument(uri: vscode.Uri): Promise<{ raw: string; format: HexScopeTextFormat; parse: HexDocumentDefects }> {
     const ext = fileExtension(uri);
     if (isRawBinaryExtension(ext)) {
         throw new Error('Raw binary files do not have a HEX/SREC text representation.');
@@ -45,8 +47,8 @@ async function loadHexDocument(uri: vscode.Uri): Promise<{ raw: string; format: 
     if (!isTextFormat(format)) {
         throw new Error('Raw binary files do not have a HEX/SREC text representation.');
     }
-    const parseResult = format === 'srec' ? parseSRec(raw) : parseIntelHex(raw);
-    return { raw, format, parseResult };
+    const parse = await parseTextWithEngine(raw, format);
+    return { raw, format, parse };
 }
 
 async function openNormalEditor(uri: vscode.Uri): Promise<void> {
@@ -56,8 +58,8 @@ async function openNormalEditor(uri: vscode.Uri): Promise<void> {
 
 /** HEX/SREC open: open the custom editor when valid, else offer Quick Repair. */
 async function openTextInHexScope(target: vscode.Uri): Promise<void> {
-    const { parseResult } = await loadHexDocument(target);
-    if (parseResultIsValid(parseResult)) {
+    const { parse } = await loadHexDocument(target);
+    if (parseResultIsValid(parse)) {
         await vscode.commands.executeCommand('vscode.openWith', target, HexEditorProvider.viewType);
         return;
     }
@@ -75,12 +77,19 @@ function commandTarget(uri?: vscode.Uri): vscode.Uri | undefined {
     return uri ?? vscode.window.activeTextEditor?.document.uri;
 }
 
-function parseResultIsValid(parseResult: ParseResult): boolean {
+function parseResultIsValid(parseResult: HexDocumentDefects): boolean {
     return parseResult.checksumErrors === 0 && parseResult.malformedLines === 0;
 }
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
     configureEngineRoot(context.extensionPath);
+    try {
+        await ensureEngine();
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        void vscode.window.showErrorMessage(`HexScope: the Rust engine failed to start: ${message}`);
+        throw error;
+    }
     context.subscriptions.push(
         HexEditorProvider.register(context)
     );
@@ -286,9 +295,9 @@ function isSupportedHexFile(uri: vscode.Uri): boolean {
 }
 
 /** Read + parse, or undefined when the file is missing/moved/unreadable. */
-async function readParseResult(uri: vscode.Uri): Promise<ParseResult | undefined> {
+async function readParseResult(uri: vscode.Uri): Promise<HexDocumentDefects | undefined> {
     try {
-        return (await loadHexDocument(uri)).parseResult;
+        return (await loadHexDocument(uri)).parse;
     } catch {
         return undefined;
     }
@@ -333,12 +342,12 @@ async function validateRawComparable(uri: vscode.Uri): Promise<boolean> {
 }
 
 async function repairTargetChecksums(target: vscode.Uri): Promise<void> {
-    const { raw, parseResult } = await loadHexDocument(target);
-    if (showNoChecksumErrors(parseResult.checksumErrors)) { return; }
-    const repairedRaw = repairChecksums(raw, parseResult);
-    if (showNoChecksumRepair(raw, repairedRaw)) { return; }
-    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(repairedRaw));
-    vscode.window.showInformationMessage(repairCompleteMessage(parseResult.checksumErrors, target));
+    const { raw, format, parse } = await loadHexDocument(target);
+    if (showNoChecksumErrors(parse.checksumErrors)) { return; }
+    const repaired = await repairWithEngine(raw, format);
+    if (showNoChecksumRepair(raw, repaired.text)) { return; }
+    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(repaired.text));
+    vscode.window.showInformationMessage(repairCompleteMessage(repaired.repaired, target));
 }
 
 function showNoChecksumErrors(checksumErrors: number): boolean {

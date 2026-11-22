@@ -1,7 +1,8 @@
 # Hex Scope engine protocol
 
-The extension host owns one `hex-engine` process per session. It parses Intel HEX, Motorola SREC
-and raw binary images and returns the same compact payload the TypeScript parse worker produces.
+The extension host owns one required `hex-engine` process per session. It owns Intel HEX,
+Motorola SREC and raw binary parsing, record-page line parsing and checksum repair. The extension
+host and webview are clients: they never parse firmware text themselves.
 
 - Binary: `dist/engine/<platform>-<arch>/hex-engine[.exe]`
 - Transport: stdin/stdout, little-endian framing
@@ -73,6 +74,27 @@ the original JavaScript string for record materialisation. `flags` bit 0 = check
 = malformed line. `startAddress` is omitted when absent, and may be negative for an Intel HEX
 start-linear record (it is a signed 32-bit value). `baseAddress` is omitted for text formats.
 
+## Record lines
+
+The record table asks the engine to parse the exact lines of a page instead of reparsing the
+file. Request header `{"id":5,"op":"records","format":"ihex"}`; body is a JSON array:
+
+```json
+[{"lineNumber":1,"raw":":0400100001020304E2"}]
+```
+
+Response body is a JSON array of record objects
+(`lineNumber`, `raw`, `byteCount`, `address`, `recordType`, `data` as numbers, `checksum`,
+`checksumValid`, `resolvedAddress`, optional `error`). The host overlays page metadata
+(`address`, `recordType`, `checksum`, `flags`) after the call.
+
+## Repair
+
+Request header `{"id":6,"op":"repair","format":"srec"}`; body is the UTF-8 source. The engine
+rewrites the last two characters of every valid record whose checksum is wrong, preserving the
+line-ending style, and returns `{"id":6,"ok":true,"repaired":N}` with the repaired source as the
+response body.
+
 ## Errors
 
 ```json
@@ -81,10 +103,11 @@ start-linear record (it is a signed 32-bit value). `baseAddress` is omitted for 
 
 Errors are per request. An unknown `op`, an invalid `format`, a missing base address or invalid
 UTF-8 produce an error frame and the process stays alive. A frame that cannot be read (oversized,
-header longer than payload, truncated stream) is fatal: the engine exits and the host treats the
-engine as unavailable for the session. Closing stdin ends the process.
+header longer than payload, truncated stream) is fatal: the engine exits and the host restarts it
+on the next request. Closing stdin ends the process.
 
 ## Failure policy
 
-The host treats an absent binary, a failed handshake or a request failure as "engine unavailable
-for this session": it stops the process and parses with TypeScript until reload.
+The engine is required. Activation starts it and aborts with an actionable error when it cannot
+start. At runtime a failed request restarts the process once and retries; a second failure is
+reported to the user. There is no TypeScript parser to fall back to.

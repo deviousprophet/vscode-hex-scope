@@ -27,12 +27,9 @@ src/
 │   ├── diffEditorPanel.ts    diff WebviewPanel, loading/progress posts, worker spawn
 │   ├── diffReload.ts         host reload decisions (sideDefects/buildDiffState/reloadState)
 │   └── loadProgress.ts       combined per-file load fraction summing
-├── parse/                    shared Node parse worker + host client (worker fallback path)
-│   ├── parseWorker.ts        worker entry: `diffParse`/`hexParse` job dispatch, progress thinning
-│   └── parseWorkerClient.ts  runParseJob(): spawn/settle-once/abort-terminate/relay
-├── host/engine/              Rust parsing engine (extension-host process)
+├── host/engine/              required Rust parsing engine (extension-host process)
 │   ├── engineClient.ts       spawn/frame/correlate/stream/crash rejection
-│   └── engineLoader.ts       session client, root resolution, fallback, wire projection
+│   └── engineLoader.ts       required session client, restart-on-crash, wire projection
 ├── core/
 │   ├── parser/               IHEX/SREC line parsing + raw `.bin` segment construction
 │   ├── document.ts           format detection, serialization, checksum repair, structural text rebuild
