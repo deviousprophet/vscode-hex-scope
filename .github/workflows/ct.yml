@@ -1,7 +1,8 @@
 name: CT Workflow
 
 env:
-  NODE_VERSION: '24'
+  NODE_VERSION: '26'
+  RUST_TOOLCHAIN: '1.97.1'
 
 on:
   workflow_call:
@@ -9,21 +10,41 @@ on:
 jobs:
   UT_Test:
     name: Unit Test Execution
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15-intel, macos-15]
+    runs-on: ${{ matrix.os }}
     outputs:
       run-tests-outcome: ${{ steps.run-tests.outcome }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+          cache-workspaces: rust
+
       - name: Install Dependencies
         run: npm ci
+
+      - name: Check Rust Formatting
+        run: npm run rust:fmt
+
+      - name: Lint Rust
+        run: npm run rust:clippy
+
+      - name: Test Rust Core
+        run: npm run rust:test
 
       - name: Compile Tests
         run: npm run compile-tests
@@ -31,18 +52,26 @@ jobs:
       - name: Compile Extension
         run: npm run compile
 
+      - name: Engine Smoke Test
+        run: npm run engine:smoke
+
       - name: Run Tests
         id: run-tests
+        shell: bash
         run: |
           set -o pipefail
-          xvfb-run -a npm test 2>&1 | tee unit-test-output.log
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a npm test 2>&1 | tee unit-test-output.log
+          else
+            npm test 2>&1 | tee unit-test-output.log
+          fi
 
       - name: Upload Test Results Artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           path: unit-test-output.log
-          name: unit-test-output-${{ github.sha }}
+          name: unit-test-output-${{ matrix.os }}
           overwrite: true
 
   Benchmarks:
@@ -50,10 +79,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -69,7 +98,7 @@ jobs:
 
       - name: Upload Benchmark Results Artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           path: benchmark-output.log
           name: benchmark-output-${{ github.sha }}
@@ -82,7 +111,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Check Job Results
         run: |
@@ -105,16 +134,26 @@ jobs:
             exit 1
           fi
 
-      - name: Download UT Test Log
+      - name: Download UT Test Logs
         if: always()
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          name: unit-test-output-${{ github.sha }}
-          path: .
+          pattern: unit-test-output-*
+          path: ut-logs
+
+      - name: Merge UT Test Logs
+        if: always()
+        run: |
+          : > unit-test-output.log
+          for log in ut-logs/*/unit-test-output.log; do
+            [ -f "$log" ] || continue
+            echo "### $log" >> unit-test-output.log
+            cat "$log" >> unit-test-output.log
+          done
 
       - name: Download Benchmark Log
         if: always()
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: benchmark-output-${{ github.sha }}
           path: .
@@ -134,4 +173,3 @@ jobs:
           LOG_FILE: benchmark-output.log
           SUITE_NAME: Benchmark
         run: node .github/scripts/summarize-tests.mjs
-

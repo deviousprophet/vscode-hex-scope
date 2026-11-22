@@ -41,6 +41,7 @@ Raw `.bin` files contain no addresses, so they open at their stored per-file bas
 
 - [Scripting guide](docs/SCRIPTING.md) — scripts, API reference, and examples
 - [Storage layout](docs/HEXSCOPE_STORAGE.md) — `.hexscope/` profiles and data
+- [Engine protocol](docs/engine-protocol.md) — Rust parser framing and payload layout
 - [Changelog](CHANGELOG.md)
 - [License](LICENSE)
 

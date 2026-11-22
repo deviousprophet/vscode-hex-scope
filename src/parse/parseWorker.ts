@@ -2,7 +2,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { detectFormatFromParts, isRawBinaryExtension, RAW_BINARY_WORKER_ERROR, type HexScopeFormat } from '../core/document';
 import { parseIntelHexCompact } from '../core/parser/intelHexParser';
 import { parseSRecCompact } from '../core/parser/srecParser';
-import { binAddressRangeFits, createBinParseResult, isValidBinBaseAddress } from '../core/parser/binImage';
+import { binBaseAddressError, createBinParseResult } from '../core/parser/binImage';
 import { serializeCompactParseResult, compactTransferList, type SerializedCompactParseResult } from '../core/parser/compact';
 import { serializeParseResult } from '../core/wire';
 import type { ParseProgress } from '../core/parser/types';
@@ -149,13 +149,9 @@ async function runDiffParse(port: Port, job: DiffParseJob): Promise<void> {
 /** Raw-binary diff side: one segment at the required base, no text decode or record parse. */
 function parseRawBinaryDiff(job: DiffParseJob): WireParseResult {
     const bytes = new Uint8Array(job.bytes);
-    if (job.baseAddress === undefined || !isValidBinBaseAddress(job.baseAddress)) {
-        throw new Error('A base address is required for raw binary files.');
-    }
-    if (!binAddressRangeFits(job.baseAddress, bytes.length)) {
-        throw new Error('The raw binary base address and size exceed the 32-bit address space.');
-    }
-    return serializeParseResult(createBinParseResult(bytes, job.baseAddress), 'bin');
+    const error = binBaseAddressError(job.baseAddress, bytes.length);
+    if (error) { throw new Error(error); }
+    return serializeParseResult(createBinParseResult(bytes, job.baseAddress as number), 'bin');
 }
 
 async function runHexParse(port: Port, job: HexParseJob): Promise<void> {

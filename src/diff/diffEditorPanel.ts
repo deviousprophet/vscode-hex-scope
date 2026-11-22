@@ -13,7 +13,8 @@ import { fileExtension, fileName } from '../core/pathName';
 import { runParseJob, type WorkerResultOut } from '../parse/parseWorkerClient';
 import type { DiffParseJob } from '../parse/parseWorker';
 import { resolveCompareBinBaseAddress } from '../binBaseAddress';
-import { binAddressRangeFits, isValidBinBaseAddress } from '../core/parser/binImage';
+import { binAddressRangeFits, binBaseAddressError, isValidBinBaseAddress } from '../core/parser/binImage';
+import { engineWire, parseBinaryWithEngine, parseTextWithEngine } from '../host/engine/engineLoader';
 
 /** Each file contributes one unit to `diffProgress`; its read fills a small leading slice, its parse the rest. */
 const FILE_TOTAL = 2;
@@ -434,13 +435,15 @@ async function readDiffSource(uri: vscode.Uri): Promise<Uint8Array> {
 }
 
 /** Parse one file in its own worker thread, relaying the worker's monotonic fraction. */
-function parseSideInWorker(
+async function parseSideInWorker(
     uri: vscode.Uri,
     bytes: Uint8Array,
     signal: AbortSignal,
     onFraction: (fraction: number) => void,
     baseAddress?: number,
 ): Promise<ParsedDiffFile> {
+    const engineSide = await parseSideWithEngine(uri, bytes, signal, baseAddress);
+    if (engineSide) { return engineSide; }
     const buffer = bytes.buffer as ArrayBuffer;
     const job: DiffParseJob = { kind: 'diffParse', bytes: buffer, extension: fileExtension(uri) };
     if (baseAddress !== undefined) { job.baseAddress = baseAddress; }
@@ -452,6 +455,31 @@ function parseSideInWorker(
         onProgress: message => { if ('fraction' in message) { onFraction(message.fraction); } },
         onResult: message => acceptParsedSide(uri, message),
     });
+}
+
+/** The Rust engine path; null means "parse this side in the worker instead". */
+async function parseSideWithEngine(
+    uri: vscode.Uri,
+    bytes: Uint8Array,
+    signal: AbortSignal,
+    baseAddress?: number,
+): Promise<ParsedDiffFile | null> {
+    const extension = fileExtension(uri);
+    if (isRawBinaryExtension(extension)) {
+        const error = binBaseAddressError(baseAddress, bytes.length);
+        if (error) { throw new Error(error); }
+        const payload = await parseBinaryWithEngine(bytes, baseAddress as number);
+        if (signal.aborted) { throw new Error('Compare cancelled'); }
+        if (!payload) { return null; }
+        return { format: 'bin', wire: engineWire(payload, 'bin') };
+    }
+    const raw = new TextDecoder('utf-8').decode(bytes);
+    const format = detectFormatFromParts(extension, raw);
+    if (format === 'bin') { return null; }
+    const payload = await parseTextWithEngine(raw, format);
+    if (signal.aborted) { throw new Error('Compare cancelled'); }
+    if (!payload) { return null; }
+    return { format, wire: engineWire(payload, format) };
 }
 
 function assertNoParseDefects(uri: vscode.Uri, wire: WireParseResult): void {

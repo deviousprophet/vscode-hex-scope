@@ -11,6 +11,7 @@ import { parseIntelHex } from './core/parser/intelHexParser';
 import { parseSRec } from './core/parser/srecParser';
 import type { ParseResult } from './core/parser/types';
 import { fileExtension } from './core/pathName';
+import { configureEngineRoot, shutdownEngine } from './host/engine/engineLoader';
 
 const SUPPORTED_EXTENSIONS = ['hex', 'ihx', 'ihex', 'srec', 'mot', 's19', 's28', 's37', 'bin'];
 
@@ -79,6 +80,7 @@ function parseResultIsValid(parseResult: ParseResult): boolean {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+    configureEngineRoot(context.extensionPath);
     context.subscriptions.push(
         HexEditorProvider.register(context)
     );
@@ -355,4 +357,6 @@ function repairCompleteMessage(checksumErrors: number, target: vscode.Uri): stri
     return `HexScope: repaired ${checksumErrors} checksum${checksumErrors === 1 ? '' : 's'} in ${target.fsPath.split(/[\\/]/).pop()}`;
 }
 
-export function deactivate() {}
+export function deactivate() {
+    shutdownEngine();
+}

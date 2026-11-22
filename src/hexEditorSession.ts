@@ -8,13 +8,14 @@ import { parseSRecRecordLine } from './core/parser/srecParser';
 import type { ParseResult, MemorySegment, ParseProgress } from './core/parser/types';
 import { hydrateCompactParseResult, type CompactParseResult } from './core/parser/compact';
 import type { SegmentLabel, SerializedRecord, TypeDef, TypeInstance } from './core/types';
-import { buildSplicePlan, isRawBinaryExtension, isTextFormat, RAW_BINARY_WORKER_ERROR, rebuildTextDocument, repairChecksums, type HexScopeFormat, type HexScopeTextFormat, type SplicePatch, type SplicePlan } from './core/document';
+import { buildSplicePlan, detectFormatFromParts, isRawBinaryExtension, isTextFormat, RAW_BINARY_WORKER_ERROR, rebuildTextDocument, repairChecksums, type HexScopeFormat, type HexScopeTextFormat, type SplicePatch, type SplicePlan } from './core/document';
 import { parseHexAddress } from './core/byteTools/hex';
 import { applyBinEdits, binAddressRangeFits, createBinParseResult, isValidBinBaseAddress, revertBinEdits } from './core/parser/binImage';
 import { serializeParseResult } from './core/wire';
 import { fileExtension } from './core/pathName';
 import { createExternalChangeGate, sameDocumentSource, type DocumentSource } from './core/documentExternalChange';
 import { runParseJob } from './parse/parseWorkerClient';
+import { parseTextWithEngine } from './host/engine/engineLoader';
 import { resolveOpenBinBaseAddress, saveBinBaseAddress } from './binBaseAddress';
 import {
     normalizeIntegrityCheckSet,
@@ -228,12 +229,18 @@ class LoadProgressReporter {
 }
 
 /** Parse one hex source string off the extension-host thread; the worker reports the detected format. */
-function parseHexInWorker(
+async function parseHexInWorker(
     raw: string,
     extension: string,
     signal: AbortSignal,
     onProgress: (progress: ParseProgress) => void,
 ): Promise<{ format: HexScopeTextFormat; result: CompactParseResult }> {
+    if (!isRawBinaryExtension(extension)) {
+        const format: HexScopeTextFormat = detectFormatFromParts(extension, raw) === 'srec' ? 'srec' : 'ihex';
+        const engine = await parseTextWithEngine(raw, format, onProgress);
+        if (signal.aborted) { throw new Error('Parse cancelled'); }
+        if (engine) { return { format, result: hydrateCompactParseResult(engine) }; }
+    }
     return runParseJob({
         job: { kind: 'hexParse', source: raw, extension },
         signal,

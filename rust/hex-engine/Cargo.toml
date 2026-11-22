@@ -1,0 +1,15 @@
+[package]
+name = "hex-engine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Framed stdio parsing engine for Hex Scope"
+
+[[bin]]
+name = "hex-engine"
+path = "src/main.rs"
+
+[dependencies]
+hex-core = { path = "../hex-core" }
+serde_json = "1"

@@ -1,7 +1,8 @@
 name: Build VSIX Package
 
 env:
-  NODE_VERSION: '24'
+  NODE_VERSION: '26'
+  RUST_TOOLCHAIN: '1.97.1'
 
 on:
   workflow_call:
@@ -16,23 +17,80 @@ on:
         value: ${{ jobs.build.outputs.vsix_name }}
 
 jobs:
+  Native:
+    name: Native engine (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: windows-latest
+            target: win32-x64
+          - os: macos-15-intel
+            target: darwin-x64
+          - os: macos-15
+            target: darwin-arm64
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+          cache-workspaces: rust
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Engine Binary
+        run: npm run engine:build
+
+      - name: Engine Smoke Test
+        run: npm run engine:smoke
+
+      - name: Upload Engine Binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: dist/engine/${{ matrix.target }}
+          overwrite: true
+
   Build:
-    name: Build
+    name: Build VSIX
+    needs: [Native]
     runs-on: ubuntu-latest
+    env:
+      HEXSCOPE_SKIP_RUST_BUILD: '1'
     outputs:
       vsix_name: ${{ steps.package-output.outputs.vsix_name }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Install Dependencies
         run: npm ci
+
+      - name: Download Engine Binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: dist/engine
+          pattern: '*'
 
       - name: Compile Extension
         run: npm run compile
@@ -56,11 +114,18 @@ jobs:
           NAME=$(node -p "require('./package.json').name")
           echo "extension_name=$NAME" >> $GITHUB_OUTPUT
 
+      - name: Verify Packaged Engines
+        run: |
+          for target in linux-x64 win32-x64 darwin-x64 darwin-arm64; do
+            test -d "dist/engine/$target" || { echo "missing engine for $target"; exit 1; }
+          done
+          ls -la dist/engine/*
+
       - name: Package VSIX
         run: npx @vscode/vsce package --out ${{ steps.extension-name.outputs.extension_name }}-${{ steps.suffix.outputs.suffix }}.vsix
 
       - name: Upload VSIX Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.extension-name.outputs.extension_name }}-${{ steps.suffix.outputs.suffix }}
           path: ${{ steps.extension-name.outputs.extension_name }}-${{ steps.suffix.outputs.suffix }}.vsix

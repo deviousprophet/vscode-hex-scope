@@ -5,6 +5,11 @@ All notable changes to the Hex Scope extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Opening and comparing large Intel HEX, SREC, and raw binary files now runs in a packaged Rust parsing engine, with the TypeScript parser kept as a fallback when the engine is unavailable
+
 ## [3.2.1] - 2026-11-08
 
 ### Security

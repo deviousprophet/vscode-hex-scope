@@ -1,0 +1,16 @@
+{"fn":"parseBinBaseAddress","args":["0x1000",16]}
+{"fn":"parseBinBaseAddress","args":["1000",16]}
+{"fn":"parseBinBaseAddress","args":["0xFFFFFFFF",1]}
+{"fn":"parseBinBaseAddress","args":["0xFFFFFFF0",32]}
+{"fn":"parseBinBaseAddress","args":["  0xabc  ",4096]}
+{"fn":"validateBinBaseAddressInput","args":["0x1000",16]}
+{"fn":"validateBinBaseAddressInput","args":["",16]}
+{"fn":"formatBinBaseAddress","args":[3735928559]}
+{"fn":"isValidBinBaseAddress","args":[4294967295]}
+{"fn":"isValidBinBaseAddress","args":[4294967296]}
+{"fn":"binAddressRangeFits","args":[4294967295,0]}
+{"fn":"binAddressRangeFits","args":[4294967295,1]}
+{"fn":"srecIsData","args":[1]}
+{"fn":"srecIsData","args":[2]}
+{"fn":"srecIsData","args":[3]}
+{"fn":"srecIsData","args":[4]}
