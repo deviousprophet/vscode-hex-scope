@@ -1,0 +1,265 @@
+{
+  "schema": "rust-anything/bridge@1",
+  "root": ".",
+  "unit": "src/core/parser/",
+  "language": "ts",
+  "kind": "napi",
+  "crate_name": "parser-rs",
+  "exports": [
+    {
+      "name": "isValidBinBaseAddress",
+      "file": "src/core/parser/binImage.ts",
+      "line": 22,
+      "params": [
+        {
+          "name": "value",
+          "ts_type": "unknown",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "value is number",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "binAddressRangeFits",
+      "file": "src/core/parser/binImage.ts",
+      "line": 30,
+      "params": [
+        {
+          "name": "baseAddress",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "byteLength",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "boolean",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "parseBinBaseAddress",
+      "file": "src/core/parser/binImage.ts",
+      "line": 41,
+      "params": [
+        {
+          "name": "input",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "byteLength",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "(| { ok: true; value: number }\n    | { ok: false; error: string })",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "validateBinBaseAddressInput",
+      "file": "src/core/parser/binImage.ts",
+      "line": 57,
+      "params": [
+        {
+          "name": "input",
+          "ts_type": "string",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "byteLength",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string | null",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "formatBinBaseAddress",
+      "file": "src/core/parser/binImage.ts",
+      "line": 63,
+      "params": [
+        {
+          "name": "value",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "string",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "srecIsData",
+      "file": "src/core/parser/srecParser.ts",
+      "line": 25,
+      "params": [
+        {
+          "name": "type",
+          "ts_type": "number",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "boolean",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    }
+  ],
+  "classes": [],
+  "js_only": [
+    {
+      "name": "CompactRecordStore",
+      "file": "src/core/parser/compact.ts",
+      "line": 176,
+      "reason": "class: public field `length`, static method `fromSerialized`, static method `create`"
+    },
+    {
+      "name": "createCompactParseResult",
+      "file": "src/core/parser/compact.ts",
+      "line": 97,
+      "reason": "takes or returns a function"
+    },
+    {
+      "name": "parseIntelHexCompact",
+      "file": "src/core/parser/intelHexParser.ts",
+      "line": 79,
+      "reason": "async progress callbacks stay in TS"
+    },
+    {
+      "name": "parseSourceRecords",
+      "file": "src/core/parser/records.ts",
+      "line": 20,
+      "reason": "takes or returns a function"
+    },
+    {
+      "name": "parseSourceRecordsAsync",
+      "file": "src/core/parser/records.ts",
+      "line": 97,
+      "reason": "takes or returns a function"
+    },
+    {
+      "name": "canUseSegmentRecord",
+      "file": "src/core/parser/segments.ts",
+      "line": 5,
+      "reason": "takes or returns a function"
+    },
+    {
+      "name": "collectSegmentRanges",
+      "file": "src/core/parser/segments.ts",
+      "line": 13,
+      "reason": "takes or returns a function"
+    },
+    {
+      "name": "buildContiguousSegments",
+      "file": "src/core/parser/segments.ts",
+      "line": 42,
+      "reason": "takes or returns a function"
+    },
+    {
+      "name": "parseSRecCompact",
+      "file": "src/core/parser/srecParser.ts",
+      "line": 244,
+      "reason": "async progress callbacks stay in TS"
+    },
+    {
+      "name": "applyBinEdits",
+      "file": "src/core/parser/binImage.ts",
+      "line": 91,
+      "reason": "kept in TS: compact/Map shaped data"
+    },
+    {
+      "name": "revertBinEdits",
+      "file": "src/core/parser/binImage.ts",
+      "line": 118,
+      "reason": "kept in TS: compact/Map shaped data"
+    },
+    {
+      "name": "wireSegments",
+      "file": "src/core/parser/compact.ts",
+      "line": 45,
+      "reason": "kept in TS: compact/Map shaped data"
+    },
+    {
+      "name": "serializeCompactParseResult",
+      "file": "src/core/parser/compact.ts",
+      "line": 53,
+      "reason": "kept in TS: compact/Map shaped data"
+    },
+    {
+      "name": "hydrateCompactParseResult",
+      "file": "src/core/parser/compact.ts",
+      "line": 67,
+      "reason": "kept in TS: compact/Map shaped data"
+    },
+    {
+      "name": "compactTransferList",
+      "file": "src/core/parser/compact.ts",
+      "line": 80,
+      "reason": "kept in TS: compact/Map shaped data"
+    },
+    {
+      "name": "computeSRecChecksum",
+      "file": "src/core/parser/srecParser.ts",
+      "line": 29,
+      "reason": "kept in TS: string-concatenation semantics of JS + on iterable values"
+    },
+    {
+      "name": "createBinParseResult",
+      "file": "src/core/parser/binImage.ts",
+      "line": 72,
+      "reason": "kept in TS: return values nest Uint8Array record data, which the JSON/typed wire cannot round-trip"
+    },
+    {
+      "name": "parseIntelHex",
+      "file": "src/core/parser/intelHexParser.ts",
+      "line": 63,
+      "reason": "kept in TS: return values nest Uint8Array record data, which the JSON/typed wire cannot round-trip"
+    },
+    {
+      "name": "parseIntelHexLine",
+      "file": "src/core/parser/intelHexParser.ts",
+      "line": 127,
+      "reason": "kept in TS: return values nest Uint8Array record data, which the JSON/typed wire cannot round-trip"
+    },
+    {
+      "name": "parseSRecRecordLine",
+      "file": "src/core/parser/srecParser.ts",
+      "line": 51,
+      "reason": "kept in TS: return values nest Uint8Array record data, which the JSON/typed wire cannot round-trip"
+    },
+    {
+      "name": "parseSRec",
+      "file": "src/core/parser/srecParser.ts",
+      "line": 228,
+      "reason": "kept in TS: return values nest Uint8Array record data, which the JSON/typed wire cannot round-trip"
+    }
+  ]
+}

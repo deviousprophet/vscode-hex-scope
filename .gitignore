@@ -3,5 +3,8 @@ dist
 node_modules
 .vscode-test/
 *.vsix
+rust/target/
 src/**/*.js
 src/**/*.js.map
+rust/parser-rs/index.cjs
+test-output*.log

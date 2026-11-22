@@ -1,0 +1,162 @@
+{"fn":"isValidBinBaseAddress","args":[{}],"ok":false}
+{"fn":"isValidBinBaseAddress","args":[{"a":{"b":"c"}}],"ok":false}
+{"fn":"isValidBinBaseAddress","args":[0],"ok":true}
+{"fn":"isValidBinBaseAddress","args":[null],"ok":false}
+{"fn":"isValidBinBaseAddress","args":[true],"ok":false}
+{"fn":"isValidBinBaseAddress","args":[[]],"ok":false}
+{"fn":"isValidBinBaseAddress","args":[{"2":4,"10":3,"zebra":1,"apple":2,"é":5,"Apple":6}],"ok":false}
+{"fn":"isValidBinBaseAddress","args":[{"n":9007199254740992,"f":1e+21,"t":0.1,"neg":-7}],"ok":false}
+{"fn":"isValidBinBaseAddress","args":[[3,1,2]],"ok":false}
+{"fn":"binAddressRangeFits","args":[10,100],"ok":true}
+{"fn":"binAddressRangeFits","args":[1,2147483648],"ok":true}
+{"fn":"binAddressRangeFits","args":[{"$num":"-0"},100],"ok":true}
+{"fn":"binAddressRangeFits","args":[{"$num":"Infinity"},{"$num":"NaN"}],"ok":false}
+{"fn":"binAddressRangeFits","args":[{"$num":"-0"},1000],"ok":true}
+{"fn":"binAddressRangeFits","args":[3,0.5],"ok":false}
+{"fn":"binAddressRangeFits","args":[-7.5,100],"ok":false}
+{"fn":"binAddressRangeFits","args":[0.1,100],"ok":false}
+{"fn":"binAddressRangeFits","args":[0.30000000000000004,100],"ok":false}
+{"fn":"binAddressRangeFits","args":[1e+21,100],"ok":false}
+{"fn":"binAddressRangeFits","args":[1e-7,100],"ok":false}
+{"fn":"binAddressRangeFits","args":[5e-324,100],"ok":false}
+{"fn":"binAddressRangeFits","args":[1.7976931348623157e+308,100],"ok":false}
+{"fn":"binAddressRangeFits","args":[9007199254740992,100],"ok":false}
+{"fn":"binAddressRangeFits","args":[10,-7.5],"ok":false}
+{"fn":"binAddressRangeFits","args":[10,0.1],"ok":false}
+{"fn":"binAddressRangeFits","args":[10,0.30000000000000004],"ok":false}
+{"fn":"binAddressRangeFits","args":[10,1e+21],"ok":false}
+{"fn":"binAddressRangeFits","args":[10,1e-7],"ok":false}
+{"fn":"binAddressRangeFits","args":[10,5e-324],"ok":false}
+{"fn":"binAddressRangeFits","args":[10,1.7976931348623157e+308],"ok":false}
+{"fn":"binAddressRangeFits","args":[10,9007199254740992],"ok":false}
+{"fn":"binAddressRangeFits","args":[10,{"$num":"-0"}],"ok":true}
+{"fn":"parseBinBaseAddress","args":["src/a/b.tstrailing.",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["İstanbul",1000],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["abc",2147483648],"ok":{"ok":true,"value":2748}}
+{"fn":"parseBinBaseAddress","args":["emoji 👍🏽 mix",3],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["src/a/b.ts",10],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["",-2.5],"ok":{"ok":false,"error":"Enter a base address."}}
+{"fn":"parseBinBaseAddress","args":["héllo wörld",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["👍🏽 thumbs",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["日本語",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["",2],"ok":{"ok":false,"error":"Enter a base address."}}
+{"fn":"parseBinBaseAddress","args":["é",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["İstanbul",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["straße",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["ılık ırmak",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["👨‍👩‍👧 family",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["a b",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["ΣΊΣΥΦΟΣ",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["a😀b",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["﻿bom",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["a²b x½ y①",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["aⅠb Ⅻ",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["a𐐀b 𝐀bc",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["कि ٣٤",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["Iı İi",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["K K k",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["ſ s S",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["x‍y 👨‍👩‍👧",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["a b c　d",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["١٢٣ ٤٥",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["𝟘𝟙 ²³",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["snake_case foo-bar o'neil",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["ǅungla Ǆ",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["one\r\ntwo threefour",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["café café",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["ΣΑΣ σας ς",2],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["src/a/b.tstrailing.",-7.5],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["src/a/b.tstrailing.",0.1],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["src/a/b.tstrailing.",0.30000000000000004],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["src/a/b.tstrailing.",1e+21],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["src/a/b.tstrailing.",1e-7],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["src/a/b.tstrailing.",5e-324],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["src/a/b.tstrailing.",1.7976931348623157e+308],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["src/a/b.tstrailing.",9007199254740992],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"parseBinBaseAddress","args":["src/a/b.tstrailing.",{"$num":"-0"}],"ok":{"ok":false,"error":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}}
+{"fn":"validateBinBaseAddressInput","args":["straße",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["src/a/b.ts",9007199254740992],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["hello😀",{"$num":"-Infinity"}],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["a:b:c",9007199254740992],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["ΣΊΣΥΦΟΣ",{"$num":"Infinity"}],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["hello world",3],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["héllo wörld",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["👍🏽 thumbs",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["日本語",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["",1000000],"ok":"Enter a base address."}
+{"fn":"validateBinBaseAddressInput","args":["é",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["İstanbul",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["ılık ırmak",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["👨‍👩‍👧 family",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["a b",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["ΣΊΣΥΦΟΣ",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["a😀b",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["﻿bom",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["a²b x½ y①",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["aⅠb Ⅻ",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["a𐐀b 𝐀bc",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["कि ٣٤",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["Iı İi",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["K K k",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["ſ s S",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["x‍y 👨‍👩‍👧",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["a b c　d",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["١٢٣ ٤٥",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["𝟘𝟙 ²³",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["snake_case foo-bar o'neil",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["ǅungla Ǆ",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["one\r\ntwo threefour",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["café café",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["ΣΑΣ σας ς",1000000],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["straße",-7.5],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["straße",0.1],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["straße",0.30000000000000004],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["straße",1e+21],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["straße",1e-7],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["straße",5e-324],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["straße",1.7976931348623157e+308],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["straße",9007199254740992],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"validateBinBaseAddressInput","args":["straße",{"$num":"-0"}],"ok":"Use hexadecimal digits only (0x00000000–0xFFFFFFFF)."}
+{"fn":"formatBinBaseAddress","args":[9007199254740992],"ok":"0x00000000"}
+{"fn":"formatBinBaseAddress","args":[2147483648],"ok":"0x80000000"}
+{"fn":"formatBinBaseAddress","args":[-2.5],"ok":"0xFFFFFFFE"}
+{"fn":"formatBinBaseAddress","args":[{"$num":"-0"}],"ok":"0x00000000"}
+{"fn":"formatBinBaseAddress","args":[1000],"ok":"0x000003E8"}
+{"fn":"formatBinBaseAddress","args":[{"$num":"Infinity"}],"ok":"0x00000000"}
+{"fn":"formatBinBaseAddress","args":[-7.5],"ok":"0xFFFFFFF9"}
+{"fn":"formatBinBaseAddress","args":[0.1],"ok":"0x00000000"}
+{"fn":"formatBinBaseAddress","args":[0.30000000000000004],"ok":"0x00000000"}
+{"fn":"formatBinBaseAddress","args":[1e+21],"ok":"0xDEA00000"}
+{"fn":"formatBinBaseAddress","args":[1e-7],"ok":"0x00000000"}
+{"fn":"formatBinBaseAddress","args":[5e-324],"ok":"0x00000000"}
+{"fn":"formatBinBaseAddress","args":[1.7976931348623157e+308],"ok":"0x00000000"}
+{"fn":"srecIsData","args":[0],"ok":false}
+{"fn":"srecIsData","args":[100],"ok":false}
+{"fn":"srecIsData","args":[1000000],"ok":false}
+{"fn":"srecIsData","args":[9007199254740992],"ok":false}
+{"fn":"srecIsData","args":[1000],"ok":false}
+{"fn":"srecIsData","args":[0.5],"ok":false}
+{"fn":"srecIsData","args":[-7.5],"ok":false}
+{"fn":"srecIsData","args":[0.1],"ok":false}
+{"fn":"srecIsData","args":[0.30000000000000004],"ok":false}
+{"fn":"srecIsData","args":[1e+21],"ok":false}
+{"fn":"srecIsData","args":[1e-7],"ok":false}
+{"fn":"srecIsData","args":[5e-324],"ok":false}
+{"fn":"srecIsData","args":[1.7976931348623157e+308],"ok":false}
+{"fn":"srecIsData","args":[{"$num":"-0"}],"ok":false}
+{"fn":"parseBinBaseAddress","args":["0x1000",16],"ok":{"ok":true,"value":4096}}
+{"fn":"parseBinBaseAddress","args":["1000",16],"ok":{"ok":true,"value":4096}}
+{"fn":"parseBinBaseAddress","args":["0xFFFFFFFF",1],"ok":{"ok":true,"value":4294967295}}
+{"fn":"parseBinBaseAddress","args":["0xFFFFFFF0",32],"ok":{"ok":false,"error":"0xFFFFFFF0 + 32 bytes exceeds the 32-bit address space."}}
+{"fn":"parseBinBaseAddress","args":["  0xabc  ",4096],"ok":{"ok":true,"value":2748}}
+{"fn":"validateBinBaseAddressInput","args":["0x1000",16],"ok":null}
+{"fn":"validateBinBaseAddressInput","args":["",16],"ok":"Enter a base address."}
+{"fn":"formatBinBaseAddress","args":[3735928559],"ok":"0xDEADBEEF"}
+{"fn":"isValidBinBaseAddress","args":[4294967295],"ok":true}
+{"fn":"isValidBinBaseAddress","args":[4294967296],"ok":false}
+{"fn":"binAddressRangeFits","args":[4294967295,0],"ok":true}
+{"fn":"binAddressRangeFits","args":[4294967295,1],"ok":true}
+{"fn":"srecIsData","args":[1],"ok":true}
+{"fn":"srecIsData","args":[2],"ok":true}
+{"fn":"srecIsData","args":[3],"ok":true}
+{"fn":"srecIsData","args":[4],"ok":false}

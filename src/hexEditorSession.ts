@@ -3,18 +3,16 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { DisposableStore } from './core/disposableStore';
-import { parseIntelHexLine } from './core/parser/intelHexParser';
-import { parseSRecRecordLine } from './core/parser/srecParser';
-import type { ParseResult, MemorySegment, ParseProgress } from './core/parser/types';
-import { hydrateCompactParseResult, type CompactParseResult } from './core/parser/compact';
+import type { HexRecord, MemorySegment, ParseProgress } from './core/parser/types';
+import { hydrateCompactParseResult, RECORD_PAGE_CAPACITY, type CompactParseResult, type SerializedCompactPage } from './core/parser/compact';
 import type { SegmentLabel, SerializedRecord, TypeDef, TypeInstance } from './core/types';
-import { buildSplicePlan, isRawBinaryExtension, isTextFormat, RAW_BINARY_WORKER_ERROR, rebuildTextDocument, repairChecksums, type HexScopeFormat, type HexScopeTextFormat, type SplicePatch, type SplicePlan } from './core/document';
+import { buildSplicePlan, detectFormatFromParts, isRawBinaryExtension, isTextFormat, RAW_BINARY_TEXT_ERROR, rebuildTextDocument, type HexScopeFormat, type HexScopeTextFormat, type SplicePatch, type SplicePlan } from './core/document';
 import { parseHexAddress } from './core/byteTools/hex';
-import { applyBinEdits, binAddressRangeFits, createBinParseResult, isValidBinBaseAddress, revertBinEdits } from './core/parser/binImage';
+import { applyBinEdits, binAddressRangeFits, isValidBinBaseAddress, revertBinEdits } from './core/parser/binImage';
 import { serializeParseResult } from './core/wire';
 import { fileExtension } from './core/pathName';
 import { createExternalChangeGate, sameDocumentSource, type DocumentSource } from './core/documentExternalChange';
-import { runParseJob } from './parse/parseWorkerClient';
+import { parseBinaryWithEngine, parseLinesWithEngine, parseTextWithEngine, repairWithEngine } from './host/engine/engineLoader';
 import { resolveOpenBinBaseAddress, saveBinBaseAddress } from './binBaseAddress';
 import {
     normalizeIntegrityCheckSet,
@@ -80,7 +78,7 @@ import { addExampleScriptsAt, extensionBrowseDeps, openScriptingGuide, runBrowse
 import { confirmDeleteScript, createJsVersion, deleteScriptFile, hostCreateDeps, hostJsVersionDeps, openScriptsFolder, requestCreateScript, runPanelDeleteScript } from './manageScripts';
 import { createScriptsWatcher } from './scriptWatcher';
 
-function hasParseErrors(result: Pick<ParseResult, 'checksumErrors' | 'malformedLines'>): boolean {
+function hasParseErrors(result: { checksumErrors: number; malformedLines: number }): boolean {
     return result.checksumErrors > 0 || result.malformedLines > 0;
 }
 
@@ -100,7 +98,7 @@ function baseAddressChangeBytes(
     return bytes;
 }
 
-function serializeRecord(record: ParseResult['records'][number]): SerializedRecord {
+function serializeRecord(record: HexRecord): SerializedRecord {
     return {
         lineNumber: record.lineNumber,
         raw: record.raw,
@@ -112,19 +110,6 @@ function serializeRecord(record: ParseResult['records'][number]): SerializedReco
         checksumValid: record.checksumValid,
         resolvedAddress: record.resolvedAddress,
         error: record.error,
-    };
-}
-
-function materializeParseResult(result: CompactParseResult, source: string, format: HexScopeFormat): ParseResult {
-    const parseLine = format === 'srec' ? parseSRecRecordLine : parseIntelHexLine;
-    const records = Array.from({ length: result.records.length }, (_, index) => result.records.materialize(index, source, parseLine));
-    return {
-        records,
-        segments: result.segments,
-        totalDataBytes: result.totalDataBytes,
-        checksumErrors: result.checksumErrors,
-        malformedLines: result.malformedLines,
-        startAddress: result.startAddress,
     };
 }
 
@@ -227,24 +212,20 @@ class LoadProgressReporter {
     }
 }
 
-/** Parse one hex source string off the extension-host thread; the worker reports the detected format. */
-function parseHexInWorker(
+/** Parse one hex source string in the Rust engine. */
+async function parseHexSource(
     raw: string,
     extension: string,
     signal: AbortSignal,
     onProgress: (progress: ParseProgress) => void,
 ): Promise<{ format: HexScopeTextFormat; result: CompactParseResult }> {
-    return runParseJob({
-        job: { kind: 'hexParse', source: raw, extension },
-        signal,
-        abortMessage: 'Parse cancelled',
-        onProgress: message => { if ('stage' in message) { onProgress(message); } },
-        onResult: message => {
-            if (!('compact' in message)) { throw new Error('Hex parse worker returned no result.'); }
-            if (!isTextFormat(message.format)) { throw new Error(RAW_BINARY_WORKER_ERROR); }
-            return { format: message.format, result: hydrateCompactParseResult(message.compact) };
-        },
-    });
+    if (isRawBinaryExtension(extension)) {
+        throw new Error(RAW_BINARY_TEXT_ERROR);
+    }
+    const format: HexScopeTextFormat = detectFormatFromParts(extension, raw) === 'srec' ? 'srec' : 'ihex';
+    const parsed = await parseTextWithEngine(raw, format, onProgress);
+    if (signal.aborted) { throw new Error('Parse cancelled'); }
+    return { format, result: hydrateCompactParseResult(parsed) };
 }
 
 function parseErrorMessage(error: unknown): string {
@@ -330,7 +311,7 @@ async function parseHexSafely(
     onProgress: (progress: ParseProgress) => void,
 ): Promise<{ format: HexScopeTextFormat; result: CompactParseResult } | null> {
     try {
-        return await parseHexInWorker(raw, extension, controller.signal, onProgress);
+        return await parseHexSource(raw, extension, controller.signal, onProgress);
     } catch (error) {
         if (controller.signal.aborted || isDisposed()) { return null; }
         throw error;
@@ -429,7 +410,7 @@ async function loadBinDocument(
         return null;
     }
     postProgress('build', 0, 1);
-    const result = createBinParseResult(bytes, address);
+    const result = hydrateCompactParseResult(await parseBinaryWithEngine(bytes, address));
     postProgress('build', 1, 1);
     return { kind: 'bin', bytes, baseAddress: address, format: 'bin', result };
 }
@@ -456,20 +437,64 @@ function initialLoadCancelled(isDisposed: () => boolean, token: vscode.Cancellat
     return isDisposed() || token.isCancellationRequested;
 }
 
-function materializeRecordPage(
+interface PageLine {
+    lineNumber: number;
+    raw: string;
+}
+
+interface PageSlot {
+    page: SerializedCompactPage;
+    offset: number;
+}
+
+function recordPageLines(
+    result: CompactParseResult,
+    source: string,
+    start: number,
+    count: number,
+): { lines: PageLine[]; slots: PageSlot[] } {
+    const pages = result.records.serializePages();
+    const end = Math.min(result.records.length, start + count);
+    const lines: PageLine[] = [];
+    const slots: PageSlot[] = [];
+    for (let index = start; index < end; index++) {
+        const page = pages[Math.floor(index / RECORD_PAGE_CAPACITY)];
+        const offset = index % RECORD_PAGE_CAPACITY;
+        if (!page || offset >= page.length) { continue; }
+        lines.push({
+            lineNumber: page.lineNumber[offset],
+            raw: source.slice(page.sourceStart[offset], page.sourceEnd[offset]),
+        });
+        slots.push({ page, offset });
+    }
+    return { lines, slots };
+}
+
+function serializePageRecord(record: HexRecord, slot: PageSlot | undefined): SerializedRecord {
+    if (!slot) { return serializeRecord(record); }
+    const { page, offset } = slot;
+    return serializeRecord({
+        ...record,
+        byteCount: page.byteCount[offset],
+        address: page.address[offset],
+        recordType: page.recordType[offset],
+        checksum: page.checksum[offset],
+        checksumValid: (page.flags[offset] & 1) !== 0,
+        resolvedAddress: page.resolvedAddress[offset],
+    });
+}
+
+async function materializeRecordPage(
     result: CompactParseResult,
     source: string,
     format: HexScopeFormat,
     start: number,
     count: number,
-): SerializedRecord[] {
-    const parseLine = format === 'srec' ? parseSRecRecordLine : parseIntelHexLine;
-    const end = Math.min(result.records.length, start + count);
-    const records: SerializedRecord[] = [];
-    for (let index = start; index < end; index++) {
-        records.push(serializeRecord(result.records.materialize(index, source, parseLine)));
-    }
-    return records;
+): Promise<SerializedRecord[]> {
+    if (!isTextFormat(format)) { return []; }
+    const { lines, slots } = recordPageLines(result, source, start, count);
+    const parsed = await parseLinesWithEngine(format, lines);
+    return parsed.map((record, index) => serializePageRecord(record, slots[index]));
 }
 
 async function postRecordPage(
@@ -488,7 +513,7 @@ async function postRecordPage(
         type: 'recordPage',
         generation: currentGeneration,
         start,
-        records: materializeRecordPage(result, source, format, start, count),
+        records: await materializeRecordPage(result, source, format, start, count),
     });
 }
 
@@ -786,7 +811,7 @@ export class HexEditorSession {
             }
             await vscode.workspace.fs.writeFile(document.uri, payload.bytes);
             binBytes = payload.bytes;
-            parseResult = createBinParseResult(payload.bytes, baseAddress);
+            parseResult = hydrateCompactParseResult(await parseBinaryWithEngine(payload.bytes, baseAddress));
             commitStructuralSave();
         };
 
@@ -806,7 +831,7 @@ export class HexEditorSession {
             if (!isTextFormat(format)) { return; }
             const nextRaw = rebuildTextDocument(raw, segments, format);
             const controller = new AbortController();
-            const loaded = await parseHexInWorker(nextRaw, fileExtension(document.uri), controller.signal, () => {});
+            const loaded = await parseHexSource(nextRaw, fileExtension(document.uri), controller.signal, () => {});
             if (parseResult && hasNewParseErrors(parseResult, loaded.result)) {
                 throw new Error('Rebuilt document did not validate; nothing was saved.');
             }
@@ -1379,7 +1404,7 @@ export class HexEditorSession {
                 postProgress(progress.stage, progress.completed, progress.total);
                 generation = previous;
             };
-            const loaded = await parseHexInWorker(source, fileExtension(document.uri), controller.signal, onProgress);
+            const loaded = await parseHexSource(source, fileExtension(document.uri), controller.signal, onProgress);
             format = loaded.format;
             return { result: loaded.result, generation: nextGeneration };
         };
@@ -1406,7 +1431,7 @@ export class HexEditorSession {
             if (!binAddressRangeFits(baseAddress, nextBytes.length)) { return; }
             if (!externalChangeGate.shouldHandle(nextBytes, parseResult !== null, binBytes)) { return; }
             const nextGeneration = ++generation;
-            const newResult = createBinParseResult(nextBytes, baseAddress);
+            const newResult = hydrateCompactParseResult(await parseBinaryWithEngine(nextBytes, baseAddress));
             pendingExternalReload = { source: nextBytes, parseResult: newResult, generation: nextGeneration };
             const freshIndex = await loadCurrentIndex();
             void postToWebview(webviewPanel.webview, {
@@ -1814,15 +1839,15 @@ export class HexEditorSession {
                     // change (that would reload `profiles.json` mid-edit).
                     markSelfWrite();
                     baseAddress = value;
-                    parseResult = createBinParseResult(liveBytes, value);
+                    parseResult = hydrateCompactParseResult(await parseBinaryWithEngine(liveBytes, value));
                     currentGeneration = ++generation;
                     await postInit();
                 });
             },
             repairAndReload: async () => {
                 if (!parseResult || !isTextFormat(format)) { return; }
-                const repairedRaw = repairChecksums(raw, materializeParseResult(parseResult, raw, format));
-                const loaded = await writeRawAndReparse(repairedRaw);
+                const repaired = await repairWithEngine(raw, format);
+                const loaded = await writeRawAndReparse(repaired.text);
                 void postToWebview(webviewPanel.webview, {
                     type: 'repairComplete',
                     generation: loaded.generation,

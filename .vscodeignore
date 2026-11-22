@@ -2,6 +2,8 @@ out/**
 node_modules/**
 src/**
 !src/webview/**/*.css
+rust/**
+scripts/**
 .gitignore
 .yarnrc
 esbuild.js

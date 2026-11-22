@@ -38,6 +38,7 @@ Every self-contained webview component has one spec at `components/component-<na
 | Spec | Owns |
 |---|---|
 | [Firmware Document Formats](./document-formats.md) | IHEX/SREC/raw-binary parse, segments, serialization, checksum repair |
+| [Rust Parsing Engine](./rust-engine.md) | Required Rust parser boundary, framed stdio protocol, record pages and repair, engine build/packaging |
 | [Editor Session and Protocol](./editor-lifecycle.md) | Activation, provider/session lifecycle, host-webview messages, `.bin` base resolution |
 | [Memory, Record, and Navigation](./memory-navigation.md) | Addressed memory, gaps, virtual scroll, records, segments, labels |
 | [Search Engine](./search-engine.md) | Cancellable/chunked search, modes, match navigation |

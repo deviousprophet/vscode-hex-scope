@@ -1,0 +1,9 @@
+[package]
+name = "hex-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Intel HEX, Motorola SREC and raw-binary parsing core for Hex Scope"
+
+[dependencies]

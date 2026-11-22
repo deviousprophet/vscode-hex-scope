@@ -24,12 +24,12 @@ src/
 ├── diffProtocol.ts           typed diff-panel <-> diff-webview seam (second cross-runtime union)
 ├── diff/                     second editor surface (read-only compare); does not reuse HexEditorSession
 │   ├── compareSelection.ts   session-only compare-selection store (no Memento)
-│   ├── diffEditorPanel.ts    diff WebviewPanel, loading/progress posts, worker spawn
+│   ├── diffEditorPanel.ts    diff WebviewPanel, loading/progress posts, engine parse
 │   ├── diffReload.ts         host reload decisions (sideDefects/buildDiffState/reloadState)
 │   └── loadProgress.ts       combined per-file load fraction summing
-├── parse/                    shared Node parse worker + host client (diff sides and hex editor)
-│   ├── parseWorker.ts        worker entry: `diffParse`/`hexParse` job dispatch, progress thinning
-│   └── parseWorkerClient.ts  runParseJob(): spawn/settle-once/abort-terminate/relay
+├── host/engine/              required Rust parsing engine (extension-host process)
+│   ├── engineClient.ts       spawn/frame/correlate/stream/crash rejection
+│   └── engineLoader.ts       required session client, restart-on-crash, wire projection
 ├── core/
 │   ├── parser/               IHEX/SREC line parsing + raw `.bin` segment construction
 │   ├── document.ts           format detection, serialization, checksum repair, structural text rebuild
@@ -91,7 +91,7 @@ schemas/                          JSON Schemas for .hexscope/ on-disk shapes (pr
 - Self-contained UI components live in `src/webview/components/<Name>/<Name>.ts` + `<Name>.css`. A component owns its markup, UI state, input behaviours, and styles; the host (`hexViewer.ts`) owns execution, data, and feedback. A component never reads/writes the `S` global — it is seeded on construction and reports through callbacks. See [SearchBar Component](./components/component-search-bar.md) for the contract.
 - Component CSS is imported from the component's `.ts` (`import './<Name>.css'`) so esbuild emits a bundled `dist/webview.css`; `styles/*.css` holds only shared/global concerns (tokens, resets, layout) during the transition.
 - `hexViewer.ts` is the composition root. It wires `rerender` callbacks and effects; it must not become a second owner for parsing or feature rules.
-- Tests mirror ownership under `src/test/core`, `src/test/webview`, and `src/test/extension`.
+- Tests mirror ownership under `src/test/core`, `src/test/webview`, `src/test/extension`, and `src/test/host`.
 
 ## Deep Module Seams
 

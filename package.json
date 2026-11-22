@@ -10,7 +10,9 @@
     "url": "https://github.com/deviousprophet/vscode-hex-scope"
   },
   "engines": {
-    "vscode": "^1.125.0"
+    "vscode": "^1.125.0",
+    "node": ">=26",
+    "npm": ">=11"
   },
   "icon": "images/icon.png",
   "categories": [
@@ -279,11 +281,11 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
-    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "compile": "npm run engine:build && npm run check-types && npm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "package": "npm run engine:build && npm run check-types && npm run lint && node esbuild.js --production",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run check-examples && npm run lint",
@@ -291,12 +293,17 @@
     "check-examples": "tsc -p examples/tsconfig.json --noEmit",
     "lint": "node eslint-rules/require-escaped-html.test.mjs && eslint src",
     "test": "vscode-test",
-    "benchmark": "node src/test/benchmarks/runBenchmark.ts"
+    "benchmark": "node src/test/benchmarks/runBenchmark.ts",
+    "engine:build": "node scripts/build-engine.mjs",
+    "engine:smoke": "node scripts/engine-smoke.mjs",
+    "rust:test": "cargo test --manifest-path rust/Cargo.toml --workspace",
+    "rust:fmt": "cargo fmt --manifest-path rust/Cargo.toml --all -- --check",
+    "rust:clippy": "cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets -- -D warnings"
   },
   "devDependencies": {
     "@types/jsdom": "^28.0.3",
     "@types/mocha": "^10.0.10",
-    "@types/node": "24.x",
+    "@types/node": "^26.6.6",
     "@types/vscode": "^1.125.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.0.0",
